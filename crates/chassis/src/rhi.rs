@@ -106,6 +106,15 @@ pub trait CommandList {
     fn dispatch(&mut self, groups_x: u32, groups_y: u32, groups_z: u32);
 
     fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer);
+
+    /// Copy a texture's whole mip 0 into a buffer, for reading it back.
+    ///
+    /// Part of the RHI rather than a backend extra because a debug view, a
+    /// screenshot and a GPU test all need it, and none of them should have to
+    /// reach past the trait to get it. The graph orders it: declaring a pass
+    /// that reads the texture and writes the buffer emits the image-to-buffer
+    /// transition, which is the thing that has to be right.
+    fn copy_texture_to_buffer(&mut self, src: &Texture, dst: &Buffer);
 }
 
 /// Resource creation and destruction. Separate from `Gpu` so a backend can make

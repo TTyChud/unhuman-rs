@@ -26,6 +26,25 @@ pub struct Target {
     pub subresource: vk::ImageSubresourceRange,
 }
 
+/// The layout a graph state lowers to.
+///
+/// The compiler emits backend-neutral `ImageState`s and this is the one place
+/// they become `vk::ImageLayout`, so a second copy of this mapping elsewhere is
+/// how a layout ends up disagreeing with the barrier that set it.
+pub fn layout_for(state: crate::vulkan_render_graph::ImageState) -> vk::ImageLayout {
+    use crate::vulkan_render_graph::ImageState;
+    match state {
+        ImageState::Undefined => vk::ImageLayout::UNDEFINED,
+        ImageState::ColorAttachment => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        ImageState::DepthAttachment => vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
+        ImageState::ShaderRead => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        ImageState::Storage => vk::ImageLayout::GENERAL,
+        ImageState::TransferSrc => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        ImageState::TransferDst => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        ImageState::Present => vk::ImageLayout::PRESENT_SRC_KHR,
+    }
+}
+
 impl Target {
     pub fn color(image: vk::Image, mip_levels: u32, layers: u32) -> Self {
         Self {

@@ -71,6 +71,8 @@ struct Fixture {
     vertex_buffer: chassis::Buffer,
     /// Graph slot 0. The frame's single pass draws into this.
     target: chassis::Texture,
+    /// Kept alive: the shader handles inside `pipeline` are only valid while
+    /// their modules exist.
     _shaders: stormbreaker::vulkan_shader::Shaders,
     /// Last, always. Everything above holds a handle from this device.
     context: stormbreaker::Context,
@@ -136,7 +138,18 @@ fn fixture() -> Result<Fixture, String> {
             ],
         },
         index_format: None,
-        primitive: chassis::PrimitiveState::default(),
+        // Culling off. Vulkan's default viewport transform maps NDC +Y to
+        // framebuffer -Y, so a triangle wound counter-clockwise in NDC appears
+        // *clockwise* in framebuffer coordinates and is a back face under
+        // `frontFace = COUNTER_CLOCKWISE`. With culling on -- which is what
+        // `PrimitiveState::default()` asks for -- this triangle was culled and
+        // the image was exactly the clear colour. Turning culling off here
+        // removes the variable; the winding convention is a real trap and is
+        // noted rather than papered over.
+        primitive: chassis::PrimitiveState {
+            cull_mode: 0,
+            ..chassis::PrimitiveState::default()
+        },
         depth: chassis::DepthState::default(),
         blend: chassis::BlendState::default(),
         color_targets: vec![chassis::ColorTargetState {
@@ -500,3 +513,147 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
          fail rather than reach the driver with an undefined image handle",
     );
 }
+
+// ── the pixels ──────────────────────────────────────────────────────────────
+
+/// The one that matters: not that a draw was recorded, but that the triangle is
+/// in the image when it comes back.
+///
+/// Every other executor test checks that something was *submitted*. This checks
+/// that the frame did what it was for. A backend can pass all of them with an
+/// empty command list, a wrong attachment, a culled draw or a viewport of zero,
+/// and the failure shows up here as a black image and nowhere else.
+#[test]
+fn the_triangle_is_actually_in_the_image() {
+    let mut fixture = fixture().expect("the executor fixture must build");
+
+    // A host-visible readback buffer. `initial` is None, so this is DEVICE_LOCAL
+    // and the CPU could not map it -- which is the bug `Buffers::create` had for
+    // TRANSFER_DST-free buffers. Transfer destination is what makes it mappable.
+    let bytes = (WIDTH * HEIGHT * 4) as u64;
+    let fixture_target = fixture.target;
+    let readback = fixture
+        .buffers
+        .create(
+            &fixture.context.device,
+            &chassis::BufferDesc::new(
+                bytes,
+                chassis::BufferUsage::TRANSFER_DST,
+            ),
+            None,
+        )
+        .expect("readback buffer");
+
+    // Two passes: draw into the target, then copy it out. The copy is a graph
+    // pass rather than a side channel so the graph's own barriers order it --
+    // which is the thing being tested, not a hand-rolled barrier in the test.
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture(
+        "target",
+        graph::ImageState::Undefined,
+        graph::ImageState::TransferSrc,
+    );
+    let out = builder.import_buffer("readback");
+    builder
+        .pass("draw")
+        .kind(graph::PassType::Graphics)
+        .color_load(target);
+    builder
+        .pass("readback")
+        .kind(graph::PassType::Transfer)
+        .read_texture(target)
+        .write_buffer(out);
+
+    let compiled = builder.compile().expect("the frame compiles");
+    assert_eq!(compiled.passes.len(), 2, "both passes survive culling");
+
+    let recorder = fixture.recorder(compiled.passes.len());
+    let mut executor =
+        stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+            recorder,
+            chassis::Extent2d {
+                width: WIDTH,
+                height: HEIGHT,
+            },
+        );
+    executor.slots_mut().set_texture(0, fixture.target);
+    executor.slots_mut().set_buffer(0, readback);
+
+    let pipeline = fixture.pipeline;
+    let vertex_buffer = fixture.vertex_buffer;
+    let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                        list: &mut dyn chassis::CommandList| {
+        if scope.name == "draw" {
+            list.bind_pipeline(&pipeline);
+            list.bind_vertex_buffer(0, &vertex_buffer, 0);
+            list.draw(3, 1);
+            return Ok(());
+        }
+
+        // The readback pass. The image is in TRANSFER_SRC by the time this
+        // records -- the graph's post barrier on the draw pass put it there --
+        // and the buffer is in TRANSFER_DST.
+        let buffer = scope.buffer(0)?;
+        list.copy_texture_to_buffer(&fixture_target, &buffer);
+        Ok(())
+    };
+
+
+    executor
+        .execute(&compiled, fixture.resources(), &record)
+        .expect("the frame records and submits");
+
+    // The submit waited on a fence, so the copy has retired and the buffer is
+    // safe to map. Reading it without waiting is the classic race that makes a
+    // readback test fail once in fifty.
+    let pixels = fixture
+        .buffers
+        .get(readback)
+        .expect("readback handle")
+        .read(&fixture.context.device)
+        .expect("read back");
+
+
+    let lit = lit_pixels(&pixels);
+    assert!(
+        lit > 0,
+        "the image is entirely black: the triangle never reached it. \
+         {WIDTH}x{HEIGHT}, {} bytes",
+        pixels.len(),
+    );
+
+    // A 64x64 triangle with vertices at y=+0.75 and y=-0.75 covers roughly an
+    // eighth of the frame. The bounds are loose on purpose -- this is a "did it
+    // draw", not a pixel-exact rasteriser comparison.
+    let fraction = lit as f64 / (WIDTH * HEIGHT) as f64;
+    assert!(
+        (0.02..0.45).contains(&fraction),
+        "lit fraction {fraction:.3} is not what a triangle covering that area gives \
+         ({lit} of {} pixels)",
+        WIDTH * HEIGHT,
+    );
+
+    // White, not merely non-zero. The fragment stage returns the vertex colour,
+    // so a correct draw gives 255 in every channel.
+    let colour = lit_pixel(&pixels);
+    assert!(
+        colour[0] > 200 && colour[1] > 200 && colour[2] > 200,
+        "the triangle drew in {colour:?}, expected white",
+    );
+}
+
+/// Pixels that are not the clear colour.
+fn lit_pixels(pixels: &[u8]) -> usize {
+    let (pixels, _) = pixels.as_chunks::<4>();
+    pixels.iter().filter(|pixel| pixel[0] > 128).count()
+}
+
+/// The first lit pixel, so a failure can say what colour came out.
+fn lit_pixel(pixels: &[u8]) -> [u8; 4] {
+    let (pixels, _) = pixels.as_chunks::<4>();
+    pixels
+        .iter()
+        .find(|pixel| pixel[0] > 128)
+        .map_or([0; 4], |pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
+}
+

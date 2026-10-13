@@ -261,6 +261,18 @@ impl VulkanRenderGraphExecutor {
                     &mut list,
                 )?;
 
+            // Tell the list what layouts the graph says are current, so a
+            // transfer in this pass copies from the right layout instead of
+            // guessing one. Declared rather than tracked, because the graph is
+            // the only thing that knows: a running total across a list would
+            // need the previous list's ending state, and the lists record in
+            // parallel.
+            for barrier in &pass.pre_barriers {
+                if let Ok(handle) = self.resources.texture(barrier.texture) {
+                    list.declare_layout(handle, barrier.dst_state);
+                }
+            }
+
             // The executor opens the render scope, not the pass.
             //
             // The graph already knows the attachments -- that is what

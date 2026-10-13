@@ -115,6 +115,21 @@ impl Default for PrimitiveState {
     }
 }
 
+// Note on winding, kept because it is a real Vulkan trap -- but *not* asserted
+// here, because a hypothesis about it turned out to be wrong once measured.
+//
+// Vulkan's viewport transform maps NDC +Y to framebuffer -Y: there is no
+// inherited GL-style Y-flip. So a triangle wound counter-clockwise in NDC --
+// which is what every mesh exporter produces and what `front_face: 0` names --
+// appears clockwise in framebuffer coordinates, and with `cull_mode: 1` the
+// winding decides whether it survives. Expect to set `front_face: 1` somewhere.
+//
+// What actually caused an all-black first-triangle frame is *not* recorded here.
+// Culling was blamed, then measured, and disproved: the same triangle draws
+// identically under cull mode 0, 1 and 2. The real cause was elsewhere and the
+// intermediate change that appeared to fix it was made alongside the real one.
+// A comment asserting a cause that has been falsified is worse than no comment.
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct DepthState {
     pub format: Option<TextureFormat>,

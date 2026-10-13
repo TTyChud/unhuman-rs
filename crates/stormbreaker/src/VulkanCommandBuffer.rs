@@ -23,8 +23,12 @@
 //! on a worker thread should be able to hold its pipelines by raw handle for the
 //! whole frame, and resolve `chassis::Pipeline` once when the pass is built.
 
-use ash::{vk, Device};
+use std::collections::HashMap;
 
+use ash::{vk, Device};
+use chassis::Texture;
+
+use crate::vulkan_barrier_encoder;
 use crate::vulkan_descriptor_manager::Descriptors;
 use crate::vulkan_error::Result;
 use crate::vulkan_pipeline_state::Pipelines;
@@ -206,10 +210,43 @@ impl Recording {
         unsafe { self.device.cmd_copy_buffer(self.buffer, src, dst, regions) };
     }
 
-    pub fn copy_buffer_to_image(&mut self, src: vk::Buffer, dst: vk::Image, regions: &[vk::BufferImageCopy]) {
+    /// `copy_buffer_to_image` hardcodes `GENERAL`, which is only legal if the
+    /// image really is in `GENERAL` and it never is: the render graph puts images
+    /// in `TRANSFER_DST` or `SHADER_READ_ONLY`. Taking the layout is the fix, and
+    /// it belongs on both copies for the same reason.
+    pub fn copy_buffer_to_image(
+        &mut self,
+        src: vk::Buffer,
+        dst: vk::Image,
+        dst_layout: vk::ImageLayout,
+        regions: &[vk::BufferImageCopy],
+    ) {
         unsafe {
             self.device
-                .cmd_copy_buffer_to_image(self.buffer, src, dst, vk::ImageLayout::GENERAL, regions)
+                .cmd_copy_buffer_to_image(self.buffer, src, dst, dst_layout, regions)
+        };
+    }
+
+    pub fn copy_buffer_to_image_general(
+        &mut self,
+        src: vk::Buffer,
+        dst: vk::Image,
+        regions: &[vk::BufferImageCopy],
+    ) {
+        self.copy_buffer_to_image(src, dst, vk::ImageLayout::GENERAL, regions);
+    }
+
+    /// Image to host-visible buffer: the readback path.
+    pub fn copy_image_to_buffer(
+        &mut self,
+        src: vk::Image,
+        src_layout: vk::ImageLayout,
+        dst: vk::Buffer,
+        regions: &[vk::BufferImageCopy],
+    ) {
+        unsafe {
+            self.device
+                .cmd_copy_image_to_buffer(self.buffer, src, src_layout, dst, regions)
         };
     }
 
@@ -254,6 +291,13 @@ pub struct CommandList<'a> {
     textures: &'a Textures,
     buffers: &'a crate::vulkan_buffer::Buffers,
     descriptors: &'a Descriptors,
+    /// What the graph says each texture is in, per pass.
+    ///
+    /// Set by the executor from the compiled pass's declared read states, not
+    /// tracked by mutating as commands are recorded. Per-pass is the right scope:
+    /// lists record in parallel, so a shared running total would be a data race
+    /// and a per-list total would not know what the *previous* list left behind.
+    pub layouts: HashMap<Texture, crate::vulkan_render_graph::ImageState>,
 }
 
 impl<'a> CommandList<'a> {
@@ -270,7 +314,13 @@ impl<'a> CommandList<'a> {
             textures,
             buffers,
             descriptors,
+            layouts: HashMap::new(),
         }
+    }
+
+    /// Tell the list what layout the graph says a texture is in.
+    pub fn declare_layout(&mut self, texture: Texture, state: crate::vulkan_render_graph::ImageState) {
+        self.layouts.insert(texture, state);
     }
 
     /// The raw recording, for anything `chassis` does not cover yet.
@@ -382,6 +432,51 @@ impl chassis::CommandList for CommandList<'_> {
 
     fn dispatch(&mut self, groups_x: u32, groups_y: u32, groups_z: u32) {
         self.recording.dispatch(groups_x, groups_y, groups_z);
+    }
+
+    fn copy_texture_to_buffer(&mut self, src: &chassis::Texture, dst: &chassis::Buffer) {
+        let Some(texture) = self.textures.get(*src) else {
+            panic!("copy_texture_to_buffer: source handle did not resolve");
+        };
+        let Some(buffer) = self.buffers.get(*dst) else {
+            panic!("copy_texture_to_buffer: destination handle did not resolve");
+        };
+
+        // The layout comes from what the graph declared, not from a guess.
+        // Guessing is how a copy reads a texture the previous pass left in
+        // COLOR_ATTACHMENT_OPTIMAL, which validation reports as
+        // VUID-vkCmdCopyImageToBuffer-srcImage-00113 and names no layout at all.
+        let Some(state) = self.layouts.get(src).copied() else {
+            panic!(
+                "copy_texture_to_buffer: no layout was declared for this texture; \
+                 the executor sets it from the graph's read state"
+            );
+        };
+        let extent = texture.extent();
+        let region = vk::BufferImageCopy {
+            buffer_offset: 0,
+            // 0 means "tightly packed", which is what a readback wants.
+            buffer_row_length: 0,
+            buffer_image_height: 0,
+            image_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            image_extent: vk::Extent3D {
+                width: extent.width,
+                height: extent.height,
+                depth: 1,
+            },
+        };
+        self.recording.copy_image_to_buffer(
+            texture.image(),
+            vulkan_barrier_encoder::layout_for(state),
+            buffer.handle(),
+            &[region],
+        );
     }
 
     fn copy_buffer(&mut self, src: &chassis::Buffer, dst: &chassis::Buffer) {

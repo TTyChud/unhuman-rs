@@ -352,6 +352,12 @@ fn synthesize_barriers(
 
     let mut compiled = Vec::with_capacity(order.len());
     let mut last_writer: Vec<Option<usize>> = vec![None; resources.texture_count()];
+    // Last pass that touched the resource at all. The frame's final transition
+    // has to come after the *last* pass that reads it, not the last that writes
+    // it: a readback pass reads the swapchain image after the pass that drew into
+    // it, and attaching the epilogue to the writer puts the transition before the
+    // reader, which then copies from the wrong layout.
+    let mut last_touch: Vec<Option<usize>> = vec![None; resources.texture_count()];
 
     for (position, &p) in order.iter().enumerate() {
         let pass = &passes[p];
@@ -369,18 +375,31 @@ fn synthesize_barriers(
             }
             last_use[id] = Some(position as u32);
             lifetime_index[id].push(*version);
+            last_touch[id] = Some(compiled.len());
         }
 
-        // Reads settle into ShaderRead.
+        // Reads settle into the state the *reading pass* can actually use.
+        //
+        // ShaderRead is right for a graphics or compute pass. It is wrong for a
+        // transfer pass, whose read is a copy *source*: `vkCmdCopyImageToBuffer`
+        // requires TRANSFER_SRC_OPTIMAL or GENERAL and rejects SHADER_READ_ONLY
+        // outright with VUID-vkCmdCopyImageToBuffer-srcImageLayout-01397. One
+        // unconditional ShaderRead is why a readback pass could not copy.
+        let read_state = match pass.kind {
+            PassType::Transfer => ImageState::TransferSrc,
+            _ => ImageState::ShaderRead,
+        };
+
+        // Reads settle into that state.
         for access in &pass.reads {
             let ResourceAccess::Texture(id, _) = access else {
                 continue;
             };
             let index = *id as usize;
-            if let Some(barrier) = transition(*id, state[index], ImageState::ShaderRead) {
+            if let Some(barrier) = transition(*id, state[index], read_state) {
                 pre_barriers.push(barrier);
             }
-            state[index] = ImageState::ShaderRead;
+            state[index] = read_state;
         }
 
         // Writes settle into the state they were declared with, which is how a
@@ -479,12 +498,12 @@ fn synthesize_barriers(
         if !slot.imported || slot.final_state == slot.initial_state {
             continue;
         }
-        let Some(writer) = last_writer[id] else {
+        let Some(last) = last_touch[id] else {
             continue;
         };
         let current = state[id];
         if let Some(barrier) = transition(id as TextureId, current, slot.final_state) {
-            compiled[writer].post_barriers.push(barrier);
+            compiled[last].post_barriers.push(barrier);
         }
     }
 
