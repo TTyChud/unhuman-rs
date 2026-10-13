@@ -28,13 +28,13 @@ impl PoolSizes {
     pub fn account_for(&mut self, bindings: &[crate::vulkan_descriptor_manager::Binding]) {
         for binding in bindings {
             let size = vk::DescriptorPoolSize {
-                ty: binding.kind.descriptor_type(),
+                ty: crate::vulkan_descriptor_set::descriptor_type_of(binding.kind),
                 descriptor_count: binding.count,
             };
-            match self.sizes.get_mut(&binding.kind.descriptor_type()) {
+            match self.sizes.get_mut(&crate::vulkan_descriptor_set::descriptor_type_of(binding.kind)) {
                 Some(existing) => existing.descriptor_count += binding.count,
                 None => {
-                    self.sizes.insert(binding.kind.descriptor_type(), size);
+                    self.sizes.insert(crate::vulkan_descriptor_set::descriptor_type_of(binding.kind), size);
                 }
             }
         }

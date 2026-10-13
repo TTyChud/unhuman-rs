@@ -53,8 +53,18 @@ Never push. Commit only; the owner pushes.
 - [ ] **3. `VulkanGpu`** — implements `chassis::Gpu` and `chassis::Resources`.
       Needs one `chassis` change first: `Gpu::swapchain()` must return
       `Option<&dyn Swapchain>` so headless is not a lie.
-- [ ] **4. Real pipeline layouts** — `create_layout` currently returns a layout
-      with zero descriptor sets. Needs `bifrost` to declare bind groups.
+- [x] **4. Real pipeline layouts and multiple stages** — `create_layout` built a
+      layout with zero descriptor sets, and the graphics path hardcoded
+      `stages: [vertex]`, so no pipeline could ever shade.
+      `chassis` gained `ShaderStage`, `StageMask`, `DescriptorKind`,
+      `BindingDesc`, `DescriptorSetLayoutDesc`, and `PipelineDesc.shaders`
+      replaced its single `shader` handle.
+      Also collapsed **two** `DescriptorKind` enums into one: the RHI's and the
+      backend's, with six overlapping variants and `InputAttachment` only in the
+      backend — so any comparison between an RHI-described layout and a
+      backend-built one was comparing distinct types, and the compiler allowed it.
+      `DepthState` and `ColorTargetState` were also `pub` in `desc.rs` but never
+      re-exported, so nothing outside `chassis` could name them.
 - [ ] **5. Executor test on hardware** — record a graph into a headless-surface
       swapchain image, read the pixels back, assert on them. Proves parallel
       recording end to end. The shader it draws with already exists:

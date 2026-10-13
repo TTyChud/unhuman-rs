@@ -149,10 +149,160 @@ pub struct BlendState {
 /// One struct rather than a builder: a second backend either consumes this or
 /// does not exist yet, and a builder here would be guessing at the shape of a
 /// backend nobody has written.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// A pipeline stage. Named rather than flagged so a `PipelineDesc` cannot
+/// contain the same stage twice, which is legal to spell and illegal to create.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ShaderStage {
+    Vertex,
+    Fragment,
+    Compute,
+    Geometry,
+    TessellationControl,
+    TessellationEvaluation,
+}
+
+impl ShaderStage {
+    /// Bits for a shader visibility mask.
+    pub const fn bit(self) -> u32 {
+        match self {
+            ShaderStage::Vertex => 1 << 0,
+            ShaderStage::Fragment => 1 << 1,
+            ShaderStage::Compute => 1 << 2,
+            ShaderStage::Geometry => 1 << 3,
+            ShaderStage::TessellationControl => 1 << 4,
+            ShaderStage::TessellationEvaluation => 1 << 5,
+        }
+    }
+
+    /// Stages that can appear in a graphics pipeline. A compute stage in one is
+    /// a `vkCreateGraphicsPipelines` error reported as a driver problem.
+    pub fn is_graphics(self) -> bool {
+        !matches!(self, ShaderStage::Compute)
+    }
+}
+
+/// Which stages may read one binding.
+///
+/// A mask rather than a single stage because a framebuffer-sized buffer is
+/// commonly written by the vertex stage and read by the fragment stage, and
+/// declaring it twice is how that turns into a layout mismatch.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct StageMask(pub u32);
+
+impl StageMask {
+    pub const NONE: Self = Self(0);
+    pub const ALL: Self = Self(0b11_1111);
+
+    pub const fn of(stage: ShaderStage) -> Self {
+        Self(stage.bit())
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn contains(self, stage: ShaderStage) -> bool {
+        self.0 & stage.bit() != 0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// What one binding points at.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum DescriptorKind {
+    UniformBuffer,
+    StorageBuffer,
+    /// Image and sampler declared as two bindings. Vulkan requires
+    /// `SAMPLED_IMAGE` and `SAMPLER` to be separate bindings when they are
+    /// separate; declaring them as one is `CombinedImageSampler`.
+    SampledImage,
+    Sampler,
+    CombinedImageSampler,
+    StorageImage,
+    /// Subpass input. Real, and the backend already had it: the RHI enum was the
+    /// one missing a case, so a shader could declare a layout the RHI could not
+    /// describe.
+    InputAttachment,
+}
+
+/// One binding within a set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BindingDesc {
+    pub binding: u32,
+    pub kind: DescriptorKind,
+    /// Array length. 1 for everything but a descriptor array.
+    pub count: u32,
+    pub stages: StageMask,
+}
+
+impl BindingDesc {
+    pub fn new(binding: u32, kind: DescriptorKind, stages: StageMask) -> Self {
+        Self {
+            binding,
+            kind,
+            count: 1,
+            stages,
+        }
+    }
+}
+
+/// One descriptor set's shape.
+///
+/// A pipeline owns these shapes, not the sets themselves: the layout is fixed at
+/// pipeline creation, and the sets are allocated per frame. Getting that
+/// backwards is how a set ends up bound to a layout it does not match.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct DescriptorSetLayoutDesc {
+    pub label: String,
+    pub bindings: Vec<BindingDesc>,
+}
+
+impl DescriptorSetLayoutDesc {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            bindings: Vec::new(),
+        }
+    }
+
+    pub fn with(mut self, binding: BindingDesc) -> Self {
+        self.bindings.push(binding);
+        self
+    }
+
+    /// True when two declarations can share one `VkDescriptorSetLayout`.
+    ///
+    /// The label is deliberately excluded: it exists for diagnostics, and
+    /// including it would mean two identical layouts stop deduping the moment
+    /// one of them is renamed.
+    pub fn is_compatible(&self, other: &Self) -> bool {
+        self.bindings == other.bindings
+    }
+}
+
+/// One stage's module.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ShaderStageDesc {
+    pub stage: ShaderStage,
+    pub shader: crate::handle::Shader,
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct PipelineDesc {
     pub label: String,
-    pub shader: crate::handle::Shader,
+    /// Every stage this pipeline runs.
+    ///
+    /// A list, not a single handle: a graphics pipeline is a vertex module and a
+    /// fragment module, and Vulkan has no way to compile them from one file into
+    /// one module. A single `shader` field made "add a fragment stage" a change
+    /// to the RHI interface rather than a field.
+    pub shaders: Vec<ShaderStageDesc>,
+    /// Descriptor set shapes, indexed by set number. Empty means the pipeline
+    /// reads no descriptors, which is legal and common.
+    pub set_layouts: Vec<DescriptorSetLayoutDesc>,
     pub vertex: VertexLayout,
     pub index_format: Option<IndexFormat>,
     pub primitive: PrimitiveState,

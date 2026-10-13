@@ -17,6 +17,8 @@ use crate::vulkan_shader::Shaders;
 pub struct ComputePipelineDesc {
     pub label: String,
     pub shader: chassis::Shader,
+    /// Descriptor set shapes, indexed by set number. Empty is legal and common.
+    pub set_layouts: Vec<chassis::DescriptorSetLayoutDesc>,
 }
 
 impl ComputePipelineDesc {
@@ -24,6 +26,7 @@ impl ComputePipelineDesc {
         Self {
             label: label.into(),
             shader,
+            set_layouts: Vec::new(),
         }
     }
 }
@@ -39,7 +42,8 @@ pub fn create(
         return Ok(existing);
     }
 
-    let layout = pipelines.create_layout(&())?;
+    // A compute pipeline declares its sets on the description, like graphics.
+    let layout = pipelines.create_layout(&desc.set_layouts)?;
     let handle = build(pipelines, desc, shaders, layout)?;
     Ok(pipelines.insert(hash, PipelineResource::new(handle, layout, &desc.label)))
 }
@@ -52,6 +56,15 @@ fn hash_of(desc: &ComputePipelineDesc) -> PipelineHash {
     bytes.extend_from_slice(b"compute");
     bytes.extend_from_slice(&desc.shader.index().to_le_bytes());
     bytes.extend_from_slice(&desc.shader.generation().to_le_bytes());
+    for set in &desc.set_layouts {
+        for binding in &set.bindings {
+            bytes.extend_from_slice(&binding.binding.to_le_bytes());
+            bytes.extend_from_slice(&(binding.kind as u32).to_le_bytes());
+            bytes.extend_from_slice(&binding.count.to_le_bytes());
+            bytes.extend_from_slice(&binding.stages.0.to_le_bytes());
+        }
+        bytes.push(0xff);
+    }
     PipelineHash::from_bytes(&bytes)
 }
 

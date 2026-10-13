@@ -30,7 +30,7 @@ pub fn create(
         return Ok(existing);
     }
 
-    let layout = pipelines.create_layout(&())?;
+    let layout = pipelines.create_layout(&desc.set_layouts)?;
     let handle = build(pipelines, desc, shaders, layout)?;
 
     Ok(pipelines.insert(hash, PipelineResource::new(handle, layout, &desc.label)))
@@ -45,18 +45,35 @@ fn build(
 ) -> Result<vk::Pipeline> {
     let device = pipelines.device();
 
-    let Some(shader) = shaders.get(desc.shader) else {
+    // Every declared stage, in the order they were declared. A graphics pipeline
+    // with no vertex stage is a `vkCreateGraphicsPipelines` error, and one with
+    // no fragment stage creates fine and writes nothing, so both are caught here
+    // with a message that says which.
+    if !desc.shaders.iter().any(|s| s.stage == chassis::ShaderStage::Vertex) {
         return Err(BackendError::InvalidHandle);
-    };
+    }
 
+    // Every stage's module, as one array.
+    //
+    // One note: Slang emits the entry point as `main` regardless of what it was
+    // called in source, so `p_name` is always `c"main"`. That is a property of
+    // the compiler's output, not a convention this backend chose, and it is the
+    // single most common reason a correctly compiled shader fails to create.
     let entry_name = c"main";
-    let stage = vk::PipelineShaderStageCreateInfo {
-        stage: vk::ShaderStageFlags::VERTEX,
-        module: shader.module(),
-        p_name: entry_name.as_ptr(),
-        ..Default::default()
-    };
-    let stages = [stage];
+    let mut stage_infos: Vec<vk::PipelineShaderStageCreateInfo> =
+        Vec::with_capacity(desc.shaders.len());
+    for declared in &desc.shaders {
+        let Some(shader) = shaders.get(declared.shader) else {
+            return Err(BackendError::InvalidHandle);
+        };
+        stage_infos.push(vk::PipelineShaderStageCreateInfo {
+            stage: shader_stage_of(declared.stage),
+            module: shader.module(),
+            p_name: entry_name.as_ptr(),
+            ..Default::default()
+        });
+    }
+    let stages = stage_infos;
 
     let attributes: Vec<vk::VertexInputAttributeDescription> = desc
         .vertex
@@ -213,5 +230,20 @@ fn front_face_of(value: u32) -> vk::FrontFace {
         vk::FrontFace::CLOCKWISE
     } else {
         vk::FrontFace::COUNTER_CLOCKWISE
+    }
+}
+
+fn shader_stage_of(stage: chassis::ShaderStage) -> vk::ShaderStageFlags {
+    match stage {
+        chassis::ShaderStage::Vertex => vk::ShaderStageFlags::VERTEX,
+        chassis::ShaderStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
+        chassis::ShaderStage::Compute => vk::ShaderStageFlags::COMPUTE,
+        chassis::ShaderStage::Geometry => vk::ShaderStageFlags::GEOMETRY,
+        chassis::ShaderStage::TessellationControl => {
+            vk::ShaderStageFlags::TESSELLATION_CONTROL
+        }
+        chassis::ShaderStage::TessellationEvaluation => {
+            vk::ShaderStageFlags::TESSELLATION_EVALUATION
+        }
     }
 }

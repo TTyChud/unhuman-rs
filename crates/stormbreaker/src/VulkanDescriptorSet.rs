@@ -13,36 +13,27 @@ use ash::vk;
 
 use crate::vulkan_error::{BackendError, Result};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum DescriptorKind {
-    UniformBuffer,
-    StorageBuffer,
-    SampledImage,
-    StorageImage,
-    CombinedImageSampler,
-    Sampler,
-    InputAttachment,
-}
+/// Re-exported from the RHI rather than defined here.
+///
+/// There were two `DescriptorKind` enums with the same name and six overlapping
+/// variants, one of which -- `InputAttachment` -- only the backend had. Any
+/// comparison between a layout the RHI described and one the backend built was
+/// comparing distinct types, and the compiler was happy to allow it.
+pub use chassis::DescriptorKind;
 
-impl DescriptorKind {
-    pub fn descriptor_type(self) -> vk::DescriptorType {
-        match self {
-            DescriptorKind::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
-            DescriptorKind::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
-            DescriptorKind::SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
-            DescriptorKind::StorageImage => vk::DescriptorType::STORAGE_IMAGE,
-            DescriptorKind::CombinedImageSampler => {
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER
-            }
-            DescriptorKind::Sampler => vk::DescriptorType::SAMPLER,
-            DescriptorKind::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
-        }
-    }
-}
-
-impl From<DescriptorKind> for vk::DescriptorType {
-    fn from(kind: DescriptorKind) -> Self {
-        kind.descriptor_type()
+/// The driver type for an RHI descriptor kind.
+///
+/// A free function rather than an inherent method: `DescriptorKind` belongs to
+/// `chassis`, and a crate cannot add methods to a type it does not define.
+pub fn descriptor_type_of(kind: DescriptorKind) -> vk::DescriptorType {
+    match kind {
+        DescriptorKind::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+        DescriptorKind::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
+        DescriptorKind::SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
+        DescriptorKind::StorageImage => vk::DescriptorType::STORAGE_IMAGE,
+        DescriptorKind::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        DescriptorKind::Sampler => vk::DescriptorType::SAMPLER,
+        DescriptorKind::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
     }
 }
 

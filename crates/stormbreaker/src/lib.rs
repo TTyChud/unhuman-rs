@@ -86,7 +86,7 @@ pub use vulkan_extension_check::{select_sync_tier, Capabilities, QueueFamily, Sy
 pub use vulkan_context::Context;
 pub use vulkan_descriptor_manager::{BindGroupLayoutDesc, Binding, Descriptors};
 pub use vulkan_descriptor_pool::{DescriptorPool, PoolSizes};
-pub use vulkan_descriptor_set::{DescriptorKind, DescriptorSet};
+pub use vulkan_descriptor_set::{descriptor_type_of, DescriptorSet};
 pub use vulkan_device::{create_device, device_available, DeviceOptions};
 pub use vulkan_compute_pipeline::ComputePipelineDesc;
 pub use vulkan_graphic_pipeline as graphic;

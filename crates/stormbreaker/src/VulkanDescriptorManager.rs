@@ -126,7 +126,7 @@ impl Descriptors {
             .iter()
             .map(|binding| vk::DescriptorSetLayoutBinding {
                 binding: binding.binding,
-                descriptor_type: binding.kind.descriptor_type(),
+                descriptor_type: vulkan_descriptor_set::descriptor_type_of(binding.kind),
                 descriptor_count: binding.count,
                 stage_flags: vk::ShaderStageFlags::ALL,
                 p_immutable_samplers: std::ptr::null(),
