@@ -7,9 +7,15 @@
 //! Vulkan command).
 
 pub mod barrier_encoder;
+pub mod context;
+pub mod device;
+pub mod error;
 pub mod extension_check;
 pub mod utils;
 
 pub use barrier_encoder::{image_barrier2, image_barrier_legacy, BarrierEncoder, Target};
 pub use extension_check::{select_sync_tier, Capabilities, QueueFamily, SyncTier};
+pub use context::Context;
+pub use device::{create_device, device_available, DeviceOptions};
+pub use error::{BackendError, Result};
 pub use extension_check::{version_major, version_minor};

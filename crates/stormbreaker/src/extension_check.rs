@@ -84,12 +84,10 @@ pub struct Capabilities {
     pub sync_tier: SyncTier,
     pub queue_families: Vec<QueueFamily>,
     pub graphics_queue_family: Option<u32>,
-    pub present_queue_family: Option<u32>,
     pub dynamic_rendering: bool,
     pub memory_budget: bool,
     pub descriptor_indexing: bool,
     pub max_texture_dimension_2d: u32,
-    pub timeline_semaphore_max_value: u64,
 }
 
 impl Capabilities {
