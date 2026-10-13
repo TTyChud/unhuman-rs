@@ -35,6 +35,25 @@ Never push. Commit only; the owner pushes.
 
 ---
 
+## Layout
+
+```
+crates/UHE/
+  platform/vulkan/     the Vulkan backend. No renderer, no render graph.
+  src/
+    core/              adam: engine, app, the Plugin base
+    rhi/               chassis: the backend-neutral RHI interface
+    jobs/              grind: the job system
+    shaders/           forge: Slang in, SPIR-V out
+    renderer/          the render graph and the renderer -- as a Plugin. Coming.
+```
+
+`platform/vulkan` is `UHE/src/Platform/Vulkan/` and `src/core` is `UHE/src/UHE/`.
+The renderer is deliberately **not** in `platform`: a backend that knows how to
+draw is a backend that cannot be swapped for one that knows how to draw
+differently. It belongs beside the engine as a plugin, which is where the C++
+puts the frontend too.
+
 ## Backend completion
 
 - [x] **File parity with `Platform/Vulkan`** — 35 files, named after their C++

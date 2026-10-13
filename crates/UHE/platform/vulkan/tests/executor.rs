@@ -6,6 +6,8 @@
 //! that the barriers the graph emitted are the ones the driver accepts, and that
 //! a draw recorded into a list the executor handed out reaches an image.
 
+use std::path::{Path, PathBuf};
+
 use ash::vk;
 use forge::cache::ShaderCache;
 use forge::{Slangc};
@@ -15,8 +17,30 @@ use stormbreaker::{
     create_device, device_available, DeviceOptions,
 };
 
+/// A path inside the workspace, found by walking up from this crate.
+///
+/// Never a fixed `../../assets`. The crate moved when the workspace gained its
+/// `UHE/src` and `UHE/platform` shape, and a depth-sensitive path that resolves
+/// to nothing makes every shader test skip *while reporting success* -- the most
+/// expensive bug in this project's history, because it hid a `stage_count` bug
+/// that segfaulted the driver the first time a pipeline was ever created.
+///
+/// This is the same mistake as resolving a toolchain relative to the process's
+/// working directory: `cargo test` runs from the crate, not the workspace root.
+fn asset(relative: &str) -> PathBuf {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for ancestor in manifest.ancestors() {
+        let candidate = ancestor.join(relative);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    panic!("could not find {relative} above {}", manifest.display());
+}
+
+
 fn shader() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/shaders/Triangle.slang")
+    asset("assets/shaders/Triangle.slang")
 }
 
 fn open_device() -> Option<stormbreaker::Context> {
