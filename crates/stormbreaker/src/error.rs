@@ -16,6 +16,10 @@ pub enum BackendError {
     Vk {
         call: &'static str,
         result: ash::vk::Result,
+        /// How many objects `vkCreate*` managed to create before failing.
+        /// `vkCreateGraphicsPipelines` can leave some of them alive, and
+        /// silently leaking them is worse than saying so.
+        partial: usize,
     },
     /// The instance enumerated no device with a graphics queue.
     NoGraphicsQueue,
@@ -39,6 +43,14 @@ pub enum BackendError {
     NotTimeline,
     /// The upload is larger than the staging ring.
     UploadTooLarge { size: u64, capacity: u64 },
+    /// A chassis handle did not resolve: stale generation, or never created.
+    InvalidHandle,
+    /// Descriptor pool creation failed or none exists.
+    NoDescriptorPool,
+    /// More descriptor bindings than the layout allows.
+    TooManyBindings { count: usize },
+    /// The device does not support something the caller asked for.
+    Unsupported { what: String },
     /// More command lists were asked for than the arena holds. Failing here is
     /// deliberate: silently recording fewer would drop passes.
     ListArenaExhausted { requested: usize, available: usize },
@@ -48,8 +60,16 @@ impl fmt::Display for BackendError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BackendError::Loader(why) => write!(f, "vulkan loader: {why}"),
-            BackendError::Vk { call, result } => {
-                write!(f, "{call} failed: {result:?}")
+            BackendError::Vk {
+                call,
+                result,
+                partial,
+            } => {
+                write!(f, "{call} failed: {result:?}")?;
+                if *partial > 0 {
+                    write!(f, " ({partial} objects created before failing)")?;
+                }
+                Ok(())
             }
             BackendError::NoGraphicsQueue => {
                 write!(f, "no physical device with a graphics queue")
@@ -70,6 +90,12 @@ impl fmt::Display for BackendError {
                 write!(f, "{len} bytes are not a SPIR-V module")
             }
             BackendError::NotTimeline => write!(f, "operation needs a timeline semaphore"),
+            BackendError::InvalidHandle => write!(f, "handle did not resolve"),
+            BackendError::NoDescriptorPool => write!(f, "no descriptor pool"),
+            BackendError::TooManyBindings { count } => {
+                write!(f, "{count} descriptor bindings exceeds the guaranteed minimum")
+            }
+            BackendError::Unsupported { what } => write!(f, "device does not support {what}"),
             BackendError::UploadTooLarge { size, capacity } => write!(
                 f,
                 "upload of {size} bytes exceeds the {capacity} byte staging ring"
@@ -89,7 +115,19 @@ impl BackendError {
     /// error says which request the driver rejected; the `From` impl below is
     /// the fallback for `?` at a site that does not.
     pub(crate) fn vk(call: &'static str, result: ash::vk::Result) -> Self {
-        BackendError::Vk { call, result }
+        BackendError::Vk {
+            call,
+            result,
+            partial: 0,
+        }
+    }
+
+    /// Records how many objects `vkCreate*` created before it failed.
+    pub(crate) fn with_partial(mut self, count: usize) -> Self {
+        if let BackendError::Vk { partial, .. } = &mut self {
+            *partial = count;
+        }
+        self
     }
 }
 
@@ -98,6 +136,7 @@ impl From<ash::vk::Result> for BackendError {
         BackendError::Vk {
             call: "vulkan",
             result,
+            partial: 0,
         }
     }
 }
