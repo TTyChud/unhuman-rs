@@ -117,3 +117,5 @@ pub mod vulkan_render_graph_builder;
 pub mod vulkan_render_graph_compiler;
 #[path = "VulkanRenderGraph.rs"]
 pub mod vulkan_render_graph;
+#[path = "VulkanRenderGraphExecutor.rs"]
+pub mod vulkan_render_graph_executor;

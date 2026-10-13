@@ -17,13 +17,51 @@ use crate::request::{
 };
 use crate::ForgeError;
 
-/// Where the vendored `slangc` lives, relative to this repository.
+/// Where the vendored `slangc` lives, as a path relative to the *workspace* root.
 ///
 /// The C++ tree already vendors a built Slang distribution
 /// (`UHE/vendor/bin/linux/slang/`), and using that exact compiler is the point:
 /// a second compiler in the project would be a second set of bugs and a second
 /// thing to patch.
-const VENDORED: &str = "../unhuman/UHE/vendor/bin/linux/slang/bin/slangc";
+///
+/// A path relative to the workspace, never to the current directory. `cargo
+/// test` runs each test binary with the *crate* directory as its working
+/// directory, so a `../unhuman/...` relative to the root resolves to nothing and
+/// every shader test silently skips while reporting success.
+const VENDORED: &str = "unhuman/UHE/vendor/bin/linux/slang/bin/slangc";
+
+/// Find a usable `slangc`.
+///
+/// In order: the `SLANGC` environment variable, the vendored copy, then `PATH`.
+/// The vendored copy is found by walking up from this crate's manifest
+/// directory, because the crate may be built from anywhere in the tree.
+pub fn discover() -> Slangc {
+    if let Some(path) = std::env::var_os("SLANGC") {
+        return Slangc::Path(PathBuf::from(path));
+    }
+    if let Some(path) = vendored_path() {
+        return Slangc::Path(path);
+    }
+    Slangc::System
+}
+
+/// Walk up from this crate looking for the C++ tree.
+fn vendored_path() -> Option<PathBuf> {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for ancestor in manifest.ancestors() {
+        // `crates/forge` -> workspace root -> the sibling `unhuman`.
+        let candidate = ancestor.join(VENDORED);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        // The C++ tree is a sibling of this workspace, not a child of it.
+        let sibling = ancestor.join("..").join(VENDORED);
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    None
+}
 
 /// Which slangc to run.
 ///
@@ -38,7 +76,7 @@ pub enum Slangc {
 
 impl Default for Slangc {
     fn default() -> Self {
-        Self::Path(PathBuf::from(VENDORED))
+        discover()
     }
 }
 
@@ -106,7 +144,28 @@ impl SlangcCompiler {
         request: &CompileRequest,
         output: &Path,
     ) -> Result<Vec<Diagnostic>, ForgeError> {
-        let temporary = output.with_extension(format!("tmp{}", std::process::id()));
+        // Unique per compilation, not per process. Keying it on the PID means two
+        // compiles in one process to the same output name race on the same temp
+        // file -- which is exactly what a build system does, and what a
+        // multi-threaded asset scan does. One clobbers the other's module and the
+        // failure is a wrong shader rather than an error.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temporary = output.with_extension(format!(
+            "tmp{}-{sequence}",
+            std::process::id()
+        ));
+
+        // Create the output directory rather than reporting a missing one. The
+        // compiler's own error for this is `E00004 cannot write output file`,
+        // which reads like a permissions problem and sends you looking at the
+        // temp directory. The cache path already creates parents; this one
+        // should not be the odd case.
+        if let Some(parent) = output.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
         let mut command = Command::new(self.slangc.executable());
         command.args(request.arguments());
         command.arg("-o").arg(&temporary);
@@ -143,37 +202,72 @@ impl SlangcCompiler {
 /// gets `file:line:column` back can point at the shader, and one that gets a
 /// blob has to grep.
 pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
-    let mut out = Vec::new();
+    let mut out: Vec<Diagnostic> = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_start();
-        // `error[E30015]: undefined identifier`
-        let Some((severity, rest)) = split_severity(trimmed) else {
-            continue;
-        };
-        // `rest` is still `[E30015]: undefined identifier` -- the bracket comes
-        // before the code, not after the severity word.
-        let (code, message) = match rest.split_once(']') {
-            Some((code, message)) => match code.trim_start_matches('[') {
-                code if code.starts_with('E') || code.starts_with('W') => {
-                    (Some(code.to_owned()), message.trim_start_matches(':').trim())
-                }
-                _ => (None, rest),
-            },
-            None => (None, rest),
-        };
-        if message.is_empty() {
+
+        if let Some((severity, rest)) = split_severity(trimmed) {
+            let (code, head) = match rest.split_once(']') {
+                Some((code, message)) => match code.trim_start_matches('[') {
+                    code if code.starts_with('E') || code.starts_with('W') => {
+                        (Some(code.to_owned()), message.trim_start_matches(':').trim())
+                    }
+                    _ => (None, rest),
+                },
+                None => (None, rest),
+            };
+            if !head.is_empty() {
+                out.push(Diagnostic {
+                    severity,
+                    code,
+                    file: None,
+                    line: None,
+                    column: None,
+                    message: head.to_owned(),
+                });
+            }
             continue;
         }
-        out.push(Diagnostic {
-            severity,
-            code,
-            file: None,
-            line: None,
-            column: None,
-            message: message.to_owned(),
-        });
+
+        // Continuation of the previous diagnostic. Slang puts the *name* of the
+        // offending identifier on a later line, after a caret:
+        //
+        //     error[E30015]: undefined identifier
+        //      --> a.slang:1:41
+        //       1 | ... return nope; }
+        //         |                 ^^^^ undefined identifier 'nope'.
+        //
+        // Taking only the headline produced a diagnostic reading "undefined
+        // identifier" with nothing identifying what was undefined -- which is the
+        // one thing you need. The echoed source line is skipped; the caret line
+        // is not, because that is where the name is.
+        let Some(last) = out.last_mut() else {
+            continue;
+        };
+        if trimmed.starts_with("-->") || trimmed.is_empty() {
+            continue;
+        }
+        // `12 | source text` is the echo. Skip the line number, keep the rest.
+        let echo = split_source_echo(trimmed);
+        if let Some(echo) = echo {
+            if echo.contains('^') {
+                last.message.push(' ');
+                last.message.push_str(echo.trim());
+            }
+            continue;
+        }
+        last.message.push(' ');
+        last.message.push_str(trimmed);
     }
     out
+}
+
+/// `1 | float4 m()` is the echoed source; the part after the pipe is prose
+/// attached to the caret run on the same line.
+fn split_source_echo(line: &str) -> Option<&str> {
+    let (number, rest) = line.split_once('|')?;
+    number.trim().parse::<u32>().ok()?;
+    Some(rest)
 }
 
 fn split_severity(line: &str) -> Option<(Severity, &str)> {

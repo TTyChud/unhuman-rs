@@ -99,9 +99,20 @@ fn build(
         }]
     };
 
-    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default()
-        .vertex_binding_descriptions(&bindings)
-        .vertex_attribute_descriptions(&attributes);
+    // Counts written next to the slices they describe. ash's builder for these
+    // structs sets the pointer but not the count, which is a trap: the count is a
+    // separate field and `Default` leaves it at zero.
+    // An empty slice has a dangling-but-aligned pointer; the count of zero says
+    // it is empty, and the spec says the pointer is ignored then. `.as_ptr()`
+    // on an empty Vec is non-null, so this is safe, but say so rather than leave
+    // a reader wondering.
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo {
+        vertex_binding_description_count: bindings.len() as u32,
+        p_vertex_binding_descriptions: bindings.as_ptr(),
+        vertex_attribute_description_count: attributes.len() as u32,
+        p_vertex_attribute_descriptions: attributes.as_ptr(),
+        ..Default::default()
+    };
 
     let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
         .topology(topology_of(desc.primitive.topology))
@@ -109,6 +120,22 @@ fn build(
 
     // Dynamic viewport and scissor: every pass reads the extent from the
     // swapchain, and baking one in means recompiling on every resize.
+    //
+    // The `pDynamicStates` list is what makes them dynamic. Without it the
+    // counts below are a claim that two static arrays exist that do not, and
+    // validation says so precisely:
+    // VUID-VkGraphicsPipelineCreateInfo-pDynamicStates-04130 and -04131.
+    // Setting the counts and forgetting the dynamic states reads exactly like
+    // setting them correctly, which is why it is worth naming.
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    // Struct literal again: ash's builder sets the pointer and not the count,
+    // and a zero count here is the same class of bug as a zero `stage_count`.
+    let dynamic_state_info = vk::PipelineDynamicStateCreateInfo {
+        dynamic_state_count: dynamic_states.len() as u32,
+        p_dynamic_states: dynamic_states.as_ptr(),
+        ..Default::default()
+    };
+
     let viewport_state = vk::PipelineViewportStateCreateInfo::default()
         .viewport_count(1)
         .scissor_count(1);
@@ -139,9 +166,12 @@ fn build(
         .map(|target| blend_state(target.blend, target.write_mask))
         .collect();
 
-    let color_blend = vk::PipelineColorBlendStateCreateInfo::default()
-        .logic_op_enable(false)
-        .attachments(&color_blend_attachments);
+    let color_blend = vk::PipelineColorBlendStateCreateInfo {
+        logic_op_enable: vk::FALSE,
+        attachment_count: color_blend_attachments.len() as u32,
+        p_attachments: color_blend_attachments.as_ptr(),
+        ..Default::default()
+    };
 
     let color_formats: Vec<vk::Format> = desc
         .color_targets
@@ -154,11 +184,23 @@ fn build(
         .map(vulkan_types::vk_format)
         .unwrap_or(vk::Format::UNDEFINED);
 
-    let rendering = vk::PipelineRenderingCreateInfo::default()
-        .color_attachment_formats(&color_formats)
-        .depth_attachment_format(depth_format);
+    let rendering = vk::PipelineRenderingCreateInfo {
+        color_attachment_count: color_formats.len() as u32,
+        p_color_attachment_formats: color_formats.as_ptr(),
+        depth_attachment_format: depth_format,
+        ..Default::default()
+    };
 
+    // Every `*_count` beside a pointer in this struct.
+    //
+    // `stage_count` was the one missed, and it is the worst kind of omission: the
+    // driver read zero stages, accepted an empty `pStages` pointer, and then
+    // dereferenced garbage. It surfaced as a SIGSEGV inside RADV with no
+    // diagnostic, because the count and the pointer disagreed and nothing checks
+    // a pointer it is not asked to dereference. Validation names it in one line:
+    // VUID-VkGraphicsPipelineCreateInfo-stageCount-09530.
     let create_info = vk::GraphicsPipelineCreateInfo {
+        stage_count: stages.len() as u32,
         p_stages: stages.as_ptr(),
         p_vertex_input_state: &vertex_input,
         p_input_assembly_state: &input_assembly,
@@ -167,13 +209,18 @@ fn build(
         p_multisample_state: &multisample,
         p_depth_stencil_state: &depth_stencil,
         p_color_blend_state: &color_blend,
+        p_dynamic_state: &dynamic_state_info,
         layout,
         // Null render pass: dynamic rendering supplies the attachments.
         render_pass: vk::RenderPass::null(),
         subpass: 0,
-        p_next: &rendering as *const _ as *const _,
+        // `push_next` rather than a raw `p_next` cast, because the chained struct
+        // has to carry its own `s_type` and the builder is what sets it. The
+        // chain must outlive the call, which `rendering` does.
         ..Default::default()
     };
+    let mut create_info = create_info;
+    create_info.p_next = &rendering as *const _ as *const _;
 
     let pipelines_out =
         unsafe { device.create_graphics_pipelines(pipelines.driver_cache(), &[create_info], None) }

@@ -96,10 +96,19 @@ impl Buffers {
             return Err(BackendError::EmptyUsage { what: "buffer" });
         }
 
-        // Host-visible only when asked for: a staging buffer is written by the
-        // CPU, and paying for the slower path on a vertex buffer would be a
-        // silent regression.
-        let required = if desc.usage.contains(BufferUsage::TRANSFER_DST) {
+        // Host-visible when the CPU has to touch it, which is two cases and not
+        // one.
+        //
+        // A staging buffer is written by the CPU, and a buffer created *with*
+        // data is too -- `write` maps it. Keying only off `TRANSFER_DST` missed
+        // the second: a vertex buffer created with initial contents was given
+        // DEVICE_LOCAL memory and then could not be written at all. The caller
+        // asked for data in the constructor and got an error instead.
+        //
+        // Otherwise DEVICE_LOCAL, because paying for the slower host path on a
+        // buffer the CPU never touches is a real regression on tiled hardware.
+        let host_accessible = desc.usage.contains(BufferUsage::TRANSFER_DST) || initial.is_some();
+        let required = if host_accessible {
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         } else {
             vk::MemoryPropertyFlags::DEVICE_LOCAL

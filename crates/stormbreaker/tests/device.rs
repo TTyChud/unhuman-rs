@@ -14,7 +14,7 @@ fn open_device() -> Option<stormbreaker::Context> {
         eprintln!("skipping: no Vulkan loader");
         return None;
     }
-    match create_device(DeviceOptions::new(c"stormbreaker-tests")) {
+    match create_device(DeviceOptions::from_env(c"stormbreaker-tests")) {
         Ok(context) => Some(context),
         Err(BackendError::Loader(why)) => {
             eprintln!("skipping: loader unavailable: {why}");

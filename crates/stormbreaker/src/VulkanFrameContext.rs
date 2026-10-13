@@ -226,8 +226,37 @@ impl Recorder {
         Ok(())
     }
 
+    /// Hand command buffers back without submitting them.
+    ///
+    /// For the path where a frame fails after `take`: the buffers were begun and
+    /// have to be ended, and then they have to go back on the free list or the
+    /// arena shrinks by one every failed frame. Without this the buffers are
+    /// still allocated when the pool is destroyed, which validation reports as
+    /// VUID-vkDestroyDevice-device-05137 and the driver answers with a
+    /// segfault.
+    pub fn recycle(&mut self, recordings: Vec<Recording>) {
+        for recording in recordings {
+            self.free.push((recording.slot(), recording.into_buffer()));
+        }
+        self.free.sort_by_key(|(slot, _)| *slot);
+    }
+
+    /// Command buffers currently available. Falls as `take` succeeds and a
+    /// recycle path fails, so a leak shows up as a shrinking number.
+    pub fn available(&self) -> usize {
+        self.free.len()
+    }
+
     pub fn tier(&self) -> SyncTier {
         self.tier
+    }
+
+    /// The device the recorder submits on.
+    ///
+    /// Public because an executor building a `BarrierEncoder` needs it, and the
+    /// barrier encoder needs a device reference that outlives one frame.
+    pub fn device(&self) -> &Device {
+        &self.device
     }
 
     pub fn queue_family(&self) -> u32 {

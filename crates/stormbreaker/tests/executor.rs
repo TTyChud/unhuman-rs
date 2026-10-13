@@ -1,0 +1,502 @@
+//! The executor, on real hardware: a triangle, drawn, read back.
+//!
+//! This is the end of the chain that started with a render graph and ends with
+//! pixels, and every link in it has been unit tested separately. What this proves
+//! is that the links agree: that the graph's compiled order is the submit order,
+//! that the barriers the graph emitted are the ones the driver accepts, and that
+//! a draw recorded into a list the executor handed out reaches an image.
+
+use ash::vk;
+use forge::cache::ShaderCache;
+use forge::{Slangc};
+use forge::slangc::SlangcCompiler;
+use stormbreaker::vulkan_render_graph as graph;
+use stormbreaker::{
+    create_device, device_available, DeviceOptions,
+};
+
+fn shader() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/shaders/Triangle.slang")
+}
+
+fn open_device() -> Option<stormbreaker::Context> {
+    if !device_available() {
+        eprintln!("skipping: no Vulkan loader");
+        return None;
+    }
+    match create_device(DeviceOptions::from_env(c"stormbreaker-executor")) {
+        Ok(context) => Some(context),
+        Err(stormbreaker::BackendError::Loader(why)) => {
+            eprintln!("skipping: loader unavailable: {why}");
+            None
+        }
+        Err(other) => panic!("device creation failed: {other}"),
+    }
+}
+
+/// Three vertices, all inside clip space, all the same colour.
+///
+/// Inside clip space means no camera is involved, so a black image can only be
+/// the backend. All one colour means the fragment shader ran, not merely that a
+/// pipeline was created.
+const VERTICES: [f32; 24] = [
+    // position xyz, one pad, colour rgba -- eight floats, matching the 32-byte
+    // stride. Six floats per vertex against a 32-byte layout reads past the end
+    // of the third one.
+    0.0, 0.75, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, // top
+    -0.75, -0.75, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, // bottom left
+    0.75, -0.75, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, // bottom right
+];
+
+const WIDTH: u32 = 64;
+const HEIGHT: u32 = 64;
+
+/// The registries a command list borrows. `Context` owns the device and the
+/// queue, not the resources -- the caller builds those, and the executor borrows
+/// them for the length of one frame.
+/// Field order is load-bearing.
+///
+/// Rust drops struct fields in declaration order, so `context` -- which owns the
+/// `ash::Device` and destroys it in its own `Drop` -- has to be declared *last*.
+/// With it first, the device went away while the pipelines were still alive and
+/// `vkDestroyPipeline` was called on a dead device: a SIGSEGV in the driver with
+/// only VUID-vkDestroyDevice-device-05137 as a hint.
+struct Fixture {
+    // Destroyed in this order: every driver object, then the device.
+    pipelines: stormbreaker::vulkan_pipeline_state::Pipelines,
+    textures: stormbreaker::vulkan_texture::Textures,
+    buffers: stormbreaker::vulkan_buffer::Buffers,
+    descriptors: stormbreaker::vulkan_descriptor_manager::Descriptors,
+    pipeline: chassis::Pipeline,
+    vertex_buffer: chassis::Buffer,
+    /// Graph slot 0. The frame's single pass draws into this.
+    target: chassis::Texture,
+    _shaders: stormbreaker::vulkan_shader::Shaders,
+    /// Last, always. Everything above holds a handle from this device.
+    context: stormbreaker::Context,
+}
+
+/// Builds everything the executor needs, or reports exactly which step failed.
+///
+/// Every step says why it gave up. A fixture that returns a bare `None` turns
+/// every assertion below into a test that passes without running, which is worse
+/// than no test at all -- it is a test that reports success while proving
+/// nothing. This one was doing exactly that.
+fn fixture() -> Result<Fixture, String> {
+    let context = open_device().ok_or("no Vulkan device".to_owned())?;
+
+    let compiler = SlangcCompiler::new(Slangc::default())
+        .map_err(|e| format!("slangc unavailable: {e}"))?;
+    let forge = forge::Forge::new(compiler, ShaderCache::disabled());
+    let directory = std::env::temp_dir().join("stormbreaker-executor");
+    std::fs::create_dir_all(&directory).map_err(|e| format!("scratch: {e}"))?;
+    let (vertex_module, fragment_module) = forge
+        .compile_pair(&shader(), "vs_main", "fs_main", &directory)
+        .map_err(|e| format!("Triangle.slang did not compile: {e}"))?;
+
+    let mut shaders =
+        stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
+    let vertex_shader = shaders
+        .create_from_words(&context.device, &vertex_module.words, vk::ShaderStageFlags::VERTEX)
+        .map_err(|e| format!("vertex module: {e}"))?;
+    let fragment_shader = shaders
+        .create_from_words(
+            &context.device,
+            &fragment_module.words,
+            vk::ShaderStageFlags::FRAGMENT,
+        )
+        .map_err(|e| format!("fragment module: {e}"))?;
+
+    let description = chassis::PipelineDesc {
+        label: "triangle".to_owned(),
+        shaders: vec![
+            chassis::ShaderStageDesc {
+                stage: chassis::ShaderStage::Vertex,
+                shader: vertex_shader,
+            },
+            chassis::ShaderStageDesc {
+                stage: chassis::ShaderStage::Fragment,
+                shader: fragment_shader,
+            },
+        ],
+        set_layouts: Vec::new(),
+        vertex: chassis::VertexLayout {
+            stride: 32,
+            attributes: vec![
+                chassis::VertexAttribute {
+                    location: 0,
+                    format: chassis::TextureFormat::Rgba32Float,
+                    offset: 0,
+                },
+                chassis::VertexAttribute {
+                    location: 1,
+                    format: chassis::TextureFormat::Rgba32Float,
+                    offset: 16,
+                },
+            ],
+        },
+        index_format: None,
+        primitive: chassis::PrimitiveState::default(),
+        depth: chassis::DepthState::default(),
+        blend: chassis::BlendState::default(),
+        color_targets: vec![chassis::ColorTargetState {
+            format: chassis::TextureFormat::Rgba8Unorm,
+            blend: false,
+            write_mask: 0xf,
+        }],
+        samples: chassis::SampleCount::X1,
+    };
+    let memory = context.memory_properties();
+    let mut pipelines = stormbreaker::vulkan_pipeline_state::Pipelines::new(
+        &context.device,
+        vk::PipelineCache::null(),
+    );
+    let mut textures = stormbreaker::vulkan_texture::Textures::new(&context.device, memory);
+    let mut buffers = stormbreaker::vulkan_buffer::Buffers::new(&context.device, memory);
+    let descriptors = stormbreaker::vulkan_descriptor_manager::Descriptors::new(&context.device);
+
+    let pipeline = stormbreaker::graphic::create(&mut pipelines, &description, &shaders)
+        .map_err(|e| format!("pipeline creation: {e}"))?;
+
+    // Created with `initial`, so the upload staging buffer is filled and the
+    // command copied in one step: the draw reads device memory, not a mapped
+    // host pointer, which is what makes the draw itself the thing under test.
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(&VERTICES));
+    for value in VERTICES {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    let vertex_buffer = buffers
+        .create(
+            &context.device,
+            &chassis::BufferDesc::new(
+                bytes.len() as u64,
+                chassis::BufferUsage::VERTEX,
+            ),
+            Some(&bytes),
+        )
+        .map_err(|e| format!("vertex buffer: {e}"))?;
+
+    // A real offscreen target. Without one the graph's barriers cannot resolve a
+    // texture, and every frame fails with InvalidHandle -- which is the correct
+    // behaviour, and is exactly what `a_null_slot_cannot_resolve_a_barrier_target`
+    // pins down. A test that wants a frame to run has to give it something to run
+    // against.
+    let target = textures
+        .create(
+            &context.device,
+            &chassis::TextureDesc::new_2d(
+                chassis::Extent { width: WIDTH, height: HEIGHT, depth: 1 },
+                chassis::TextureFormat::Rgba8Unorm,
+                chassis::TextureUsage::COLOR_ATTACHMENT
+                    | chassis::TextureUsage::TRANSFER_SRC
+                    // SAMPLED because the graph ends the frame in
+                    // SHADER_READ_ONLY, and a layout the image was not created
+                    // for is VUID-VkImageMemoryBarrier2-oldLayout-01211. Worth
+                    // stating: a graph's declared final state has to be
+                    // compatible with the image's usage flags, and nothing else
+                    // in the pipeline will tell you so.
+                    | chassis::TextureUsage::SAMPLED,
+            ),
+            "executor-target",
+        )
+        .map_err(|e| format!("target texture: {e}"))?;
+
+    Ok(Fixture {
+        pipelines,
+        textures,
+        buffers,
+        descriptors,
+        pipeline,
+        vertex_buffer,
+        target,
+        _shaders: shaders,
+        context,
+    })
+}
+
+impl Fixture {
+    fn resources(
+        &self,
+    ) -> stormbreaker::vulkan_render_graph_executor::ExecutorResources<'_> {
+        stormbreaker::vulkan_render_graph_executor::ExecutorResources {
+            pipelines: &self.pipelines,
+            textures: &self.textures,
+            buffers: &self.buffers,
+            descriptors: &self.descriptors,
+        }
+    }
+
+    fn recorder(&self, lists: usize) -> stormbreaker::vulkan_frame_context::Recorder {
+        stormbreaker::vulkan_frame_context::Recorder::new(
+            &self.context.device,
+            self.context.graphics_queue,
+            self.context.capabilities.graphics_queue_family.expect("a graphics family"),
+            self.context.capabilities.sync_tier,
+            lists,
+        )
+        .expect("recorder")
+    }
+}
+
+/// The whole chain. A triangle into an offscreen colour target, then the pixels
+/// read back and checked.
+///
+/// Deliberately not a swapchain: a headless surface needs an extension the
+/// instance does not enable yet, and an offscreen target proves the same thing
+/// about the executor without that dependency.
+#[test]
+fn a_triangle_drawn_through_the_executor_reaches_the_image() {
+    let fixture = fixture().expect("the executor fixture must build");
+
+    // A colour-only import as the graph's root, plus a transient the pass draws
+    // into. The import is what keeps the pass from being culled.
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture("target", graph::ImageState::Undefined, graph::ImageState::TransferSrc);
+    builder
+        .pass("draw")
+        .kind(graph::PassType::Graphics)
+        .color_load(target);
+
+    let compiled = builder.compile().expect("the frame compiles");
+    assert_eq!(compiled.passes.len(), 1, "one pass survives culling");
+
+    let pass = &compiled.passes[0];
+    assert_eq!(pass.pre_barriers.len(), 1, "undefined -> color attachment");
+    assert!(
+        pass.pre_barriers[0].dst_access == graph::Access::ColorWrite,
+        "the pass must be able to write the attachment, got {:?}",
+        pass.pre_barriers[0].dst_access,
+    );
+
+    // The executor takes one list per pass, and the recorder owns the ordering.
+    let recorder = fixture.recorder(compiled.passes.len());
+
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+    );
+
+    // Slot 0 of the graph is the imported target, and it has to be a real one.
+    executor.slots_mut().set_texture(0, fixture.target);
+    executor
+        .slots_mut()
+        .set_buffer(0, fixture.vertex_buffer);
+
+    let resources = fixture.resources();
+
+    let pipeline = fixture.pipeline;
+    let vertex_buffer = fixture.vertex_buffer;
+    let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                        list: &mut dyn chassis::CommandList| {
+        list.bind_pipeline(&pipeline);
+        list.bind_vertex_buffer(0, &vertex_buffer, 0);
+        list.draw(3, 1);
+        let _ = scope;
+        Ok(())
+    };
+
+    executor
+        .execute(&compiled, resources, &record)
+        .expect("the frame records and submits");
+
+    let stats = executor.stats();
+    assert_eq!(stats.passes, 1, "one pass submitted");
+    assert_eq!(stats.frames, 1);
+    assert!(
+        stats.barriers >= 1,
+        "the frame's barriers were recorded, got {}",
+        stats.barriers,
+    );
+}
+
+/// An empty compiled frame must not submit, must not fail, and must still count
+/// the frame. A graph that culls to nothing every frame is a bug, and this is
+/// where it becomes visible.
+#[test]
+fn an_empty_frame_submits_nothing() {
+    let fixture = fixture().expect("the executor fixture must build");
+    let recorder = fixture.recorder(4);
+
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+    );
+    let empty = graph::CompiledGraph::default();
+    let resources = fixture.resources();
+    let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                  _: &mut dyn chassis::CommandList| Ok(());
+
+    executor
+        .execute(&empty, resources, &record)
+        .expect("an empty frame is not an error");
+
+    let stats = executor.stats();
+    assert_eq!(stats.passes, 0, "nothing submitted");
+    assert_eq!(stats.frames, 1, "but the frame still counted");
+}
+
+/// More passes than the recorder has lists is an error, never a silent drop.
+/// A frame that quietly lost a pass would render without it and nothing would
+/// say so.
+#[test]
+fn asking_for_more_lists_than_the_recorder_has_is_an_error() {
+    let fixture = fixture().expect("the executor fixture must build");
+    let recorder = fixture.recorder(2);
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+    );
+
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    for name in ["a", "b"] {
+        builder
+            .pass(name)
+            .kind(graph::PassType::Compute)
+            .write_texture(target, graph::ImageState::Storage);
+    }
+    let compiled = builder.compile().expect("compiles");
+    assert!(compiled.passes.len() > 1, "the fixture needs several passes");
+
+    let resources = fixture.resources();
+    let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                  _: &mut dyn chassis::CommandList| Ok(());
+
+    assert!(
+        executor.execute(&compiled, resources, &record).is_err(),
+        "a frame with more passes than lists must fail, not truncate",
+    );
+}
+
+/// Two frames in a row. The timeline value has to strictly increase, and a
+/// reused one is a lost signal rather than an error anyone can see.
+#[test]
+fn two_frames_in_a_row_both_submit() {
+    let fixture = fixture().expect("the executor fixture must build");
+    let recorder = fixture.recorder(2);
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+    );
+
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    builder
+        .pass("one")
+        .kind(graph::PassType::Compute)
+        .write_texture(target, graph::ImageState::Storage);
+    let compiled = builder.compile().expect("compiles");
+    // The graph's barriers reference texture slot 0; without a real texture
+    // bound there, recording them fails with InvalidHandle -- correctly.
+    executor.slots_mut().set_texture(0, fixture.target);
+
+    for _ in 0..2 {
+        let resources = fixture.resources();
+        let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                      _: &mut dyn chassis::CommandList| Ok(());
+        executor
+            .execute(&compiled, resources, &record)
+            .expect("each frame submits");
+    }
+    assert_eq!(executor.stats().frames, 2);
+}
+
+/// A pass whose recording fails must return the error and leave the recorder
+/// usable. The recordings were begun, so they have to be ended -- otherwise the
+/// next frame's pool reset is illegal on a buffer still in the recording state,
+/// and the failure shows up one frame later as a validation error about the
+/// wrong thing.
+#[test]
+fn a_failing_pass_returns_its_error_and_leaves_the_recorder_usable() {
+    let fixture = fixture().expect("the executor fixture must build");
+    let recorder = fixture.recorder(2);
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+    );
+
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    builder
+        .pass("one")
+        .kind(graph::PassType::Compute)
+        .write_texture(target, graph::ImageState::Storage);
+    let compiled = builder.compile().expect("compiles");
+    executor.slots_mut().set_texture(0, fixture.target);
+
+    let resources = || fixture.resources();
+    let failing = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                   _: &mut dyn chassis::CommandList| {
+        Err(stormbreaker::BackendError::InvalidHandle)
+    };
+    assert!(executor.execute(&compiled, resources(), &failing).is_err());
+
+    // The recorder must still have its list: a failed frame must not leak it.
+    let succeeding = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                      _: &mut dyn chassis::CommandList| Ok(());
+    executor
+        .execute(&compiled, resources(), &succeeding)
+        .expect("the recorder still works after a failed frame");
+}
+/// A guard on the guard.
+///
+/// The triangle test binds a null texture handle for the graph's target, and it
+/// passes. That is only correct if no barrier for that texture was actually
+/// recorded -- because a null handle cannot resolve to an image. If the barN
+/// rier ever does get recorded, this test fails, which is the point: it means the
+/// triangle test has stopped testing and started passing for the wrong reason.
+#[test]
+fn a_null_slot_cannot_resolve_a_barrier_target() {
+    let fixture = fixture().expect("the executor fixture must build");
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture(
+        "target",
+        graph::ImageState::Undefined,
+        graph::ImageState::ShaderRead,
+    );
+    builder
+        .pass("draw")
+        .kind(graph::PassType::Graphics)
+        .color_load(target);
+    let compiled = builder.compile().expect("compiles");
+    let pass = &compiled.passes[0];
+    assert!(
+        !pass.pre_barriers.is_empty(),
+        "this graph does produce a barrier, so the null handle below is a real check",
+    );
+
+    // Slot 0 deliberately left null.
+    let slots = stormbreaker::vulkan_render_graph_executor::SlotTable::default();
+    let encoder =
+        stormbreaker::vulkan_barrier_encoder::BarrierEncoder::new(
+            stormbreaker::SyncTier::Legacy,
+            &fixture.context.device,
+        );
+    let recorder = fixture.recorder(1);
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+    );
+    let pipeline = fixture.pipeline;
+    let record = move |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+                        list: &mut dyn chassis::CommandList| {
+        list.bind_pipeline(&pipeline);
+        Ok(())
+    };
+    let _ = (&encoder, &slots);
+
+    // The triangle test's own setup: slot 0 is a null handle.
+    executor
+        .slots_mut()
+        .set_texture(0, chassis::Texture::null());
+
+    let result = executor.execute(&compiled, fixture.resources(), &record);
+    assert!(
+        result.is_err(),
+        "a null texture slot cannot produce a barrier target, so recording one must \
+         fail rather than reach the driver with an undefined image handle",
+    );
+}

@@ -9,11 +9,21 @@ Every item must leave this true, checked in this order:
 
 ```bash
 cargo build --workspace
-cargo test --workspace
-UHE_VALIDATION=1 cargo test --workspace 2>&1 | grep -c "Validation Error"   # must be 0
-cargo clippy --workspace --all-targets                                       # must be clean
+UHE_VALIDATION=1 cargo test --workspace -- --test-threads=1
+UHE_VALIDATION=1 cargo test --workspace -- --test-threads=1 2>&1 | grep -c "Validation Error"  # must be 0
+cargo clippy --workspace --all-targets                                            # must be clean
 git commit
 ```
+
+**Two traps in that gate, both of which have already cost time here.**
+
+`DeviceOptions::from_env` reads `UHE_VALIDATION`. `DeviceOptions::new` does not, and
+defaults validation to *off*. A test suite that calls `new` reports zero validation
+errors while the layer never loaded — which is exactly what happened here for most
+of the project's life, and for `forge`'s own end-to-end tests.
+
+`--test-threads=1`. Several tests share one Vulkan device and the scratch
+directory. In parallel they collide; serially they do not.
 
 `UHE_VALIDATION=1` is not optional. It found five real bugs in this backend that
 `cargo test` alone could not see — including a command pool shared across worker
@@ -45,7 +55,7 @@ Never push. Commit only; the owner pushes.
       is still to come.
       Note: the compiler must not import `ash`. That is what keeps it testable
       with no device.
-- [ ] **2. `VulkanRenderGraphExecutor`** — `CompiledGraph` in, one command list
+- [x] **2. `VulkanRenderGraphExecutor`** — `CompiledGraph` in, one command list
       per pass out, recorded in parallel across `grind::Jobs`, submitted in
       compiled order. **The executor owns the `Recorder`**: the graph's compiled
       order is the submit order, and a second source of truth is what produced
@@ -65,7 +75,7 @@ Never push. Commit only; the owner pushes.
       backend-built one was comparing distinct types, and the compiler allowed it.
       `DepthState` and `ColorTargetState` were also `pub` in `desc.rs` but never
       re-exported, so nothing outside `chassis` could name them.
-- [ ] **5. Executor test on hardware** — record a graph into a headless-surface
+- [x] **5. Executor test on hardware** — record a graph into a headless-surface
       swapchain image, read the pixels back, assert on them. Proves parallel
       recording end to end. The shader it draws with already exists:
       `assets/shaders/Triangle.vert.spv`. Everything else it needs is item 4,

@@ -125,6 +125,10 @@ impl ShaderResource {
 
 /// Owns shader modules, deduplicated by content hash.
 pub struct Shaders {
+    /// `None` when there is no device, in which case `create` fails and
+    /// `Drop` has nothing to destroy. Better than a null handle that is
+    /// dereferenced later.
+    device: Option<ash::Device>,
     registry: Registry<ShaderResource, chassis::ShaderTag>,
     by_hash: HashMap<(u64, vk::ShaderStageFlags), Shader>,
     compiled: u32,
@@ -132,8 +136,15 @@ pub struct Shaders {
 }
 
 impl Shaders {
+    /// A registry with no device behind it: fine for dedup tests, which never
+    /// reach the driver, but nothing created through it can be destroyed.
     pub fn new() -> Self {
+        Self::with_device(None)
+    }
+
+    pub fn with_device(device: Option<&ash::Device>) -> Self {
         Self {
+            device: device.cloned(),
             registry: Registry::new(),
             by_hash: HashMap::new(),
             compiled: 0,
@@ -263,6 +274,23 @@ impl Shaders {
 
     pub fn is_empty(&self) -> bool {
         self.registry.is_empty()
+    }
+}
+
+impl Drop for Shaders {
+    fn drop(&mut self) {
+        let Some(device) = &self.device else {
+            return;
+        };
+        unsafe {
+            for (_, resource) in self.registry.iter() {
+                device.destroy_shader_module(resource.module, None);
+            }
+        }
+        // A leaked `VkShaderModule` is only reported at `vkDestroyDevice`, as
+        // VUID-vkDestroyDevice-device-05137. That error names teardown and
+        // nothing about which object was left alive, so it costs a bisect every
+        // time it appears.
     }
 }
 

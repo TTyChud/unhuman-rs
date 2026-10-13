@@ -31,14 +31,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::vulkan_render_graph_builder::RenderGraph as Builder;
-use crate::vulkan_render_graph_compiler::{CompiledGraph, ResourceLifetime};
+use crate::vulkan_render_graph_compiler::ResourceLifetime;
 use crate::vulkan_render_graph_resources::Resources;
 use crate::vulkan_render_graph_types::{
     ValidationError,
 };
 
 pub use crate::vulkan_render_graph_builder::{PassBuilder, RenderGraph};
-pub use crate::vulkan_render_graph_compiler::{compile, validate, CompiledPass};
+pub use crate::vulkan_render_graph_compiler::{compile, validate, CompiledGraph, CompiledPass};
 pub use crate::vulkan_render_graph_resources::{BufferSlot, TextureSlot, VersionEntry};
 pub use crate::vulkan_render_graph_types::{
     access_for_state, stage_for_state, transition, Access, BufferBarrier, BufferId,

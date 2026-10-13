@@ -23,6 +23,17 @@ pub enum SyncTier {
 }
 
 impl SyncTier {
+    /// True for the two tiers that spell barriers `vkCmdPipelineBarrier2`.
+    ///
+    /// The question callers actually ask. `Sync2` and `Sync2Timeline` differ in
+    /// semaphore type, not in barrier spelling, so anything that lowers a
+    /// barrier should ask this rather than match on a tier name -- matching the
+    /// name is how the next tier gets added and one branch silently stops
+    /// compiling.
+    pub fn uses_sync2(self) -> bool {
+        matches!(self, SyncTier::Sync2 | SyncTier::Sync2Timeline)
+    }
+
     pub fn supports_timeline_semaphores(self) -> bool {
         matches!(self, SyncTier::Sync2Timeline)
     }

@@ -220,8 +220,16 @@ impl Pipelines {
         let info = vk::PipelineLayoutCreateInfo::default()
             .set_layouts(&set_layouts)
             .push_constant_ranges(&[]);
-        unsafe { self.device.create_pipeline_layout(&info, None) }
-            .map_err(|e| crate::vulkan_error::BackendError::vk("vkCreatePipelineLayout", e))
+        let layout = unsafe { self.device.create_pipeline_layout(&info, None) }
+            .map_err(|e| crate::vulkan_error::BackendError::vk("vkCreatePipelineLayout", e))?;
+
+        // Record it before returning. If the pipeline build that follows fails --
+        // a missing vertex stage, a bad description -- the layout is already
+        // allocated and nothing else will free it. Validation reported the
+        // orphan only at `vkDestroyDevice`, naming a VkPipelineLayout and nothing
+        // about which pipeline never happened.
+        self.pipeline_layouts.push((PipelineHash(0), layout));
+        Ok(layout)
     }
 
     fn create_set_layout(
@@ -287,12 +295,22 @@ impl Pipelines {
 impl Drop for Pipelines {
     fn drop(&mut self) {
         unsafe {
+            // Pipelines only. Their layouts belong to `destroy_layouts`, which
+            // owns every layout this object created -- including ones from a
+            // pipeline that failed to build and was never registered. Destroying
+            // them here as well is a double free:
+            // VUID-vkDestroyPipelineLayout-pipelineLayout-parameter, once per
+            // pipeline, reported only at teardown.
             for (_, resource) in self.registry.iter() {
                 self.device.destroy_pipeline(resource.pipeline, None);
-                self.device
-                    .destroy_pipeline_layout(resource.layout, None);
             }
         }
+        // The set layouts too. They were added after this `Drop` was written and
+        // forgotten: every pipeline leaked one per descriptor set, which
+        // validation reports only at `vkDestroyDevice` as
+        // VUID-vkDestroyDevice-device-05137 -- an error about teardown that
+        // names nothing about which set leaked.
+        self.destroy_layouts();
     }
 }
 

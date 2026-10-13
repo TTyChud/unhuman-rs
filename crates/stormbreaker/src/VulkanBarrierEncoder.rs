@@ -152,6 +152,15 @@ impl<'a> BarrierEncoder<'a> {
         self.tier
     }
 
+    /// The device barriers are recorded on.
+    ///
+    /// Public because a buffer barrier has no `Target` -- there is no subresource
+    /// range for a buffer -- so it goes through the free lowering functions and
+    /// the caller needs the device to record them.
+    pub fn device(&self) -> &ash::Device {
+        self.device
+    }
+
     /// Records one barrier. Empty transitions are dropped, so the graph does not
     /// have to filter them before recording.
     pub fn encode(

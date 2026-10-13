@@ -25,7 +25,7 @@ fn open_device() -> Option<stormbreaker::Context> {
         eprintln!("skipping: no Vulkan loader");
         return None;
     }
-    match create_device(DeviceOptions::new(c"stormbreaker-pipelines")) {
+    match create_device(DeviceOptions::from_env(c"stormbreaker-pipelines")) {
         Ok(context) => Some(context),
         Err(BackendError::Loader(why)) => {
             eprintln!("skipping: loader unavailable: {why}");
@@ -119,7 +119,7 @@ fn desc_with(
 #[test]
 fn a_vertex_and_a_fragment_stage_create_one_pipeline() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;
@@ -147,7 +147,7 @@ fn a_vertex_and_a_fragment_stage_create_one_pipeline() {
 #[test]
 fn a_pipeline_with_a_descriptor_set_gets_a_matching_layout() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;
@@ -184,7 +184,7 @@ fn a_pipeline_with_a_descriptor_set_gets_a_matching_layout() {
 #[test]
 fn identically_shaped_sets_share_one_layout() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;
@@ -228,7 +228,7 @@ fn identically_shaped_sets_share_one_layout() {
 #[test]
 fn a_different_fragment_shader_is_a_different_pipeline() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;
@@ -282,7 +282,7 @@ fn a_different_fragment_shader_is_a_different_pipeline() {
 #[test]
 fn the_same_description_is_compiled_once() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;
@@ -307,7 +307,7 @@ fn the_same_description_is_compiled_once() {
 #[test]
 fn a_pipeline_without_a_vertex_stage_is_refused() {
     let Some(context) = open_device() else { return };
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let Some((vertex, fragment)) = stages(&context, &mut shaders) else {
         eprintln!("skipping: the vendored slangc is not available");
         return;

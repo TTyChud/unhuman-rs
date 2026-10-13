@@ -137,7 +137,9 @@ impl ShaderCache {
         }
         // Write beside the target and rename: a reader that arrives mid-write
         // sees either the old module or the new one, never a half-written one.
-        let temporary = path.with_extension(format!("tmp{}", std::process::id()));
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temporary = path.with_extension(format!("tmp{}-{sequence}", std::process::id()));
         std::fs::write(&temporary, module.to_bytes())?;
         std::fs::rename(&temporary, &path)?;
         Ok(())

@@ -20,7 +20,7 @@ fn open_device() -> Option<stormbreaker::Context> {
         eprintln!("skipping: no Vulkan loader");
         return None;
     }
-    match create_device(DeviceOptions::new(c"stormbreaker-shaders")) {
+    match create_device(DeviceOptions::from_env(c"stormbreaker-shaders")) {
         Ok(context) => Some(context),
         Err(BackendError::Loader(why)) => {
             eprintln!("skipping: loader unavailable: {why}");
@@ -44,7 +44,7 @@ fn slang_source_becomes_a_real_shader_module() {
     };
 
     let scratch = std::env::temp_dir().join("stormbreaker-shader.vert.spv");
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
 
     let handle = shaders
         .load_slang(
@@ -81,7 +81,7 @@ fn one_source_yields_two_distinct_stage_modules() {
 
     let directory = std::env::temp_dir().join("stormbreaker-shader-pair");
     std::fs::create_dir_all(&directory).expect("scratch");
-    let mut shaders = stormbreaker::vulkan_shader::Shaders::new();
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
 
     let vertex = shaders
         .load_slang(
@@ -123,7 +123,7 @@ fn a_rejected_shader_reports_the_compilers_own_diagnostic() {
     let broken = std::env::temp_dir().join("stormbreaker-broken.slang");
     std::fs::write(
         &broken,
-        "float4 fs_main() : SV_Target0 { return does_not_exist; }\n[shader(\"fragment\")]\n",
+        "[shader(\"fragment\")]\nfloat4 fs_main() : SV_Target0 { return does_not_exist; }\n",
     )
     .expect("write");
 

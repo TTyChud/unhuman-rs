@@ -150,7 +150,14 @@ fn editing_the_source_misses_the_cache() {
 
     let edited = scratch("edited.slang");
     let original = std::fs::read_to_string(shader()).expect("shader is readable");
-    std::fs::write(&edited, original.replace("float3 position", "float3 pos")).expect("write");
+    // A valid edit. The first attempt renamed a struct member and broke every
+    // use of it, so the compile failed and the test measured a compiler error
+    // instead of a cache miss.
+    let first_edit = original.replace(
+        "output.color = input.color;",
+        "output.color = input.color; // first edit",
+    );
+    std::fs::write(&edited, &first_edit).expect("write");
 
     let root = std::env::temp_dir().join("forge-e2e-edit");
     let _ = std::fs::remove_dir_all(&root);
@@ -160,7 +167,12 @@ fn editing_the_source_misses_the_cache() {
     let first = forge.compile(&request, &scratch("e2e-edit.vert.spv")).expect("first");
     assert!(!first.cached);
 
-    std::fs::write(&edited, original.replace("input.color", "input.tint")).expect("rewrite");
+    let second_edit = original.replace(
+        "output.color = input.color;",
+        "output.color = input.color; // second edit",
+    );
+    assert_ne!(first_edit, second_edit, "the edits must actually differ");
+    std::fs::write(&edited, &second_edit).expect("rewrite");
     let second = forge.compile(&request, &scratch("e2e-edit.vert.spv")).expect("second");
     assert!(!second.cached, "an edited source must not be served from cache");
 
@@ -183,4 +195,39 @@ fn a_missing_entry_point_is_an_error_not_a_silent_success() {
         text.contains("does_not_exist"),
         "the message names the entry point that was missing, got {text:?}",
     );
+}
+/// The identifier name lives on the caret line, not the headline.
+///
+/// A diagnostic reading "undefined identifier" with nothing identifying *what*
+/// was undefined is the one message a shader author cannot act on. This is the
+/// exact shape slangc emits, so the format is pinned rather than described.
+#[test]
+fn a_diagnostic_names_the_identifier_from_the_caret_line() {
+    let text = "error[E30015]: undefined identifier\n --> /tmp/a.slang:1:41\n  |\n1 | float4 m() { return nope; }\n  |                         ^^^^ undefined identifier 'nope'.\n";
+    let diagnostics = parse_diagnostics(text);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0].message.contains("nope"),
+        "the message must name the identifier, got {:?}",
+        diagnostics[0].message,
+    );
+}
+
+/// Two diagnostics in one run stay two diagnostics. Merging them would lose the
+/// second one's file and line.
+#[test]
+fn two_diagnostics_stay_separate() {
+    let text = concat!(
+        "error[E30015]: undefined identifier\n",
+        " --> /tmp/a.slang:1:41\n",
+        "1 | float4 m() { return nope; }\n",
+        "  |                         ^^^^ undefined identifier 'nope'.\n",
+        "warning[E30016]: unused variable\n",
+        " --> /tmp/a.slang:2:1\n",
+    );
+    let diagnostics = parse_diagnostics(text);
+    assert_eq!(diagnostics.len(), 2, "got {diagnostics:?}");
+    assert_eq!(diagnostics[0].severity, forge::Severity::Error);
+    assert_eq!(diagnostics[1].severity, forge::Severity::Warning);
+    assert!(diagnostics[0].message.contains("nope"));
 }
