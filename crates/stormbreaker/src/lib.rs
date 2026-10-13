@@ -22,6 +22,8 @@ pub mod vulkan_buffer;
 pub mod vulkan_framebuffer;
 pub mod vulkan_image_view;
 pub mod vulkan_scopes;
+pub mod vulkan_swapchain;
+pub mod vulkan_texture_2d;
 pub mod vulkan_texture;
 pub mod vulkan_fence;
 pub mod vulkan_semaphore;

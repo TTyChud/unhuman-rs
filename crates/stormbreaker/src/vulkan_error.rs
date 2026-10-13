@@ -41,6 +41,9 @@ pub enum BackendError {
     MalformedSpirv { len: usize },
     /// A binary semaphore was asked for a timeline operation.
     NotTimeline,
+    /// The surface is out of date: the window resized or the surface changed.
+    /// Not a failure -- the frame is skipped and the swapchain recreated.
+    SurfaceOutOfDate,
     /// The upload is larger than the staging ring.
     UploadTooLarge { size: u64, capacity: u64 },
     /// A chassis handle did not resolve: stale generation, or never created.
@@ -93,6 +96,7 @@ impl fmt::Display for BackendError {
                 write!(f, "{len} bytes are not a SPIR-V module")
             }
             BackendError::NotTimeline => write!(f, "operation needs a timeline semaphore"),
+            BackendError::SurfaceOutOfDate => write!(f, "surface is out of date"),
             BackendError::InvalidHandle => write!(f, "handle did not resolve"),
             BackendError::NoDescriptorPool => write!(f, "no descriptor pool"),
             BackendError::TooManyBindings { count } => {
