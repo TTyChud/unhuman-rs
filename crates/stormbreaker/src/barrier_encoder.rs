@@ -13,7 +13,7 @@
 
 use ash::vk;
 use chassis::TextureFormat;
-use stormgraph::ImageBarrier;
+use stormgraph::{BufferBarrier, ImageBarrier};
 
 use crate::extension_check::SyncTier;
 use crate::utils;
@@ -44,6 +44,45 @@ impl Target {
         self.subresource.aspect_mask = aspect;
         self
     }
+}
+
+/// The buffer counterpart of [`image_barrier2`].
+///
+/// Same tier split, and the same reason for existing as a separate function:
+/// `vk::BufferMemoryBarrier2` carries stage and access masks in the struct and
+/// `vk::BufferMemoryBarrier` does not, so one cannot be built from the other.
+pub fn buffer_barrier2(
+    buffer: vk::Buffer,
+    offset: u64,
+    size: vk::DeviceSize,
+    barrier: BufferBarrier,
+) -> vk::BufferMemoryBarrier2<'static> {
+    vk::BufferMemoryBarrier2::default()
+        .src_stage_mask(utils::stage(barrier.src_stage))
+        .src_access_mask(utils::access(barrier.src_access))
+        .dst_stage_mask(utils::stage(barrier.dst_stage))
+        .dst_access_mask(utils::access(barrier.dst_access))
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .buffer(buffer)
+        .offset(offset)
+        .size(size)
+}
+
+pub fn buffer_barrier_legacy(
+    buffer: vk::Buffer,
+    offset: u64,
+    size: vk::DeviceSize,
+    barrier: BufferBarrier,
+) -> vk::BufferMemoryBarrier<'static> {
+    vk::BufferMemoryBarrier::default()
+        .src_access_mask(utils::access_legacy(barrier.src_access))
+        .dst_access_mask(utils::access_legacy(barrier.dst_access))
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .buffer(buffer)
+        .offset(offset)
+        .size(size)
 }
 
 /// ash gives these structs a lifetime parameter that only exists for its

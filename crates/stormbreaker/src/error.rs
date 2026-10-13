@@ -23,6 +23,25 @@ pub enum BackendError {
     ExtensionUnavailable { name: String, required_for: &'static str },
     /// The device has no usable queue family at all.
     NoQueueFamilies,
+    /// No memory type satisfies the requested property flags.
+    NoMemoryType {
+        required: ash::vk::MemoryPropertyFlags,
+    },
+    /// A zero-sized resource, which Vulkan rejects.
+    InvalidSize,
+    /// A descriptor asked for a usage or format of nothing.
+    EmptyUsage { what: &'static str },
+    /// A host-visible operation was attempted on a `DEVICE_LOCAL` allocation.
+    NotHostVisible { label: String },
+    /// The bytes are not SPIR-V. Caught here so the driver does not report it.
+    MalformedSpirv { len: usize },
+    /// A binary semaphore was asked for a timeline operation.
+    NotTimeline,
+    /// The upload is larger than the staging ring.
+    UploadTooLarge { size: u64, capacity: u64 },
+    /// More command lists were asked for than the arena holds. Failing here is
+    /// deliberate: silently recording fewer would drop passes.
+    ListArenaExhausted { requested: usize, available: usize },
 }
 
 impl fmt::Display for BackendError {
@@ -39,6 +58,26 @@ impl fmt::Display for BackendError {
                 write!(f, "extension {name} is required for {required_for}")
             }
             BackendError::NoQueueFamilies => write!(f, "device reported no queue families"),
+            BackendError::NoMemoryType { required } => {
+                write!(f, "no memory type satisfies {required:?}")
+            }
+            BackendError::InvalidSize => write!(f, "resource size must be greater than zero"),
+            BackendError::EmptyUsage { what } => write!(f, "{what} needs a non-empty usage"),
+            BackendError::NotHostVisible { label } => {
+                write!(f, "'{label}' is not host visible and cannot be mapped")
+            }
+            BackendError::MalformedSpirv { len } => {
+                write!(f, "{len} bytes are not a SPIR-V module")
+            }
+            BackendError::NotTimeline => write!(f, "operation needs a timeline semaphore"),
+            BackendError::UploadTooLarge { size, capacity } => write!(
+                f,
+                "upload of {size} bytes exceeds the {capacity} byte staging ring"
+            ),
+            BackendError::ListArenaExhausted { requested, available } => write!(
+                f,
+                "asked for {requested} command lists but the arena holds {available}"
+            ),
         }
     }
 }
@@ -46,8 +85,20 @@ impl fmt::Display for BackendError {
 impl std::error::Error for BackendError {}
 
 impl BackendError {
+    /// Names the call that failed. Use this wherever the call is known, so the
+    /// error says which request the driver rejected; the `From` impl below is
+    /// the fallback for `?` at a site that does not.
     pub(crate) fn vk(call: &'static str, result: ash::vk::Result) -> Self {
         BackendError::Vk { call, result }
+    }
+}
+
+impl From<ash::vk::Result> for BackendError {
+    fn from(result: ash::vk::Result) -> Self {
+        BackendError::Vk {
+            call: "vulkan",
+            result,
+        }
     }
 }
 

@@ -10,7 +10,7 @@
 //! alongside it.
 
 use ash::vk;
-use chassis::TextureFormat;
+use chassis::{SampleCount, TextureFormat};
 use stormgraph::{Access, ImageState, Stage};
 
 pub fn layout(state: ImageState) -> vk::ImageLayout {
@@ -108,5 +108,35 @@ pub fn stage_legacy(stage: Stage) -> vk::PipelineStageFlags {
         Stage::EarlyFragmentTests => vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
         Stage::LateFragmentTests => vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
         Stage::BottomOfPipe => vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+    }
+}
+pub fn vk_format(format: TextureFormat) -> vk::Format {
+    match format {
+        TextureFormat::Undefined => vk::Format::UNDEFINED,
+        TextureFormat::R8Unorm => vk::Format::R8_UNORM,
+        TextureFormat::R8Srgb => vk::Format::R8_SRGB,
+        TextureFormat::Rg8Unorm => vk::Format::R8G8_UNORM,
+        TextureFormat::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
+        TextureFormat::Rgba8Srgb => vk::Format::R8G8B8A8_SRGB,
+        TextureFormat::Bgra8Unorm => vk::Format::B8G8R8A8_UNORM,
+        TextureFormat::Bgra8Srgb => vk::Format::B8G8R8A8_SRGB,
+        TextureFormat::R16Float => vk::Format::R16_SFLOAT,
+        TextureFormat::Rgba16Float => vk::Format::R16G16B16A16_SFLOAT,
+        TextureFormat::R32Float => vk::Format::R32_SFLOAT,
+        TextureFormat::Rgba32Float => vk::Format::R32G32B32A32_SFLOAT,
+        TextureFormat::R11b11G11B10Float => vk::Format::B10G11R11_UFLOAT_PACK32,
+        TextureFormat::Depth16 => vk::Format::D16_UNORM,
+        TextureFormat::Depth24 => vk::Format::D24_UNORM_S8_UINT,
+        TextureFormat::Depth32Float => vk::Format::D32_SFLOAT,
+        TextureFormat::Depth24Stencil8 => vk::Format::D24_UNORM_S8_UINT,
+    }
+}
+
+pub fn vk_samples(samples: SampleCount) -> vk::SampleCountFlags {
+    match samples {
+        SampleCount::X1 => vk::SampleCountFlags::TYPE_1,
+        SampleCount::X2 => vk::SampleCountFlags::TYPE_2,
+        SampleCount::X4 => vk::SampleCountFlags::TYPE_4,
+        SampleCount::X8 => vk::SampleCountFlags::TYPE_8,
     }
 }

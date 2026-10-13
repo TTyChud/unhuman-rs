@@ -1,0 +1,206 @@
+//! Buffers.
+//!
+//! Mirrors `UHE/src/Platform/Vulkan/VulkanBuffer.cpp` and goes one better: the
+//! handle is a typed generational handle from `chassis::Registry`, so a buffer
+//! cannot be passed where a texture belongs and a freed handle stops resolving.
+//! The C++ engine carries `reinterpret_cast`-ed `void*` handles
+//! (`RHITypes.h:37-41`), which is why `VulkanDevice.cpp` can only validate them
+//! by round-tripping them.
+
+use ash::vk;
+use chassis::{Buffer, BufferDesc, BufferUsage, Registry};
+
+use crate::error::{BackendError, Result};
+use crate::memory;
+
+pub struct BufferResource {
+    buffer: vk::Buffer,
+    device_memory: vk::DeviceMemory,
+    size: vk::DeviceSize,
+    host_visible: bool,
+    label: String,
+}
+
+impl BufferResource {
+    pub fn handle(&self) -> vk::Buffer {
+        self.buffer
+    }
+
+    pub fn size(&self) -> vk::DeviceSize {
+        self.size
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn is_host_visible(&self) -> bool {
+        self.host_visible
+    }
+
+    /// Reads the whole buffer. Only valid when it was created host-visible;
+    /// mapping a `DEVICE_LOCAL` allocation is undefined.
+    pub fn read(&self, device: &ash::Device) -> Result<Vec<u8>> {
+        if !self.host_visible {
+            return Err(BackendError::NotHostVisible {
+                label: self.label.clone(),
+            });
+        }
+        memory::read_buffer(device, self.device_memory, self.size)
+    }
+
+    pub fn write(&self, device: &ash::Device, data: &[u8]) -> Result<()> {
+        if !self.host_visible {
+            return Err(BackendError::NotHostVisible {
+                label: self.label.clone(),
+            });
+        }
+        memory::write_buffer(device, self.device_memory, self.size, data)
+    }
+
+    pub fn destroy(&self, device: &ash::Device) {
+        unsafe {
+            device.destroy_buffer(self.buffer, None);
+            device.free_memory(self.device_memory, None);
+        }
+    }
+}
+
+/// Owns every buffer and hands out generational handles.
+pub struct Buffers {
+    device: ash::Device,
+    registry: Registry<BufferResource, chassis::BufferTag>,
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
+}
+
+impl Buffers {
+    pub fn new(
+        device: &ash::Device,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
+    ) -> Self {
+        Self {
+            device: device.clone(),
+            registry: Registry::new(),
+            memory_properties,
+        }
+    }
+
+    pub fn create(
+        &mut self,
+        device: &ash::Device,
+        desc: &BufferDesc,
+        initial: Option<&[u8]>,
+    ) -> Result<Buffer> {
+        let usage = to_vk_usage(desc.usage);
+        if usage.is_empty() {
+            return Err(BackendError::EmptyUsage { what: "buffer" });
+        }
+
+        // Host-visible only when asked for: a staging buffer is written by the
+        // CPU, and paying for the slower path on a vertex buffer would be a
+        // silent regression.
+        let required = if desc.usage.contains(BufferUsage::TRANSFER_DST) {
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+        } else {
+            vk::MemoryPropertyFlags::DEVICE_LOCAL
+        };
+
+        let (buffer, device_memory, allocated) =
+            memory::create_buffer(device, &self.memory_properties, desc.size, usage, required)?;
+
+        let host_visible = required.contains(vk::MemoryPropertyFlags::HOST_VISIBLE);
+        let resource = BufferResource {
+            buffer,
+            device_memory,
+            size: desc.size,
+            host_visible,
+            label: format!("buffer({} bytes, {allocated} allocated)", desc.size),
+        };
+
+        let handle = self.registry.create(resource);
+
+        if let Some(data) = initial {
+            if let Err(e) = self.registry.get(handle).expect("just created").write(device, data) {
+                self.registry.remove(handle);
+                return Err(e);
+            }
+        }
+
+        Ok(handle)
+    }
+
+    /// A persistent upload buffer: host-visible, coherent, transfer destination.
+    pub fn create_staging(&mut self, device: &ash::Device, size: u64) -> Result<Buffer> {
+        self.create(
+            device,
+            &BufferDesc::new(size, BufferUsage::TRANSFER_DST | BufferUsage::TRANSFER_SRC),
+            None,
+        )
+    }
+
+    pub fn get(&self, handle: Buffer) -> Option<&BufferResource> {
+        self.registry.get(handle)
+    }
+
+    pub fn get_mut(&mut self, handle: Buffer) -> Option<&mut BufferResource> {
+        self.registry.get_mut(handle)
+    }
+
+    pub fn destroy(&mut self, device: &ash::Device, handle: Buffer) -> bool {
+        match self.registry.remove(handle) {
+            Some(resource) => {
+                resource.destroy(device);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.registry.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.registry.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Buffer, &BufferResource)> {
+        self.registry.iter()
+    }
+}
+
+/// Owning handles means destroying them. Leaving that to the caller leaks every
+/// buffer and trips VUID-vkDestroyDevice-device-05137 at device teardown.
+impl Drop for Buffers {
+    fn drop(&mut self) {
+        for (_, resource) in self.registry.iter() {
+            resource.destroy(&self.device);
+        }
+    }
+}
+
+pub fn to_vk_usage(usage: BufferUsage) -> vk::BufferUsageFlags {
+    let mut out = vk::BufferUsageFlags::empty();
+    if usage.contains(BufferUsage::VERTEX) {
+        out |= vk::BufferUsageFlags::VERTEX_BUFFER;
+    }
+    if usage.contains(BufferUsage::INDEX) {
+        out |= vk::BufferUsageFlags::INDEX_BUFFER;
+    }
+    if usage.contains(BufferUsage::UNIFORM) {
+        out |= vk::BufferUsageFlags::UNIFORM_BUFFER;
+    }
+    if usage.contains(BufferUsage::STORAGE) {
+        out |= vk::BufferUsageFlags::STORAGE_BUFFER;
+    }
+    if usage.contains(BufferUsage::TRANSFER_SRC) {
+        out |= vk::BufferUsageFlags::TRANSFER_SRC;
+    }
+    if usage.contains(BufferUsage::TRANSFER_DST) {
+        out |= vk::BufferUsageFlags::TRANSFER_DST;
+    }
+    if usage.contains(BufferUsage::INDIRECT) {
+        out |= vk::BufferUsageFlags::INDIRECT_BUFFER;
+    }
+    out
+}

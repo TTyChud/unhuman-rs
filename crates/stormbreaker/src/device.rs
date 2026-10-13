@@ -31,16 +31,30 @@ pub const DYNAMIC_RENDERING: &str = "VK_KHR_dynamic_rendering";
 pub const MEMORY_BUDGET: &str = "VK_EXT_memory_budget";
 pub const DESCRIPTOR_INDEXING: &str = "VK_EXT_descriptor_indexing";
 
-/// Lowest instance API version we ask for. 1.1 unlocks
-/// `vkGetPhysicalDeviceFeatures2`, the only sane way to probe feature chains,
-/// and is available essentially everywhere.
+/// Highest core version the engine is prepared to load functions for.
 ///
-/// Spelled with `make_api_version` rather than as `(1 << 22) | (1 << 12)`: the
-/// hand-encoded form was written as `(0 << 22) | (1 << 12)`, which is version
-/// **0.1**, and every instance creation failed with `ERROR_INCOMPATIBLE_DRIVER`.
-/// `requested_api_version_is_valid` below keeps that from coming back.
-pub fn requested_api_version() -> u32 {
-    vk::make_api_version(0, 1, 1, 0)
+/// This is *not* the version we require of the device. The loader only exposes
+/// entry points for the version requested at instance creation, so asking for
+/// less than we intend to use means `vkCmdPipelineBarrier2` and `vkQueueSubmit2`
+/// are never loaded — and ash's stub for a missing function panics. What the
+/// *device* supports is a separate question, answered by `select_sync_tier` and
+/// the `at_least(api_version, 1, 3)` checks.
+const MAX_API: u32 = (1 << 22) | (3 << 12);
+
+/// The version to request, given what the loader reports.
+///
+/// The first cut hardcoded 1.1 here, and every `Sync2` path died on a panic from
+/// ash's unloaded-function stub: a 1.1 instance never loads the 1.3 entry points,
+/// even on a 1.4 device.
+///
+/// Spelled with `make_api_version` rather than `(1 << 22) | (1 << 12)`: that was
+/// once written as `(0 << 22) | (1 << 12)`, which is version **0.1**, and every
+/// instance creation failed with `ERROR_INCOMPATIBLE_DRIVER`.
+pub fn requested_api_version(loader_version: u32) -> u32 {
+    // Floor at 1.1: `vkGetPhysicalDeviceFeatures2` is the only sane way to probe
+    // feature chains, and it is core from 1.1.
+    let floor = vk::make_api_version(0, 1, 1, 0);
+    loader_version.clamp(floor, MAX_API)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -102,12 +116,19 @@ pub fn create_device(options: DeviceOptions) -> Result<Context> {
     // No surface extensions yet: `eyes` owns window creation. Requesting
     // `VK_KHR_surface` with no surface is the sort of thing that validates on
     // one loader and not another.
+    // `enumerate_instance_version` is deprecated *and* panics on a Vulkan 1.0
+    // loader, which is exactly the case where we need to know the answer.
+    let loader_version = match unsafe { entry.try_enumerate_instance_version() } {
+        Ok(Some(version)) => version,
+        Ok(None) | Err(_) => vk::make_api_version(0, 1, 0, 0),
+    };
+
     let app_info = vk::ApplicationInfo {
         p_application_name: c"unhuman-rs".as_ptr(),
         application_version: vk::make_api_version(0, 1, 0, 0),
         p_engine_name: options.engine_name.as_ptr(),
         engine_version: vk::make_api_version(0, 1, 0, 0),
-        api_version: requested_api_version(),
+        api_version: requested_api_version(loader_version),
         ..Default::default()
     };
 
@@ -296,12 +317,31 @@ mod tests {
 
     #[test]
     fn requested_api_version_is_valid() {
-        let api = requested_api_version();
+        let api = requested_api_version(vk::make_api_version(0, 1, 4, 0));
         assert_eq!(version_major(api), 1, "major must be 1, not 0");
-        assert_eq!(version_minor(api), 1, "minor must be 1");
-        // 0.1 is the value that broke instance creation, and it is easy to
-        // hand-encode wrong.
-        assert!(api > vk::make_api_version(0, 1, 0, 0));
+        assert!(
+            version_minor(api) >= 1,
+            "1.0 instances cannot load vkGetPhysicalDeviceFeatures2"
+        );
+        assert!(
+            version_minor(api) <= 3,
+            "1.4 entry points are not used by the engine yet"
+        );
+    }
+
+    #[test]
+    fn a_low_loader_falls_back_to_the_floor() {
+        // A 1.0 loader gets 1.1 requested, which it rejects, so the floor here is
+        // about not asking for less than we need rather than about the loader.
+        let api = requested_api_version(vk::make_api_version(0, 1, 0, 0));
+        assert_eq!(version_minor(api), 1);
+    }
+
+    #[test]
+    fn a_high_loader_is_capped_at_what_the_engine_uses() {
+        let api = requested_api_version(vk::make_api_version(0, 1, 4, 200));
+        assert_eq!(version_major(api), 1);
+        assert_eq!(version_minor(api), 3);
     }
 
     #[test]
