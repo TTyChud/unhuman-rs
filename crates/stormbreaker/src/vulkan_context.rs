@@ -15,7 +15,7 @@
 use ash::{vk, Device, Entry, Instance};
 
 use crate::vulkan_error::{BackendError, Result};
-use crate::vulkan_extension_check::{Capabilities, QueueFamily, SyncTier};
+use crate::vulkan_extension_check::{Capabilities, SyncTier};
 
 /// Everything one device owns, in one value with one drop order.
 pub struct Context {
@@ -97,61 +97,4 @@ impl Context {
                 .get_physical_device_queue_family_properties(self.physical_device)
         }
     }
-}
-
-/// Picks the physical device to use: the first with a graphics-capable queue,
-/// preferring a discrete GPU when the driver reports a type.
-pub(crate) fn choose_physical_device(
-    instance: &Instance,
-    devices: &[vk::PhysicalDevice],
-) -> Result<vk::PhysicalDevice> {
-    let mut best: Option<(bool, vk::PhysicalDevice)> = None;
-
-    for device in devices {
-        let families = unsafe { instance.get_physical_device_queue_family_properties(*device) };
-        if !families
-            .iter()
-            .any(|f| f.queue_flags.contains(vk::QueueFlags::GRAPHICS))
-        {
-            continue;
-        }
-        let properties = unsafe { instance.get_physical_device_properties(*device) };
-        let discrete = properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU;
-        match best {
-            Some((true, _)) => {}
-            _ => best = Some((discrete, *device)),
-        }
-    }
-
-    best.map(|(_, device)| device)
-        .ok_or(BackendError::NoGraphicsQueue)
-}
-
-/// Reads the queue families out of the driver.
-///
-/// `present` is false for every family until `eyes` supplies a surface: the
-/// surface loader needs `VK_KHR_surface` enabled on the instance, which happens
-/// with window creation, not device creation.
-pub(crate) fn probe_queue_families(
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-) -> Result<Vec<QueueFamily>> {
-    let properties =
-        unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
-    if properties.is_empty() {
-        return Err(BackendError::NoQueueFamilies);
-    }
-
-    Ok(properties
-        .iter()
-        .enumerate()
-        .map(|(index, family)| QueueFamily {
-            index: index as u32,
-            graphics: family.queue_flags.contains(vk::QueueFlags::GRAPHICS),
-            compute: family.queue_flags.contains(vk::QueueFlags::COMPUTE),
-            transfer: family.queue_flags.contains(vk::QueueFlags::TRANSFER),
-            present: false,
-            timestamp_valid_bits: family.timestamp_valid_bits,
-        })
-        .collect())
 }

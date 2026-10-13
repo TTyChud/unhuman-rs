@@ -1,0 +1,122 @@
+//! Logical device creation.
+//!
+//! Mirrors `VulkanLogicalDevice.cpp`.
+//!
+//! Feature enabling mirrors the probe in `vulkan_physical_device.rs`, with the
+//! same constraint: the 1.2 node only appears on the chain when the device
+//! reported 1.2 or newer. Enabling a feature through a struct the device does not
+//! know is a validation error, and on some drivers a device loss.
+
+use ash::{vk, Device, Instance};
+
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::{Capabilities, QueueFamily, SyncTier};
+use crate::vulkan_physical_device::{self, Probe};
+
+/// What a successful logical-device creation yields.
+pub struct LogicalDevice {
+    pub device: Device,
+    pub graphics_queue: vk::Queue,
+    pub queue_family: u32,
+    pub capabilities: Capabilities,
+}
+
+pub fn create(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    properties: vk::PhysicalDeviceProperties,
+    probe: Probe,
+    families: &[QueueFamily],
+) -> Result<LogicalDevice> {
+    let api_version = properties.api_version;
+    let sync_tier = sync_tier_for(api_version, probe);
+
+    let graphics_family = families
+        .iter()
+        .find(|f| f.graphics)
+        .map(|f| f.index)
+        .ok_or(BackendError::NoGraphicsQueue)?;
+
+    // The extension list mirrors what the tier will actually use, so a legacy
+    // path never carries an unused extension.
+    let mut extension_ptrs: Vec<*const std::os::raw::c_char> = Vec::new();
+    if sync_tier.supports_timeline_semaphores() {
+        if !vulkan_physical_device::has_device_extension(
+            instance,
+            physical_device,
+            vulkan_physical_device::TIMELINE_SEMAPHORE,
+        ) {
+            return Err(BackendError::ExtensionUnavailable {
+                name: vulkan_physical_device::TIMELINE_SEMAPHORE.into(),
+                required_for: "Sync2Timeline",
+            });
+        }
+        extension_ptrs.push(c"VK_KHR_timeline_semaphore".as_ptr());
+    }
+
+    let queue_priorities = [1.0f32];
+    let queue_info = vk::DeviceQueueCreateInfo::default()
+        .queue_family_index(graphics_family)
+        .queue_priorities(&queue_priorities);
+
+    // Enable chain, same ordering rule as the probe. These locals must outlive
+    // `vkCreateDevice`; the driver copies the values during the call.
+    let mut enable_v12 = vk::PhysicalDeviceVulkan12Features::default()
+        .timeline_semaphore(sync_tier.supports_timeline_semaphores())
+        .descriptor_indexing(probe.descriptor_indexing);
+    let mut enable_v13 = vk::PhysicalDeviceVulkan13Features::default()
+        .synchronization2(sync_tier.supports_sync2())
+        .dynamic_rendering(probe.dynamic_rendering);
+
+    let base_features = vk::PhysicalDeviceFeatures::default();
+    let queue_infos = [queue_info];
+    let mut device_info = vk::DeviceCreateInfo {
+        p_enabled_features: &base_features,
+        ..Default::default()
+    }
+    .queue_create_infos(&queue_infos)
+    .enabled_extension_names(&extension_ptrs);
+
+    if vulkan_physical_device::at_least(api_version, 1, 3) {
+        enable_v13.p_next = (&raw mut enable_v12).cast::<std::os::raw::c_void>();
+        device_info.p_next = (&raw mut enable_v13).cast::<std::os::raw::c_void>();
+    }
+
+    let device = unsafe { instance.create_device(physical_device, &device_info, None) }
+        .map_err(|e| BackendError::vk("vkCreateDevice", e))?;
+    let graphics_queue = unsafe { device.get_device_queue(graphics_family, 0) };
+
+    let capabilities = Capabilities {
+        device_name: vulkan_physical_device::read_device_name(&properties.device_name),
+        api_version,
+        driver_version: properties.driver_version,
+        vendor_id: properties.vendor_id,
+        device_id: properties.device_id,
+        sync_tier,
+        queue_families: families.to_vec(),
+        graphics_queue_family: Some(graphics_family),
+        dynamic_rendering: probe.dynamic_rendering,
+        memory_budget: vulkan_physical_device::has_device_extension(
+            instance,
+            physical_device,
+            vulkan_physical_device::MEMORY_BUDGET,
+        ),
+        descriptor_indexing: probe.descriptor_indexing,
+        max_texture_dimension_2d: properties.limits.max_image_dimension2_d,
+    };
+
+    Ok(LogicalDevice {
+        device,
+        graphics_queue,
+        queue_family: graphics_family,
+        capabilities,
+    })
+}
+
+fn sync_tier_for(api_version: u32, probe: Probe) -> SyncTier {
+    crate::vulkan_extension_check::select_sync_tier(
+        api_version,
+        probe.synchronization2,
+        probe.timeline_semaphore,
+    )
+}
