@@ -6,12 +6,14 @@ resolver = "2"
 default-members = [
     "crates/adam",
     "crates/chassis",
+    "crates/forge",
     "crates/grind",
     "crates/stormbreaker",
 ]
 members = [
     "crates/adam",
     "crates/chassis",
+    "crates/forge",
     "crates/grind",
     "crates/stormbreaker",
 ]
@@ -25,5 +27,6 @@ repository = "https://github.com/unhuman-engine/unhuman-rs.git"
 [workspace.dependencies]
 adam = { path = "crates/adam" }
 chassis = { path = "crates/chassis" }
+forge = { path = "crates/forge" }
 grind = { path = "crates/grind" }
 stormbreaker = { path = "crates/stormbreaker" }

@@ -70,10 +70,17 @@ Never push. Commit only; the owner pushes.
       `.spv` files are checked in and `compile.sh` regenerates them, so `cargo
       test` is hermetic and a shader-compiler bug cannot surface as a backend
       bug.
-- [ ] **6. `forge`** — Slang FFI. Separate repo producing a `slang-sys` crate
-      (cmake + bindgen against the existing C++ Slang tree), because `Cargo.lock`
-      pins crates and not C++ builds. Until it exists, `forge` shells out to the
-      vendored `slangc` — the same compiler, so the output cannot differ.
+- [x] **6. `forge`** — done, as a **driver** not an FFI. `Forge` wraps the
+      vendored `slangc` behind a `ShaderCompiler` trait, with a content-addressed
+      cache and parsed diagnostics. An in-process `libslang.so` binding can
+      replace the driver without touching a caller.
+      Why not FFI first: the Slang C API is C++ virtual interfaces
+      (`slang::ISession`, `slang::IModule`), so binding it means binding a
+      vtable layout across a crate boundary plus libclang at build time — real
+      ABI risk for no benefit until compile time actually matters.
+      The cache key includes the **compiler version**: Slang can legitimately
+      emit different SPIR-V across releases, and a key without it serves stale
+      shaders after a toolchain bump.
 
 ## Game side — none of this exists yet
 
