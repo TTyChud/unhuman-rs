@@ -54,6 +54,9 @@ pub enum BackendError {
     /// More command lists were asked for than the arena holds. Failing here is
     /// deliberate: silently recording fewer would drop passes.
     ListArenaExhausted { requested: usize, available: usize },
+    /// The binary semaphore chain is shorter than the list chain it is supposed
+    /// to chain.
+    ChainTooShort { semaphores: usize, lists: usize },
 }
 
 impl fmt::Display for BackendError {
@@ -99,6 +102,10 @@ impl fmt::Display for BackendError {
             BackendError::UploadTooLarge { size, capacity } => write!(
                 f,
                 "upload of {size} bytes exceeds the {capacity} byte staging ring"
+            ),
+            BackendError::ChainTooShort { semaphores, lists } => write!(
+                f,
+                "{semaphores} semaphores cannot chain {lists} command lists"
             ),
             BackendError::ListArenaExhausted { requested, available } => write!(
                 f,

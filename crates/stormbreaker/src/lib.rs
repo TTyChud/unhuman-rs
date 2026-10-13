@@ -8,6 +8,8 @@
 
 pub mod barrier_encoder;
 pub mod buffer;
+pub mod command_buffer;
+pub mod command_pool;
 pub mod context;
 pub mod deletion_queue;
 pub mod descriptor;
@@ -18,6 +20,7 @@ pub mod memory;
 pub mod extension_check;
 pub mod pipeline;
 pub mod shader;
+pub mod submit_encoder;
 pub mod fence;
 pub mod pipeline_cache;
 pub mod semaphore;
@@ -33,7 +36,8 @@ pub use descriptor::{BindGroupLayoutDesc, Binding, Descriptors};
 pub use device::{create_device, device_available, DeviceOptions};
 pub use pipeline::{PipelineResource, Pipelines};
 pub use error::{BackendError, Result};
-pub use frame_context::{Recorder, Recording};
+pub use command_buffer::Recording;
+pub use frame_context::Recorder;
 pub use barrier_encoder::{buffer_barrier2, buffer_barrier_legacy};
 pub use buffer::{BufferResource, Buffers};
 pub use deletion_queue::{DeletionQueue, Pending};
