@@ -16,8 +16,8 @@
 
 use ash::{vk, Device};
 
-use crate::error::{BackendError, Result};
-use crate::extension_check::SyncTier;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::SyncTier;
 
 /// Chain inputs. The buffers are in compiled order.
 pub struct Chain<'a> {

@@ -13,7 +13,7 @@
 
 use ash::{vk, Device};
 
-use crate::error::Result;
+use crate::vulkan_error::Result;
 
 /// A command buffer being recorded on one thread.
 pub struct Recording {

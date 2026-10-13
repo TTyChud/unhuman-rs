@@ -19,10 +19,10 @@ use std::collections::HashMap;
 use ash::vk;
 use chassis::{Pipeline, PipelineDesc, Registry};
 
-use crate::descriptor::Descriptors;
-use crate::error::{BackendError, Result};
-use crate::extension_check::Capabilities;
-use crate::shader::{content_hash, Shaders};
+use crate::vulkan_descriptor_manager::Descriptors;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::Capabilities;
+use crate::vulkan_shader::{content_hash, Shaders};
 
 pub struct PipelineResource {
     pipeline: vk::Pipeline,
@@ -176,7 +176,7 @@ impl Pipelines {
             .map(|attribute| vk::VertexInputAttributeDescription {
                 location: attribute.location,
                 binding: 0,
-                format: crate::types::vk_format(attribute.format),
+                format: crate::vulkan_types::vk_format(attribute.format),
                 offset: attribute.offset,
             })
             .collect();
@@ -229,7 +229,7 @@ impl Pipelines {
             .line_width(1.0);
 
         let multisample = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(crate::types::vk_samples(desc.samples))
+            .rasterization_samples(crate::vulkan_types::vk_samples(desc.samples))
             .sample_shading_enable(false);
 
         let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
@@ -273,12 +273,12 @@ impl Pipelines {
         let color_formats: Vec<vk::Format> = desc
             .color_targets
             .iter()
-            .map(|target| crate::types::vk_format(target.format))
+            .map(|target| crate::vulkan_types::vk_format(target.format))
             .collect();
         let depth_format = desc
             .depth
             .format
-            .map(crate::types::vk_format)
+            .map(crate::vulkan_types::vk_format)
             .unwrap_or(vk::Format::UNDEFINED);
 
         let rendering = vk::PipelineRenderingCreateInfo::default()

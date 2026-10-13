@@ -10,8 +10,8 @@
 use ash::vk;
 use chassis::{Buffer, BufferDesc, BufferUsage, Registry};
 
-use crate::error::{BackendError, Result};
-use crate::memory;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_allocation;
 
 pub struct BufferResource {
     buffer: vk::Buffer,
@@ -46,7 +46,7 @@ impl BufferResource {
                 label: self.label.clone(),
             });
         }
-        memory::read_buffer(device, self.device_memory, self.size)
+        vulkan_allocation::read_buffer(device, self.device_memory, self.size)
     }
 
     pub fn write(&self, device: &ash::Device, data: &[u8]) -> Result<()> {
@@ -55,7 +55,7 @@ impl BufferResource {
                 label: self.label.clone(),
             });
         }
-        memory::write_buffer(device, self.device_memory, self.size, data)
+        vulkan_allocation::write_buffer(device, self.device_memory, self.size, data)
     }
 
     pub fn destroy(&self, device: &ash::Device) {
@@ -106,7 +106,7 @@ impl Buffers {
         };
 
         let (buffer, device_memory, allocated) =
-            memory::create_buffer(device, &self.memory_properties, desc.size, usage, required)?;
+            vulkan_allocation::create_buffer(device, &self.memory_properties, desc.size, usage, required)?;
 
         let host_visible = required.contains(vk::MemoryPropertyFlags::HOST_VISIBLE);
         let resource = BufferResource {

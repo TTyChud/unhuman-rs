@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use ash::vk;
 use chassis::{Registry, Shader};
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 /// Reinterprets SPIR-V bytes as the `u32` words Vulkan wants, rejecting anything
 /// that is not a module.

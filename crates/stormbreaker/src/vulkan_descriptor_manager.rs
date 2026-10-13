@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use ash::vk;
 use chassis::{BindGroup, Registry};
 
-use crate::error::{BackendError, Result};
-use crate::shader::content_hash;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_shader::content_hash;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum DescriptorKind {

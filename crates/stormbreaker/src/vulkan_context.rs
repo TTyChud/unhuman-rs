@@ -14,8 +14,8 @@
 
 use ash::{vk, Device, Entry, Instance};
 
-use crate::error::{BackendError, Result};
-use crate::extension_check::{Capabilities, QueueFamily, SyncTier};
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::{Capabilities, QueueFamily, SyncTier};
 
 /// Everything one device owns, in one value with one drop order.
 pub struct Context {

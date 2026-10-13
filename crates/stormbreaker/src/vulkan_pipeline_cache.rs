@@ -16,7 +16,7 @@
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 pub struct PipelineCache {
     device: ash::Device,

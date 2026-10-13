@@ -20,9 +20,9 @@ use std::os::raw::c_void;
 
 use ash::{vk, Entry, Instance};
 
-use crate::context::{choose_physical_device, probe_queue_families, Context};
-use crate::error::{BackendError, Result};
-use crate::extension_check::{select_sync_tier, version_major, version_minor, Capabilities};
+use crate::vulkan_context::{choose_physical_device, probe_queue_families, Context};
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::{select_sync_tier, version_major, version_minor, Capabilities};
 
 pub const VALIDATION_LAYER: &str = "VK_LAYER_KHRONOS_validation";
 pub const TIMELINE_SEMAPHORE: &str = "VK_KHR_timeline_semaphore";

@@ -17,8 +17,8 @@
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
-use crate::memory;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_allocation;
 
 /// A per-thread staging ring.
 pub struct UploadRing {
@@ -47,7 +47,7 @@ impl UploadRing {
         family: u32,
         capacity: vk::DeviceSize,
     ) -> Result<Self> {
-        let (buffer, device_memory, _) = memory::create_buffer(
+        let (buffer, device_memory, _) = vulkan_allocation::create_buffer(
             device,
             memory_properties,
             capacity,

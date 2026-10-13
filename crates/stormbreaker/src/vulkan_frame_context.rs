@@ -2,7 +2,7 @@
 //!
 //! Mirrors `VulkanFrameContext.cpp`. This is the orchestrator: it owns the
 //! per-list pools from `command_pool.rs`, hands out buffers wrapped as
-//! `command_buffer::Recording`, and turns a batch of finished recordings into a
+//! `vulkan_command_buffer::Recording`, and turns a batch of finished recordings into a
 //! submission through `submit_encoder.rs`.
 //!
 //! The recording model is the part the C++ engine cannot express.
@@ -24,11 +24,11 @@
 
 use ash::{vk, Device};
 
-use crate::command_buffer::Recording;
-use crate::command_pool;
-use crate::error::{BackendError, Result};
-use crate::extension_check::SyncTier;
-use crate::submit_encoder::Chain;
+use crate::vulkan_command_buffer::Recording;
+use crate::vulkan_command_pool;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::SyncTier;
+use crate::vulkan_submit_encoder::Chain;
 
 /// Secondary buffers, allocated once and recycled.
 pub struct Recorder {
@@ -69,8 +69,8 @@ impl Recorder {
         let mut pools = Vec::with_capacity(max_lists);
         let mut free = Vec::with_capacity(max_lists);
         for slot in 0..max_lists {
-            match command_pool::create(device, family)
-                .and_then(|pool| command_pool::allocate(device, pool).map(|buf| (pool, buf)))
+            match vulkan_command_pool::create(device, family)
+                .and_then(|pool| vulkan_command_pool::allocate(device, pool).map(|buf| (pool, buf)))
             {
                 Ok((pool, buffer)) => {
                     pools.push(pool);
@@ -78,7 +78,7 @@ impl Recorder {
                 }
                 Err(e) => {
                     for existing in pools.drain(..) {
-                        command_pool::reset_and_destroy(device, existing);
+                        vulkan_command_pool::reset_and_destroy(device, existing);
                     }
                     return Err(e);
                 }
@@ -90,7 +90,7 @@ impl Recorder {
             Ok(fence) => fence,
             Err(e) => {
                 for existing in pools.drain(..) {
-                    command_pool::reset_and_destroy(device, existing);
+                    vulkan_command_pool::reset_and_destroy(device, existing);
                 }
                 return Err(BackendError::vk("vkCreateFence", e));
             }
@@ -111,7 +111,7 @@ impl Recorder {
                 Err(e) => {
                     unsafe { device.destroy_fence(fence, None) };
                     for existing in pools.drain(..) {
-                        command_pool::reset_and_destroy(device, existing);
+                        vulkan_command_pool::reset_and_destroy(device, existing);
                     }
                     return Err(BackendError::vk("vkCreateSemaphore", e));
                 }
@@ -124,7 +124,7 @@ impl Recorder {
                     Err(e) => {
                         unsafe { device.destroy_fence(fence, None) };
                         for existing in pools.drain(..) {
-                            command_pool::reset_and_destroy(device, existing);
+                            vulkan_command_pool::reset_and_destroy(device, existing);
                         }
                         return Err(BackendError::vk("vkCreateSemaphore", e));
                     }
@@ -258,7 +258,7 @@ impl Drop for Recorder {
             }
         }
         for pool in self.pools.drain(..) {
-            command_pool::reset_and_destroy(&self.device, pool);
+            vulkan_command_pool::reset_and_destroy(&self.device, pool);
         }
     }
 }

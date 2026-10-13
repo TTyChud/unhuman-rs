@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 pub struct Semaphore {
     device: ash::Device,

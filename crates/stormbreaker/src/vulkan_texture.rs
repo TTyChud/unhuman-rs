@@ -11,9 +11,9 @@
 use ash::vk;
 use chassis::{Extent, Registry, Texture, TextureDesc, TextureFormat, TextureUsage};
 
-use crate::error::{BackendError, Result};
-use crate::memory;
-use crate::types;
+use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_allocation;
+use crate::vulkan_types;
 
 pub struct TextureResource {
     image: vk::Image,
@@ -51,8 +51,8 @@ impl TextureResource {
     }
 
     /// The view plus the subresource range every barrier for this texture uses.
-    pub fn barrier_target(&self) -> crate::barrier_encoder::Target {
-        crate::barrier_encoder::Target::color(self.image, self.mip_levels, 1)
+    pub fn barrier_target(&self) -> crate::vulkan_barrier_encoder::Target {
+        crate::vulkan_barrier_encoder::Target::color(self.image, self.mip_levels, 1)
     }
 
     pub fn destroy(&self, device: &ash::Device) {
@@ -103,7 +103,7 @@ impl Textures {
             } else {
                 vk::ImageType::TYPE_2D
             },
-            format: types::vk_format(desc.format),
+            format: vulkan_types::vk_format(desc.format),
             extent: vk::Extent3D {
                 width: desc.extent.width,
                 height: desc.extent.height,
@@ -111,7 +111,7 @@ impl Textures {
             },
             mip_levels: level_count,
             array_layers: 1,
-            samples: types::vk_samples(desc.samples),
+            samples: vulkan_types::vk_samples(desc.samples),
             tiling: vk::ImageTiling::OPTIMAL,
             usage,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
@@ -125,7 +125,7 @@ impl Textures {
         };
 
         let requirements = unsafe { device.get_image_memory_requirements(image) };
-        let device_memory = match memory::create_image_memory(
+        let device_memory = match vulkan_allocation::create_image_memory(
             device,
             &self.memory_properties,
             requirements.memory_type_bits,
@@ -151,9 +151,9 @@ impl Textures {
             .view_type(vk::ImageViewType::TYPE_2D)
             // UNDEFINED is the only legal layout for a view created alongside
             // the image; the graph transitions it later.
-            .format(types::vk_format(desc.format))
+            .format(vulkan_types::vk_format(desc.format))
             .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: types::aspect(desc.format),
+                aspect_mask: vulkan_types::aspect(desc.format),
                 base_mip_level: 0,
                 level_count,
                 base_array_layer: 0,

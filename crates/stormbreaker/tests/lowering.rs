@@ -10,7 +10,7 @@ use ash::vk;
 use ash::vk::Handle;
 use chassis::TextureFormat;
 use stormbreaker::{
-    image_barrier2, image_barrier_legacy, select_sync_tier, types, SyncTier,
+    image_barrier2, image_barrier_legacy, select_sync_tier, vulkan_types, SyncTier,
 };
 use stormgraph::{ImageBarrier, ImageState};
 
@@ -52,29 +52,29 @@ fn barrier(src: ImageState, dst: ImageState) -> ImageBarrier {
 
 #[test]
 fn every_state_maps_to_a_layout() {
-    assert_eq!(types::layout(ImageState::Undefined), vk::ImageLayout::UNDEFINED);
+    assert_eq!(vulkan_types::layout(ImageState::Undefined), vk::ImageLayout::UNDEFINED);
     assert_eq!(
-        types::layout(ImageState::ColorAttachment),
+        vulkan_types::layout(ImageState::ColorAttachment),
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
     );
     assert_eq!(
-        types::layout(ImageState::ShaderRead),
+        vulkan_types::layout(ImageState::ShaderRead),
         vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
     );
     assert_eq!(
-        types::layout(ImageState::Storage),
+        vulkan_types::layout(ImageState::Storage),
         vk::ImageLayout::GENERAL
     );
     assert_eq!(
-        types::layout(ImageState::TransferSrc),
+        vulkan_types::layout(ImageState::TransferSrc),
         vk::ImageLayout::TRANSFER_SRC_OPTIMAL
     );
     assert_eq!(
-        types::layout(ImageState::TransferDst),
+        vulkan_types::layout(ImageState::TransferDst),
         vk::ImageLayout::TRANSFER_DST_OPTIMAL
     );
     assert_eq!(
-        types::layout(ImageState::Present),
+        vulkan_types::layout(ImageState::Present),
         vk::ImageLayout::PRESENT_SRC_KHR
     );
 }
@@ -84,21 +84,21 @@ fn combined_depth_stencil_uses_the_combined_layout() {
     // A stencil aspect with DEPTH_ATTACHMENT_OPTIMAL is a validation error, and
     // this is the format coupling the C++ descriptors hide.
     assert_eq!(
-        types::layout_for(ImageState::DepthAttachment, TextureFormat::Depth24Stencil8),
+        vulkan_types::layout_for(ImageState::DepthAttachment, TextureFormat::Depth24Stencil8),
         vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
     );
     assert_eq!(
-        types::layout_for(ImageState::DepthAttachment, TextureFormat::Depth32Float),
+        vulkan_types::layout_for(ImageState::DepthAttachment, TextureFormat::Depth32Float),
         vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL
     );
 }
 
 #[test]
 fn aspects_come_from_the_format() {
-    assert_eq!(types::aspect(TextureFormat::Rgba8Unorm), vk::ImageAspectFlags::COLOR);
-    assert_eq!(types::aspect(TextureFormat::Depth24), vk::ImageAspectFlags::DEPTH);
+    assert_eq!(vulkan_types::aspect(TextureFormat::Rgba8Unorm), vk::ImageAspectFlags::COLOR);
+    assert_eq!(vulkan_types::aspect(TextureFormat::Depth24), vk::ImageAspectFlags::DEPTH);
     assert_eq!(
-        types::aspect(TextureFormat::Depth24Stencil8),
+        vulkan_types::aspect(TextureFormat::Depth24Stencil8),
         vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
     );
 }
@@ -205,12 +205,12 @@ fn both_encodings_agree() {
         );
         assert_eq!(
             modern.src_stage_mask,
-            widen_stage(types::stage_legacy(b.src_stage)),
+            widen_stage(vulkan_types::stage_legacy(b.src_stage)),
             "source stage for {src:?}->{dst:?}"
         );
         assert_eq!(
             modern.dst_stage_mask,
-            widen_stage(types::stage_legacy(b.dst_stage)),
+            widen_stage(vulkan_types::stage_legacy(b.dst_stage)),
             "destination stage for {src:?}->{dst:?}"
         );
     }
@@ -291,7 +291,7 @@ fn a_graph_barrier_survives_the_lowering() {
         .find(|b| b.dst_state == ImageState::Present)
         .expect("the swapchain must reach Present");
     assert_eq!(
-        types::layout(present.dst_state),
+        vulkan_types::layout(present.dst_state),
         vk::ImageLayout::PRESENT_SRC_KHR
     );
 }
@@ -310,14 +310,14 @@ fn access_and_stage_enums_map_one_to_one() {
         ImageState::Present,
         ImageState::Storage,
     ] {
-        let modern = types::access(stormgraph::access_for_state(state));
-        let legacy = types::access_legacy(stormgraph::access_for_state(state));
+        let modern = vulkan_types::access(stormgraph::access_for_state(state));
+        let legacy = vulkan_types::access_legacy(stormgraph::access_for_state(state));
         assert_eq!(modern, widen_access(legacy), "access for {state:?}");
 
         let stage = stormgraph::stage_for_state(state);
         assert_eq!(
-            types::stage(stage),
-            widen_stage(types::stage_legacy(stage)),
+            vulkan_types::stage(stage),
+            widen_stage(vulkan_types::stage_legacy(stage)),
             "stage for {stage:?}"
         );
     }

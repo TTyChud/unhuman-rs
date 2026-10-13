@@ -8,7 +8,7 @@
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 /// Finds the cheapest memory type that satisfies `type_bits` and any required
 /// property flags.

@@ -403,20 +403,20 @@ fn sample_counts_and_formats_map_without_gaps() {
         TextureFormat::Depth24Stencil8,
     ] {
         assert_ne!(
-            stormbreaker::types::vk_format(format),
+            stormbreaker::vulkan_types::vk_format(format),
             vk::Format::UNDEFINED,
             "{format:?} has no Vulkan format"
         );
     }
     assert_eq!(
-        stormbreaker::types::vk_samples(SampleCount::X4),
+        stormbreaker::vulkan_types::vk_samples(SampleCount::X4),
         vk::SampleCountFlags::TYPE_4
     );
 }
 
 #[test]
 fn buffer_usage_maps_to_every_declared_bit() {
-    use stormbreaker::buffer::to_vk_usage;
+    use stormbreaker::vulkan_buffer::to_vk_usage;
     let all = chassis::BufferUsage::VERTEX
         | chassis::BufferUsage::INDEX
         | chassis::BufferUsage::UNIFORM

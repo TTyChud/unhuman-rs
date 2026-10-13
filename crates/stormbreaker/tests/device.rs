@@ -6,7 +6,7 @@
 //! covered wherever it exists.
 
 use stormbreaker::{create_device, device_available, BackendError, DeviceOptions, SyncTier};
-use stormbreaker::extension_check::{version_major, version_minor};
+use stormbreaker::vulkan_extension_check::{version_major, version_minor};
 
 /// Returns a device, or `None` when this machine cannot run the test.
 fn open_device() -> Option<stormbreaker::Context> {

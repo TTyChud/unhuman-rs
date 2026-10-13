@@ -22,7 +22,7 @@
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 /// Flags every pool in this engine is created with.
 ///

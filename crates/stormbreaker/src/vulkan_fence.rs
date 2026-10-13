@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use ash::vk;
 
-use crate::error::{BackendError, Result};
+use crate::vulkan_error::{BackendError, Result};
 
 /// One fence per frame in flight.
 pub struct Fence {
