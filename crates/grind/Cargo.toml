@@ -1,0 +1,9 @@
+[package]
+name = "grind"
+description = "Job system and task graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

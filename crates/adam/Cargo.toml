@@ -1,0 +1,11 @@
+[package]
+name = "adam"
+description = "Base engine: Engine, App, plugin registry, main loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chassis = { workspace = true }
+grind = { workspace = true }

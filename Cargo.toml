@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/adam",
+    "crates/chassis",
+    "crates/grind",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/unhuman-engine/unhuman-rs.git"
+
+[workspace.dependencies]
+adam = { path = "crates/adam" }
+chassis = { path = "crates/chassis" }
+grind = { path = "crates/grind" }

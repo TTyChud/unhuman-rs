@@ -1,0 +1,28 @@
+//! The RHI interface. Vulkan's problem is not that it was abstracted, it is
+//! that the abstraction was hollow: one implementation, `void*` handles
+//! (`UHE/src/UHE/RHI/RHITypes.h:37-41`), and the "backend-agnostic" layer
+//! `dynamic_cast` straight through it (`UHE/src/UHE/ImGui/ImGuiLayer.cpp:11`).
+//!
+//! The test that keeps this crate honest: **no Vulkan type appears in any
+//! signature outside the backend.** That is enforced here by the dependency
+//! list being empty, not by discipline.
+
+mod desc;
+mod format;
+mod handle;
+mod rhi;
+
+pub use desc::{
+    BlendState, BufferDesc, ColorAttachmentDesc, DepthAttachmentDesc, Extent, IndexFormat,
+    LoadOp, PipelineDesc, PrimitiveState, RenderPassDesc, TextureDesc, VertexAttribute,
+    VertexLayout,
+};
+pub use format::{BufferUsage, SampleCount, TextureFormat, TextureUsage};
+pub use handle::{
+    BindGroup, BindGroupTag, Buffer, BufferTag, Handle, ImageView, ImageViewTag, Pipeline,
+    PipelineTag, Registry, Shader, ShaderTag, Texture, TextureTag,
+};
+pub use rhi::{
+    CommandList, Error, Extent2d, Gpu, GpuInfo, PassId, RenderGraph, Resources, Result, Swapchain,
+    SyncTier,
+};

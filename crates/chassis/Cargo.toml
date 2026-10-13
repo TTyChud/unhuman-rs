@@ -1,0 +1,16 @@
+[package]
+name = "chassis"
+description = "RHI interface: descriptors, handles and backend traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `grind` only, and only because `RenderGraph::execute` records passes across
+# the job system. Deliberately absent: ash, volk, vma.
+#
+# If this list ever grows a Vulkan binding, the rule that no Vulkan type may
+# cross a crate boundary stops being enforced by the compiler and starts being
+# enforced by review. That is the single most important invariant here.
+grind = { workspace = true }
