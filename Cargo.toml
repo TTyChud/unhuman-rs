@@ -8,12 +8,14 @@ default-members = [
     "crates/chassis",
     "crates/grind",
     "crates/stormgraph",
+    "crates/stormbreaker",
 ]
 members = [
     "crates/adam",
     "crates/chassis",
     "crates/grind",
     "crates/stormgraph",
+    "crates/stormbreaker",
 ]
 
 [workspace.package]
@@ -27,3 +29,4 @@ adam = { path = "crates/adam" }
 chassis = { path = "crates/chassis" }
 grind = { path = "crates/grind" }
 stormgraph = { path = "crates/stormgraph" }
+stormbreaker = { path = "crates/stormbreaker" }

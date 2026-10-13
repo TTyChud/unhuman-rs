@@ -1,0 +1,27 @@
+[package]
+name = "stormbreaker"
+description = "Vulkan backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chassis = { workspace = true }
+stormgraph = { workspace = true }
+grind = { workspace = true }
+ash = "0.38"
+
+# vma and ash-window land with allocation and surfaces.
+[dependencies.vma]
+version = "0.3"
+optional = true
+
+[dependencies.raw-window-handle]
+version = "0.6"
+optional = true
+
+[features]
+default = []
+alloc = ["dep:vma"]
+surface = ["dep:raw-window-handle"]
