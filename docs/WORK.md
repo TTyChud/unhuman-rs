@@ -57,15 +57,23 @@ Never push. Commit only; the owner pushes.
       with zero descriptor sets. Needs `bifrost` to declare bind groups.
 - [ ] **5. Executor test on hardware** — record a graph into a headless-surface
       swapchain image, read the pixels back, assert on them. Proves parallel
-      recording end to end.
+      recording end to end. The shader it draws with already exists:
+      `assets/shaders/Triangle.vert.spv`. Everything else it needs is item 4,
+      because a pipeline with no descriptor set layout cannot bind a shader that
+      takes one — and this shader deliberately takes none.
 
 ## Shaders
 
-- [ ] **6. `forge`** — Slang. Chosen explicitly over alternatives. Separate
-      repo producing a `slang-sys` crate (cmake + bindgen against the existing
-      C++ Slang tree), because `Cargo.lock` pins crates and not C++ builds.
-- [ ] **7. Until then**: generate SPIR-V for tests with `naga` as a
-      **dev-dependency only**, so the executor is provable on hardware now.
+- [x] **7. Test SPIR-V, from the vendored Slang.** `assets/shaders/Triangle.slang`
+      compiles to a vertex/fragment pair with the `slangc` already built in the
+      C++ tree (`UHE/vendor/bin/linux/slang/bin/slangc`, version 2026.11). The
+      `.spv` files are checked in and `compile.sh` regenerates them, so `cargo
+      test` is hermetic and a shader-compiler bug cannot surface as a backend
+      bug.
+- [ ] **6. `forge`** — Slang FFI. Separate repo producing a `slang-sys` crate
+      (cmake + bindgen against the existing C++ Slang tree), because `Cargo.lock`
+      pins crates and not C++ builds. Until it exists, `forge` shells out to the
+      vendored `slangc` — the same compiler, so the output cannot differ.
 
 ## Game side — none of this exists yet
 
