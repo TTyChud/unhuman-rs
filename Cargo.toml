@@ -1,9 +1,19 @@
 [workspace]
 resolver = "2"
+# `default-members` keeps `cargo build` / `cargo test` at the root working on a
+# machine with no cmake, no Vulkan SDK and no driver. The backend crates are
+# built explicitly with `-p stormbreaker`.
+default-members = [
+    "crates/adam",
+    "crates/chassis",
+    "crates/grind",
+    "crates/stormgraph",
+]
 members = [
     "crates/adam",
     "crates/chassis",
     "crates/grind",
+    "crates/stormgraph",
 ]
 
 [workspace.package]
@@ -16,3 +26,4 @@ repository = "https://github.com/unhuman-engine/unhuman-rs.git"
 adam = { path = "crates/adam" }
 chassis = { path = "crates/chassis" }
 grind = { path = "crates/grind" }
+stormgraph = { path = "crates/stormgraph" }

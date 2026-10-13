@@ -1,0 +1,22 @@
+[package]
+name = "stormgraph"
+description = "Render graph: declaration, versioning and compilation. Backend-neutral."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chassis = { workspace = true }
+
+# No ash, no volk, no vma.
+#
+# The C++ compiler emits `VkImageMemoryBarrier` directly
+# (`VulkanRenderGraphCompiler.cpp:406-476`), which is why `tests/rendergraph`
+# has to compile 11 graph sources with a `VmaDispatchStub` just to test the
+# topological sort. Here the compiler emits `ImageBarrier`, and stormbreaker
+# lowers it to `vkCmdPipelineBarrier2` or `vkCmdPipelineBarrier` according to
+# SyncTier. So the compiler is testable with no GPU, and there is exactly one
+# place where the sync tier is decided.
+[dev-dependencies]
+grind = { workspace = true }
