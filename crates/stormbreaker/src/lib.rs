@@ -18,9 +18,12 @@ pub mod memory;
 pub mod extension_check;
 pub mod pipeline;
 pub mod shader;
-pub mod sync;
+pub mod fence;
+pub mod pipeline_cache;
+pub mod semaphore;
 pub mod texture;
 pub mod upload;
+pub mod types;
 pub mod utils;
 
 pub use barrier_encoder::{image_barrier2, image_barrier_legacy, BarrierEncoder, Target};
@@ -34,8 +37,10 @@ pub use frame_context::{Recorder, Recording};
 pub use barrier_encoder::{buffer_barrier2, buffer_barrier_legacy};
 pub use buffer::{BufferResource, Buffers};
 pub use deletion_queue::{DeletionQueue, Pending};
-pub use shader::{content_hash, PipelineCache, ShaderResource, Shaders};
-pub use sync::{Fence, Semaphore};
+pub use shader::{content_hash, ShaderResource, Shaders};
+pub use fence::Fence;
+pub use pipeline_cache::PipelineCache;
+pub use semaphore::Semaphore;
 pub use texture::{TextureResource, Textures};
 pub use upload::UploadRing;
 pub use memory::{

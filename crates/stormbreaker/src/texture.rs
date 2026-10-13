@@ -13,7 +13,7 @@ use chassis::{Extent, Registry, Texture, TextureDesc, TextureFormat, TextureUsag
 
 use crate::error::{BackendError, Result};
 use crate::memory;
-use crate::utils;
+use crate::types;
 
 pub struct TextureResource {
     image: vk::Image,
@@ -103,7 +103,7 @@ impl Textures {
             } else {
                 vk::ImageType::TYPE_2D
             },
-            format: utils::vk_format(desc.format),
+            format: types::vk_format(desc.format),
             extent: vk::Extent3D {
                 width: desc.extent.width,
                 height: desc.extent.height,
@@ -111,7 +111,7 @@ impl Textures {
             },
             mip_levels: level_count,
             array_layers: 1,
-            samples: utils::vk_samples(desc.samples),
+            samples: types::vk_samples(desc.samples),
             tiling: vk::ImageTiling::OPTIMAL,
             usage,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
@@ -151,9 +151,9 @@ impl Textures {
             .view_type(vk::ImageViewType::TYPE_2D)
             // UNDEFINED is the only legal layout for a view created alongside
             // the image; the graph transitions it later.
-            .format(utils::vk_format(desc.format))
+            .format(types::vk_format(desc.format))
             .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: utils::aspect(desc.format),
+                aspect_mask: types::aspect(desc.format),
                 base_mip_level: 0,
                 level_count,
                 base_array_layer: 0,

@@ -403,13 +403,13 @@ fn sample_counts_and_formats_map_without_gaps() {
         TextureFormat::Depth24Stencil8,
     ] {
         assert_ne!(
-            stormbreaker::utils::vk_format(format),
+            stormbreaker::types::vk_format(format),
             vk::Format::UNDEFINED,
             "{format:?} has no Vulkan format"
         );
     }
     assert_eq!(
-        stormbreaker::utils::vk_samples(SampleCount::X4),
+        stormbreaker::types::vk_samples(SampleCount::X4),
         vk::SampleCountFlags::TYPE_4
     );
 }

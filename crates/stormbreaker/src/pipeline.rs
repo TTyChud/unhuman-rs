@@ -176,7 +176,7 @@ impl Pipelines {
             .map(|attribute| vk::VertexInputAttributeDescription {
                 location: attribute.location,
                 binding: 0,
-                format: crate::utils::vk_format(attribute.format),
+                format: crate::types::vk_format(attribute.format),
                 offset: attribute.offset,
             })
             .collect();
@@ -229,7 +229,7 @@ impl Pipelines {
             .line_width(1.0);
 
         let multisample = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(crate::utils::vk_samples(desc.samples))
+            .rasterization_samples(crate::types::vk_samples(desc.samples))
             .sample_shading_enable(false);
 
         let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
@@ -273,12 +273,12 @@ impl Pipelines {
         let color_formats: Vec<vk::Format> = desc
             .color_targets
             .iter()
-            .map(|target| crate::utils::vk_format(target.format))
+            .map(|target| crate::types::vk_format(target.format))
             .collect();
         let depth_format = desc
             .depth
             .format
-            .map(crate::utils::vk_format)
+            .map(crate::types::vk_format)
             .unwrap_or(vk::Format::UNDEFINED);
 
         let rendering = vk::PipelineRenderingCreateInfo::default()

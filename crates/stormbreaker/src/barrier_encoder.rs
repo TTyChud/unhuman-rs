@@ -16,7 +16,7 @@ use chassis::TextureFormat;
 use stormgraph::{BufferBarrier, ImageBarrier};
 
 use crate::extension_check::SyncTier;
-use crate::utils;
+use crate::types;
 
 /// Which handle the barrier applies to. Resolved by the caller from the graph's
 /// texture slot; the graph itself never sees a Vulkan handle.
@@ -58,10 +58,10 @@ pub fn buffer_barrier2(
     barrier: BufferBarrier,
 ) -> vk::BufferMemoryBarrier2<'static> {
     vk::BufferMemoryBarrier2::default()
-        .src_stage_mask(utils::stage(barrier.src_stage))
-        .src_access_mask(utils::access(barrier.src_access))
-        .dst_stage_mask(utils::stage(barrier.dst_stage))
-        .dst_access_mask(utils::access(barrier.dst_access))
+        .src_stage_mask(types::stage(barrier.src_stage))
+        .src_access_mask(types::access(barrier.src_access))
+        .dst_stage_mask(types::stage(barrier.dst_stage))
+        .dst_access_mask(types::access(barrier.dst_access))
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .buffer(buffer)
@@ -76,8 +76,8 @@ pub fn buffer_barrier_legacy(
     barrier: BufferBarrier,
 ) -> vk::BufferMemoryBarrier<'static> {
     vk::BufferMemoryBarrier::default()
-        .src_access_mask(utils::access_legacy(barrier.src_access))
-        .dst_access_mask(utils::access_legacy(barrier.dst_access))
+        .src_access_mask(types::access_legacy(barrier.src_access))
+        .dst_access_mask(types::access_legacy(barrier.dst_access))
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .buffer(buffer)
@@ -96,12 +96,12 @@ pub fn image_barrier2(
     format: TextureFormat,
 ) -> vk::ImageMemoryBarrier2<'static> {
     vk::ImageMemoryBarrier2::default()
-        .src_stage_mask(utils::stage(barrier.src_stage))
-        .src_access_mask(utils::access(barrier.src_access))
-        .dst_stage_mask(utils::stage(barrier.dst_stage))
-        .dst_access_mask(utils::access(barrier.dst_access))
-        .old_layout(utils::layout_for(barrier.src_state, format))
-        .new_layout(utils::layout_for(barrier.dst_state, format))
+        .src_stage_mask(types::stage(barrier.src_stage))
+        .src_access_mask(types::access(barrier.src_access))
+        .dst_stage_mask(types::stage(barrier.dst_stage))
+        .dst_access_mask(types::access(barrier.dst_access))
+        .old_layout(types::layout_for(barrier.src_state, format))
+        .new_layout(types::layout_for(barrier.dst_state, format))
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(target.image)
@@ -118,10 +118,10 @@ pub fn image_barrier_legacy(
     format: TextureFormat,
 ) -> vk::ImageMemoryBarrier<'static> {
     vk::ImageMemoryBarrier::default()
-        .src_access_mask(utils::access_legacy(barrier.src_access))
-        .dst_access_mask(utils::access_legacy(barrier.dst_access))
-        .old_layout(utils::layout_for(barrier.src_state, format))
-        .new_layout(utils::layout_for(barrier.dst_state, format))
+        .src_access_mask(types::access_legacy(barrier.src_access))
+        .dst_access_mask(types::access_legacy(barrier.dst_access))
+        .old_layout(types::layout_for(barrier.src_state, format))
+        .new_layout(types::layout_for(barrier.dst_state, format))
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(target.image)
@@ -133,7 +133,7 @@ pub fn image_barrier_legacy(
 /// aspect on a depth image is worse.
 fn subresource_for(target: Target, format: TextureFormat) -> vk::ImageSubresourceRange {
     vk::ImageSubresourceRange {
-        aspect_mask: utils::aspect(format) & target.subresource.aspect_mask,
+        aspect_mask: types::aspect(format) & target.subresource.aspect_mask,
         ..target.subresource
     }
 }
@@ -170,8 +170,8 @@ impl<'a> BarrierEncoder<'a> {
                 let barriers = [image_barrier_legacy(target, *barrier, format)];
                 self.device.cmd_pipeline_barrier(
                     command_buffer,
-                    utils::stage_legacy(barrier.src_stage),
-                    utils::stage_legacy(barrier.dst_stage),
+                    types::stage_legacy(barrier.src_stage),
+                    types::stage_legacy(barrier.dst_stage),
                     vk::DependencyFlags::empty(),
                     &[],
                     &[],

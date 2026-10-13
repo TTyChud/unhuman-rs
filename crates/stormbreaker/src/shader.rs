@@ -1,13 +1,12 @@
-//! Shader modules and the per-device pipeline cache.
+//! Shader modules.
 //!
-//! Mirrors `VulkanShader.cpp` and `VulkanPipelineCache.cpp`, with one addition
-//! that the C++ tree wanted and did not have: modules are keyed by a content
-//! hash, so a shader whose source did not change is never recompiled or
-//! re-uploaded. `forge` produces the SPIR-V and the hash; this file never parses
-//! shader source.
+//! Mirrors `VulkanShader.cpp`. Modules are keyed by a content hash, so a shader
+//! whose source did not change is never recompiled or re-uploaded — an addition
+//! the C++ tree wanted and did not have. `forge` produces the SPIR-V and the
+//! hash; this file never parses shader source.
 //!
-//! Pipeline cache persistence follows the standard `VkPipelineCacheDataHeader`
-//! blob, so a run can save what the driver learned and the next run starts warm.
+//! The driver's own cache is `pipeline_cache.rs`, and the "have we compiled this
+//! description before" cache is in `pipeline.rs`. Three layers, three files.
 
 use std::collections::HashMap;
 
@@ -161,63 +160,5 @@ impl Shaders {
 impl Default for Shaders {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// The driver's pipeline cache, plus optional persistence.
-pub struct PipelineCache {
-    device: ash::Device,
-    cache: vk::PipelineCache,
-    initialised: bool,
-}
-
-impl PipelineCache {
-    /// `initial_data` comes from a previous run's `data()`. Passing garbage is
-    /// harmless: the driver checks its own header and ignores what it cannot
-    /// read.
-    pub fn new(device: &ash::Device, initial_data: Option<&[u8]>) -> Result<Self> {
-        let info = vk::PipelineCacheCreateInfo::default().initial_data(initial_data.unwrap_or(&[]));
-        let (cache, initialised) = match unsafe { device.create_pipeline_cache(&info, None) } {
-            Ok(cache) => (cache, true),
-            // A rejected initial blob is not fatal; the run just starts cold.
-            Err(_) => {
-                let empty = vk::PipelineCacheCreateInfo::default();
-                let cache = unsafe { device.create_pipeline_cache(&empty, None) }
-                    .map_err(|e| BackendError::vk("vkCreatePipelineCache", e))?;
-                (cache, false)
-            }
-        };
-        Ok(Self {
-            device: device.clone(),
-            cache,
-            initialised,
-        })
-    }
-
-    pub fn handle(&self) -> vk::PipelineCache {
-        self.cache
-    }
-
-    /// False when the provided initial data was rejected and the cache started
-    /// cold.
-    pub fn started_warm(&self) -> bool {
-        self.initialised
-    }
-
-    /// Serialisable contents, prefixed with the header struct the driver expects.
-    pub fn data(&self) -> Result<Vec<u8>> {
-        unsafe { self.device.get_pipeline_cache_data(self.cache) }
-            .map_err(|e| BackendError::vk("vkGetPipelineCacheData", e))
-    }
-
-    pub fn merge(&self, other: vk::PipelineCache) -> Result<()> {
-        unsafe { self.device.merge_pipeline_caches(self.cache, &[other]) }
-            .map_err(|e| BackendError::vk("vkMergePipelineCaches", e))
-    }
-}
-
-impl Drop for PipelineCache {
-    fn drop(&mut self) {
-        unsafe { self.device.destroy_pipeline_cache(self.cache, None) };
     }
 }
