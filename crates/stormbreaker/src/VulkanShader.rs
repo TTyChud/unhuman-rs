@@ -9,11 +9,47 @@
 //! description before" cache is in `pipeline.rs`. Three layers, three files.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use ash::vk;
 use chassis::{Registry, Shader};
+use forge::{CompileRequest, Forge, Stage as SlangStage};
 
 use crate::vulkan_error::{BackendError, Result};
+
+/// A `forge` stage as the driver wants it.
+///
+/// Only pipeline stages map: `forge::Stage` covers ray tracing and mesh stages,
+/// which have no `VkShaderStageFlag` here. Returning `None` rather than zero is
+/// deliberate, because `vk::ShaderStageFlags::empty()` is a silently valid
+/// argument to `vkCreateGraphicsPipelines` that produces a pipeline which draws
+/// nothing.
+pub fn shader_stage_flags(stage: SlangStage) -> Option<vk::ShaderStageFlags> {
+    let flags = match stage {
+        SlangStage::Vertex => vk::ShaderStageFlags::VERTEX,
+        SlangStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
+        SlangStage::Compute => vk::ShaderStageFlags::COMPUTE,
+        SlangStage::Geometry => vk::ShaderStageFlags::GEOMETRY,
+        SlangStage::Hull => vk::ShaderStageFlags::TESSELLATION_CONTROL,
+        SlangStage::Domain => vk::ShaderStageFlags::TESSELLATION_EVALUATION,
+        // No task, mesh, amplification, ray tracing or intersection.
+        //
+        // Not an omission: ash 0.38 does not expose those in core
+        // `VkShaderStageFlagBits`, because mesh shading and ray tracing are
+        // extensions. Mapping them here would need an extension-gated flag and a
+        // feature check, and reporting them as bindable without that produces a
+        // pipeline that creates fine and draws nothing. `forge::Stage` can parse
+        // them for a compiler that accepts them; the driver cannot take them yet.
+        SlangStage::Task
+        | SlangStage::Mesh
+        | SlangStage::Amplification
+        | SlangStage::Raygen
+        | SlangStage::Miss
+        | SlangStage::Callable
+        | SlangStage::Intersection => return None,
+    };
+    Some(flags)
+}
 
 /// Reinterprets SPIR-V bytes as the `u32` words Vulkan wants, rejecting anything
 /// that is not a module.
@@ -38,12 +74,30 @@ fn spirv_to_words(spirv: &[u8]) -> Result<&[u32]> {
     Ok(words)
 }
 
+/// Every SPIR-V module starts with this. Checked on every load, because a
+/// buffer without it is not a module and letting it reach the driver produces a
+/// worse message than refusing it here.
+pub const SPIRV_MAGIC: u32 = 0x0723_0203;
+
 /// Cheap content hash (FNV-1a). Not cryptographic: it only has to notice that
-/// the bytes changed.
+/// the words changed.
+pub fn content_hash_words(words: &[u32]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for word in words {
+        for byte in word.to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
+}
+
+/// Hash a byte buffer as if it were the words it decodes to, so a handle looked
+/// up by bytes matches one looked up by words.
 pub fn content_hash(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
-        hash ^= *byte as u64;
+        hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
@@ -95,6 +149,48 @@ impl Shaders {
         self.by_hash.get(&(content_hash(spirv), stage)).copied()
     }
 
+    /// Creates a module from words `forge` already validated.
+    ///
+    /// The preferred entry point, because `forge::Module` has already checked
+    /// the magic number and produced words, so this skips the byte
+    /// reinterpretation `create` has to do. A shader that arrived from Slang
+    /// should never be re-validated or re-aligned to reach the driver.
+    pub fn create_from_words(
+        &mut self,
+        device: &ash::Device,
+        words: &[u32],
+        stage: vk::ShaderStageFlags,
+    ) -> Result<Shader> {
+        if words.first().copied() != Some(SPIRV_MAGIC) {
+            return Err(BackendError::MalformedSpirv { len: words.len() * 4 });
+        }
+        self.upload(device, words, stage)
+    }
+
+    /// Compile a Slang source through `forge` and create the module.
+    ///
+    /// The seam between shader source and the GPU. `forge` owns the cache and the
+    /// diagnostics; this owns the driver object and the dedup, so neither has to
+    /// know about the other.
+    pub fn load_slang(
+        &mut self,
+        device: &ash::Device,
+        forge: &Forge,
+        request: CompileRequest,
+        scratch: &Path,
+    ) -> Result<Shader> {
+        let module = forge
+            .compile(&request, scratch)
+            .map_err(|error| BackendError::ShaderCompilation(error.to_string()))?;
+        let flags = shader_stage_flags(module.stage).ok_or_else(|| {
+            BackendError::ShaderCompilation(format!(
+                "{} is not a stage this backend can bind",
+                module.stage
+            ))
+        })?;
+        self.create_from_words(device, &module.words, flags)
+    }
+
     /// Creates a module, or returns the existing one when the same SPIR-V for
     /// the same stage was already loaded this run.
     pub fn create(
@@ -104,7 +200,20 @@ impl Shaders {
         stage: vk::ShaderStageFlags,
     ) -> Result<Shader> {
         let words = spirv_to_words(spirv)?;
-        let hash = content_hash(spirv);
+        self.upload(device, words, stage)
+    }
+
+    /// The shared dedup-then-upload path behind every `create*`.
+    fn upload(
+        &mut self,
+        device: &ash::Device,
+        words: &[u32],
+        stage: vk::ShaderStageFlags,
+    ) -> Result<Shader> {
+        // Hash the words, not the bytes: both entry points see the same module,
+        // so hashing the input type would mean hashing a different buffer for
+        // the same content.
+        let hash = content_hash_words(words);
         if let Some(existing) = self.by_hash.get(&(hash, stage)) {
             self.reused += 1;
             return Ok(*existing);

@@ -39,6 +39,9 @@ pub enum BackendError {
     NotHostVisible { label: String },
     /// The bytes are not SPIR-V. Caught here so the driver does not report it.
     MalformedSpirv { len: usize },
+    /// `forge` rejected a shader. The message is the compiler's own, because a
+    /// shader error is only actionable if it points at a line of shader source.
+    ShaderCompilation(String),
     /// A binary semaphore was asked for a timeline operation.
     NotTimeline,
     /// The surface is out of date: the window resized or the surface changed.
@@ -95,6 +98,7 @@ impl fmt::Display for BackendError {
             BackendError::MalformedSpirv { len } => {
                 write!(f, "{len} bytes are not a SPIR-V module")
             }
+            BackendError::ShaderCompilation(message) => write!(f, "{message}"),
             BackendError::NotTimeline => write!(f, "operation needs a timeline semaphore"),
             BackendError::SurfaceOutOfDate => write!(f, "surface is out of date"),
             BackendError::InvalidHandle => write!(f, "handle did not resolve"),
