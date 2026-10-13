@@ -107,3 +107,13 @@ pub use vulkan_allocation::{
     create_buffer, create_image_memory, find_memory_type, read_buffer, write_buffer,
 };
 pub use vulkan_extension_check::{version_major, version_minor};
+#[path = "VulkanRenderGraphTypes.rs"]
+pub mod vulkan_render_graph_types;
+#[path = "VulkanRenderGraphResources.rs"]
+pub mod vulkan_render_graph_resources;
+#[path = "VulkanRenderGraphBuilder.rs"]
+pub mod vulkan_render_graph_builder;
+#[path = "VulkanRenderGraphCompiler.rs"]
+pub mod vulkan_render_graph_compiler;
+#[path = "VulkanRenderGraph.rs"]
+pub mod vulkan_render_graph;

@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 chassis = { workspace = true }
-stormgraph = { workspace = true }
 grind = { workspace = true }
 ash = "0.38"
 

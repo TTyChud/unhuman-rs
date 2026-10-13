@@ -3,7 +3,7 @@
 //! Mirrors `VulkanTypes.cpp`. The C++ file holds both the enum *definitions* and
 //! the conversion helpers; here the definitions live in `chassis`, because they
 //! are the interface and must not depend on a backend. This file is the lowering
-//! half: everything that turns a `chassis` or `stormgraph` enum into a `vk::`
+//! half: everything that turns a `chassis` or render graph enum into a `vk::`
 //! value.
 //!
 //! Having it in one file is deliberate. A mapping table with a hole in it produces
@@ -12,7 +12,7 @@
 
 use ash::vk;
 use chassis::{Extent, SampleCount, TextureFormat};
-use stormgraph::{Access, ImageState, Stage};
+use crate::vulkan_render_graph_types::{Access, ImageState, Stage};
 
 pub fn layout(state: ImageState) -> vk::ImageLayout {
     layout_for(state, TextureFormat::Rgba8Unorm)

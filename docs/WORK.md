@@ -32,13 +32,17 @@ Never push. Commit only; the owner pushes.
 - [x] **Draw path** — `VulkanCommandBuffer.rs` went 79 → 397 lines: dynamic
       rendering, bind pipeline/group, push constants, vertex/index buffers,
       draw, draw indexed, dispatch.
-- [ ] **1. Move the render graph into `stormbreaker`** as
+- [x] **1. Move the render graph into `stormbreaker`** as
       `VulkanRenderGraph.rs`, `VulkanRenderGraphTypes.rs`,
       `VulkanRenderGraphResources.rs`, `VulkanRenderGraphBuilder.rs`,
       `VulkanRenderGraphCompiler.rs`, `VulkanRenderGraphExecutor.rs`.
-      Delete the `stormgraph` crate; move its 21 tests to
-      `stormbreaker/tests/`. Add `stormbreaker` to `default-members` so those
-      tests keep running at the workspace root.
+      Done: `stormgraph` is deleted, its 24 tests are
+      `stormbreaker/tests/render_graph.rs`, and `stormbreaker` was already in
+      `default-members`. Files landed:
+      `VulkanRenderGraph{,Types,Resources,Builder,Compiler}.rs`.
+      `barrier.rs` folded into `VulkanRenderGraphTypes.rs` — barriers are types,
+      and a seventh file would have had no C++ twin. `VulkanRenderGraphExecutor.rs`
+      is still to come.
       Note: the compiler must not import `ash`. That is what keeps it testable
       with no device.
 - [ ] **2. `VulkanRenderGraphExecutor`** — `CompiledGraph` in, one command list

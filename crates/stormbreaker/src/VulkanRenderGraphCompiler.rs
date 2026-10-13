@@ -1,9 +1,10 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 
-use crate::barrier::{transition, ImageBarrier};
-use crate::resources::Resources;
-use crate::types::{
+use crate::vulkan_render_graph_types::{transition, ImageBarrier};
+use crate::vulkan_render_graph_resources::Resources;
+use crate::vulkan_render_graph_types::{
+    Access, BufferBarrier, BufferId, Stage, WHOLE_SIZE,
     ColorAttachment, DepthAttachment, ErrorKind, ImageState, PassDesc, PassType, Queue,
     ResourceAccess, TextureId, ValidationError,
 };
@@ -21,6 +22,7 @@ pub struct CompiledPass {
     pub depth: Option<DepthAttachment>,
     pub pre_barriers: Vec<ImageBarrier>,
     pub post_barriers: Vec<ImageBarrier>,
+    pub pre_buffer_barriers: Vec<BufferBarrier>,
 }
 
 /// First and last compiled pass that touches a resource version. Drives
@@ -292,6 +294,42 @@ fn cull(passes: &[PassDesc], resources: &Resources, order: Vec<usize>) -> Vec<us
 /// place a barrier can go. The single exception is the final transition of an
 /// imported resource, which has to follow the last pass that touches it; that
 /// becomes that pass's post-barrier.
+/// The narrowest access scope a pass declared for a buffer, in the given role.
+///
+/// Narrow, because a barrier that claims more access than the pass actually
+/// takes is not conservative -- it is a stall.
+///
+/// The role matters and an earlier version of this ignored it, which made a
+/// transfer write and a transfer read look identical and dropped the barrier
+/// between them: the exact hazard the barrier exists to express.
+fn buffer_access_of(pass: &PassDesc, buffer: BufferId, role: AccessRole) -> (Access, Stage) {
+    let list = match role {
+        AccessRole::Read => &pass.reads,
+        AccessRole::Write => &pass.writes,
+    };
+    for access in list {
+        if let ResourceAccess::Buffer(id, _) = access {
+            if *id == buffer {
+                return match (pass.kind, role) {
+                    (PassType::Compute, AccessRole::Read) => (Access::ShaderRead, Stage::ComputeShader),
+                    (PassType::Compute, AccessRole::Write) => (Access::ShaderWrite, Stage::ComputeShader),
+                    (PassType::Transfer, AccessRole::Read) => (Access::TransferRead, Stage::Transfer),
+                    (PassType::Transfer, AccessRole::Write) => (Access::TransferWrite, Stage::Transfer),
+                    (_, AccessRole::Read) => (Access::ShaderRead, Stage::VertexShader),
+                    (_, AccessRole::Write) => (Access::ShaderWrite, Stage::VertexShader),
+                };
+            }
+        }
+    }
+    (Access::None, Stage::TopOfPipe)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AccessRole {
+    Read,
+    Write,
+}
+
 fn synthesize_barriers(
     passes: &[PassDesc],
     resources: &Resources,
@@ -307,12 +345,18 @@ fn synthesize_barriers(
     let mut last_use: Vec<Option<u32>> = vec![None; resources.texture_count()];
     let mut lifetime_index: Vec<Vec<u32>> = vec![Vec::new(); resources.texture_count()];
 
+    // Same accounting for buffers. Buffers have no layout state to track, so
+    // there is no state vector here: what a pass declares is the access scope,
+    // and a barrier is only needed when the *previous* scope differs.
+    let mut buffer_last_writer: HashMap<BufferId, usize> = HashMap::new();
+
     let mut compiled = Vec::with_capacity(order.len());
     let mut last_writer: Vec<Option<usize>> = vec![None; resources.texture_count()];
 
     for (position, &p) in order.iter().enumerate() {
         let pass = &passes[p];
         let mut pre_barriers = Vec::new();
+        let mut pre_buffer_barriers = Vec::new();
 
         for access in pass.reads.iter().chain(pass.writes.iter()) {
             let ResourceAccess::Texture(id, version) = access else {
@@ -356,6 +400,63 @@ fn synthesize_barriers(
             last_writer[index] = Some(compiled.len());
         }
 
+        // Buffer transitions. A buffer has no layout, so there is nothing to
+        // "settle into": the barrier exists purely to carry the dependency from
+        // whichever pass last touched the buffer to this one, which is what
+        // stops a transfer writing a vertex buffer from racing the pass that
+        // reads it. A first touch emits nothing -- there is no prior access to
+        // wait on.
+        for access in pass.reads.iter().chain(pass.writes.iter()) {
+            let ResourceAccess::Buffer(buffer, _) = access else {
+                continue;
+            };
+            let Some(previous) = buffer_last_writer.get(buffer) else {
+                continue;
+            };
+            let previous = *previous;
+            if previous == compiled.len() {
+                continue; // self read-after-write, same command buffer
+            }
+            // The writer's side comes from the previous pass's write. This
+            // pass's side comes from whichever role it declared, and a write
+            // wins if it did both -- same command buffer, so one barrier covers
+            // the reader and the writer inside it.
+            let (src_access, src_stage) =
+                buffer_access_of(&passes[previous], *buffer, AccessRole::Write);
+            let reads = pass
+                .reads
+                .iter()
+                .any(|a| matches!(a, ResourceAccess::Buffer(id, _) if *id == *buffer));
+            let writes = pass
+                .writes
+                .iter()
+                .any(|a| matches!(a, ResourceAccess::Buffer(id, _) if *id == *buffer));
+            let (dst_access, dst_stage) = match (reads, writes) {
+                (_, true) => buffer_access_of(pass, *buffer, AccessRole::Write),
+                (true, false) => buffer_access_of(pass, *buffer, AccessRole::Read),
+                (false, false) => continue,
+            };
+            if src_access == dst_access && src_stage == dst_stage {
+                continue;
+            }
+            pre_buffer_barriers.push(BufferBarrier {
+                buffer: *buffer,
+                src_access,
+                dst_access,
+                src_stage,
+                dst_stage,
+                // WHOLE_SIZE: the graph knows a buffer exists, not how big it is.
+                // Sizing is the executor's job, once it has the real allocation.
+                offset: 0,
+                size: WHOLE_SIZE,
+            });
+        }
+        for access in &pass.writes {
+            if let ResourceAccess::Buffer(buffer, _) = access {
+                buffer_last_writer.insert(*buffer, compiled.len());
+            }
+        }
+
         compiled.push(CompiledPass {
             index: p as u32,
             name: pass.name.clone(),
@@ -365,6 +466,7 @@ fn synthesize_barriers(
             depth: pass.depth,
             pre_barriers,
             post_barriers: Vec::new(),
+            pre_buffer_barriers,
         });
     }
 

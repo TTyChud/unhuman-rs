@@ -12,7 +12,7 @@ use chassis::TextureFormat;
 use stormbreaker::{
     image_barrier2, image_barrier_legacy, select_sync_tier, vulkan_types, SyncTier,
 };
-use stormgraph::{ImageBarrier, ImageState};
+use stormbreaker::vulkan_render_graph::{self as vulkan_render_graph, ImageBarrier, ImageState};
 
 /// A handle that was never allocated. Nothing here dispatches, so a dangling
 /// pointer is fine — the structs under test never reach a driver.
@@ -43,10 +43,10 @@ fn barrier(src: ImageState, dst: ImageState) -> ImageBarrier {
         texture: 0,
         src_state: src,
         dst_state: dst,
-        src_access: stormgraph::access_for_state(src),
-        dst_access: stormgraph::access_for_state(dst),
-        src_stage: stormgraph::stage_for_state(src),
-        dst_stage: stormgraph::stage_for_state(dst),
+        src_access: vulkan_render_graph::access_for_state(src),
+        dst_access: vulkan_render_graph::access_for_state(dst),
+        src_stage: vulkan_render_graph::stage_for_state(src),
+        dst_stage: vulkan_render_graph::stage_for_state(dst),
     }
 }
 
@@ -241,7 +241,7 @@ fn an_empty_transition_is_recognised() {
 /// The seam itself: a barrier produced by the graph, lowered to Vulkan.
 #[test]
 fn a_graph_barrier_survives_the_lowering() {
-    use stormgraph::RenderGraph;
+    use stormbreaker::vulkan_render_graph::RenderGraph;
 
     let mut graph = RenderGraph::new();
     let swapchain = graph.import_texture("swapchain", ImageState::Undefined, ImageState::Present);
@@ -310,11 +310,11 @@ fn access_and_stage_enums_map_one_to_one() {
         ImageState::Present,
         ImageState::Storage,
     ] {
-        let modern = vulkan_types::access(stormgraph::access_for_state(state));
-        let legacy = vulkan_types::access_legacy(stormgraph::access_for_state(state));
+        let modern = vulkan_types::access(vulkan_render_graph::access_for_state(state));
+        let legacy = vulkan_types::access_legacy(vulkan_render_graph::access_for_state(state));
         assert_eq!(modern, widen_access(legacy), "access for {state:?}");
 
-        let stage = stormgraph::stage_for_state(state);
+        let stage = vulkan_render_graph::stage_for_state(state);
         assert_eq!(
             vulkan_types::stage(stage),
             widen_stage(vulkan_types::stage_legacy(stage)),

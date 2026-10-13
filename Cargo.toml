@@ -7,14 +7,12 @@ default-members = [
     "crates/adam",
     "crates/chassis",
     "crates/grind",
-    "crates/stormgraph",
     "crates/stormbreaker",
 ]
 members = [
     "crates/adam",
     "crates/chassis",
     "crates/grind",
-    "crates/stormgraph",
     "crates/stormbreaker",
 ]
 
@@ -28,5 +26,4 @@ repository = "https://github.com/unhuman-engine/unhuman-rs.git"
 adam = { path = "crates/adam" }
 chassis = { path = "crates/chassis" }
 grind = { path = "crates/grind" }
-stormgraph = { path = "crates/stormgraph" }
 stormbreaker = { path = "crates/stormbreaker" }

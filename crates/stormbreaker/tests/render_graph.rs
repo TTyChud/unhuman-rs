@@ -1,4 +1,5 @@
-use stormgraph::{
+use stormbreaker::vulkan_render_graph as graph;
+use stormbreaker::vulkan_render_graph::{
     ErrorKind, ImageState, PassType, Queue, RenderGraph, ResourceAccess,
 };
 
@@ -66,9 +67,9 @@ fn leaving_undefined_needs_no_source_scope() {
 
     assert_eq!(first.src_state, ImageState::Undefined);
     // Nothing to wait for when the previous contents are undefined.
-    assert_eq!(first.src_stage, stormgraph::Stage::TopOfPipe);
-    assert_eq!(first.src_access, stormgraph::Access::None);
-    assert_eq!(first.dst_access, stormgraph::Access::ColorWrite);
+    assert_eq!(first.src_stage, graph::Stage::TopOfPipe);
+    assert_eq!(first.src_access, graph::Access::None);
+    assert_eq!(first.dst_access, graph::Access::ColorWrite);
 }
 
 #[test]
@@ -237,7 +238,7 @@ fn an_undeclared_attachment_is_reported() {
     let mut passes = graph.passes().to_vec();
     passes[0].writes.clear();
 
-    let errors = stormgraph::validate(&passes, graph.resources());
+    let errors = graph::validate(&passes, graph.resources());
     assert!(
         errors.iter().any(|e| e.kind == ErrorKind::UndeclaredAttachment),
         "got {errors:?}"
@@ -378,4 +379,85 @@ fn declaration_binds_reads_to_the_version_current_at_that_moment() {
         &[ResourceAccess::Texture(pingpong, 2)],
         "the read must bind to the newest version, not the oldest"
     );
+}
+/// A pass that writes a buffer and a pass that reads it must be ordered by a
+/// buffer barrier. Before this existed the compiler emitted image barriers only:
+/// `VulkanBarrierEncoder` could encode a `BufferBarrier`, but nothing in the
+/// graph ever produced one, so a vertex upload and the pass drawing from it had
+/// no declared dependency at all.
+#[test]
+fn a_buffer_handed_between_two_passes_gets_a_barrier() {
+    let mut graph = RenderGraph::new();
+    let vertices = graph.import_buffer("vertices");
+
+    graph
+        .pass("upload")
+        .kind(PassType::Transfer)
+        .write_buffer(vertices);
+    graph
+        .pass("draw")
+        .kind(PassType::Graphics)
+        .read_buffer(vertices);
+
+    let compiled = graph.compile().expect("graph compiles");
+    let draw = compiled.find("draw").expect("draw pass survives");
+    let upload = compiled.find("upload").expect("upload pass survives");
+
+    assert!(
+        draw.pre_buffer_barriers.len() == 1,
+        "the reader waits on the writer, got {:?}",
+        draw.pre_buffer_barriers,
+    );
+    let barrier = draw.pre_buffer_barriers[0];
+    assert_eq!(barrier.buffer, vertices);
+    assert_eq!(barrier.dst_access, graph::Access::ShaderRead);
+    assert_eq!(barrier.src_access, graph::Access::TransferWrite);
+    assert_eq!(barrier.dst_stage, graph::Stage::VertexShader);
+    assert_eq!(barrier.src_stage, graph::Stage::Transfer);
+
+    // The writer must not wait on anything: there is no prior access.
+    assert!(
+        upload.pre_buffer_barriers.is_empty(),
+        "a first touch has no prior access to wait on, got {:?}",
+        upload.pre_buffer_barriers,
+    );
+}
+
+/// A pass that reads what it just wrote is one command buffer, not two, so a
+/// barrier between them would be a self-dependency and a validation error.
+#[test]
+fn a_read_after_write_in_one_pass_needs_no_barrier() {
+    let mut graph = RenderGraph::new();
+    let scratch = graph.import_buffer("scratch");
+
+    graph
+        .pass("compute")
+        .kind(PassType::Compute)
+        .write_buffer(scratch)
+        .read_buffer(scratch);
+
+    let compiled = graph.compile().expect("graph compiles");
+    let pass = compiled.find("compute").expect("pass survives");
+    assert!(
+        pass.pre_buffer_barriers.is_empty(),
+        "same command buffer, so no barrier, got {:?}",
+        pass.pre_buffer_barriers,
+    );
+}
+
+/// The graph knows a buffer exists but not how big it is, so it must say so
+/// explicitly rather than guessing zero -- a zero-sized barrier covers nothing
+/// and the hazard comes back.
+#[test]
+fn a_buffer_barrier_spans_the_whole_buffer() {
+    let mut graph = RenderGraph::new();
+    let target = graph.import_buffer("target");
+
+    graph.pass("a").kind(PassType::Transfer).write_buffer(target);
+    graph.pass("b").kind(PassType::Transfer).read_buffer(target);
+
+    let compiled = graph.compile().expect("graph compiles");
+    let barrier = &compiled.find("b").expect("pass survives").pre_buffer_barriers[0];
+    assert_eq!(barrier.offset, 0);
+    assert_eq!(barrier.size, graph::WHOLE_SIZE);
 }

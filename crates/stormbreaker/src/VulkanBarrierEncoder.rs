@@ -1,6 +1,6 @@
 //! The single lowering point from graph barriers to Vulkan commands.
 //!
-//! `stormgraph` emits backend-neutral [`stormgraph::ImageBarrier`]s; this turns
+//! The render graph emits backend-neutral [`ImageBarrier`]s; this turns
 //! them into `vkCmdPipelineBarrier2` or `vkCmdPipelineBarrier` depending on the
 //! device's `SyncTier`. There is no second path: a pass cannot hand-write a
 //! barrier, because `chassis::CommandList` has no barrier method at all.
@@ -13,7 +13,7 @@
 
 use ash::vk;
 use chassis::TextureFormat;
-use stormgraph::{BufferBarrier, ImageBarrier};
+use crate::vulkan_render_graph_types::{BufferBarrier, ImageBarrier};
 
 use crate::vulkan_extension_check::SyncTier;
 use crate::vulkan_types;

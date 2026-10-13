@@ -107,16 +107,7 @@ dependencies = [
  "chassis",
  "grind",
  "raw-window-handle",
- "stormgraph",
  "vma",
-]
-
-[[package]]
-name = "stormgraph"
-version = "0.1.0"
-dependencies = [
- "chassis",
- "grind",
 ]
 
 [[package]]
