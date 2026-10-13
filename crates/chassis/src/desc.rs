@@ -164,9 +164,14 @@ pub struct PipelineDesc {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ColorAttachmentDesc {
+    /// The attachment. Present because the graph has to name what a pass writes,
+    /// not just what shape it is.
+    pub texture: crate::Texture,
     pub format: TextureFormat,
     pub load: LoadOp,
     pub store: bool,
+    /// MSAA resolve target, or `Texture::default()` for none.
+    pub resolve: crate::Texture,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -180,6 +185,7 @@ pub enum LoadOp {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DepthAttachmentDesc {
+    pub texture: crate::Texture,
     pub format: TextureFormat,
     pub load: LoadOp,
     pub store: bool,
@@ -204,9 +210,11 @@ impl RenderPassDesc {
         Self {
             label: String::new(),
             colors: vec![ColorAttachmentDesc {
+                texture: crate::Texture::null(),
                 format,
                 load: LoadOp::Clear,
                 store: true,
+                resolve: crate::Texture::null(),
             }],
             depth: None,
         }
@@ -214,6 +222,7 @@ impl RenderPassDesc {
 
     pub fn with_depth(mut self, format: TextureFormat) -> Self {
         self.depth = Some(DepthAttachmentDesc {
+            texture: crate::Texture::null(),
             format,
             load: LoadOp::Clear,
             store: true,

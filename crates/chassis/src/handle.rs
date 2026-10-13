@@ -20,6 +20,20 @@ pub struct Handle<T> {
 }
 
 impl<T> Handle<T> {
+    /// A handle that resolves to nothing. Descriptors use it for "no attachment"
+    /// and "no resolve target" before the real handle exists.
+    pub fn null() -> Self {
+        Self {
+            index: u32::MAX,
+            generation: 0,
+            _tag: PhantomData,
+        }
+    }
+
+    pub fn is_null(self) -> bool {
+        self.index == u32::MAX
+    }
+
     pub(crate) fn new(index: u32, generation: u32) -> Self {
         Self {
             index,
