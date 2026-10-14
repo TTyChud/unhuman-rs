@@ -242,9 +242,43 @@ is added. An unrecognised value is an **error**, not a fallback: `--backend vlka
 that quietly got wgpu would be reported as "the wrong backend", and nothing
 would point here.
 
-`chassis::Gpu` now has an implementation (`WgpuGpu`). `VulkanGpu` does not exist
-yet, so the choice is currently the only one -- the mechanism and the default are
-tested, the second backend is the remaining work.
+`engine::create_gpu` turns a `BackendSelection` into a `Box<dyn Gpu>`. Both
+backends are implemented. The settings-file source is still a stub.
+
+## Both backends, one trait
+
+`chassis::Gpu` has two implementations: `WgpuGpu` and `VulkanGpu`. They are
+shaped method for method -- same constructors, same accessors, same trait impls
+-- because two backends that differ in their accessor names are not
+interchangeable however well the trait fits. The genuine differences are in
+return types: Vulkan has a queue *family*, wgpu has one queue; Vulkan can hold a
+swapchain, wgpu headless cannot.
+
+`UHE/src/engine` is the one crate that sees both. `adam` (core) must not depend
+on a driver, and neither backend may depend on the other, so the factory has
+nowhere else to live. Its real job is the parity test.
+
+## The parity test
+
+`UHE/src/engine/tests/backend_parity.rs`. One test body, run against both
+backends, reached only as `&mut dyn Gpu`. "Both backends implement `Gpu`" is a
+claim about types; this is a claim about behaviour. Nine cases, and every one has
+to opt out of the run explicitly if a backend will not open -- a parity suite
+that reports green having tested nothing is the failure the validation gate
+already had once.
+
+Three bugs it caught that per-backend tests could not:
+
+- **`WgpuGpu` had two `WgpuResources`.** One for `gpu.resources()`, one inside
+  the executor. A texture made through `dyn Resources` had a handle the executor
+  could not resolve -- `InvalidHandle` at record time, far from the cause.
+- **`VulkanGpu` declared `context` first, so it dropped the device first.**
+  Drop order *is* declaration order; the recorder's 64 command buffers were all
+  leaked at `vkDestroyDevice`. Invisible without validation, and under
+  validation it blamed whichever test built a device first.
+- **`SyncTier` existed twice**, in the RHI and in the backend, with the same
+  name and the same variants -- so `GpuInfo::sync_tier` could not be assigned
+  from `Capabilities::sync_tier`. Now one type, re-exported.
 
 ## Decisions made, do not relitigate without a reason
 

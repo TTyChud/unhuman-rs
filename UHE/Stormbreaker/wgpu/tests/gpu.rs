@@ -212,3 +212,52 @@ fn the_concrete_type_is_both_a_gpu_and_a_swapchain() {
         "a headless frame is never out of date"
     );
 }
+
+/// A handle made through `dyn Resources` must resolve inside the executor.
+///
+/// The bug this pins: `WgpuGpu` used to build one `WgpuResources` for itself
+/// and hand a *second* to the executor, so every texture created through the
+/// trait had a handle the executor could not resolve. Nothing caught it, because
+/// the tests that created resources never recorded a pass with them -- the draw
+/// test built its own single registry by hand.
+#[test]
+fn a_resource_made_through_the_trait_resolves_in_the_executor() {
+    let Some(mut gpu) = open_gpu() else { return };
+    let extent = chassis::Extent2d {
+        width: 32,
+        height: 32,
+    };
+
+    let texture = {
+        let resources: &mut dyn chassis::Resources = gpu.resources();
+        resources
+            .create_texture(chassis::TextureDesc::new_2d(
+                chassis::Extent {
+                    width: extent.width,
+                    height: extent.height,
+                    depth: 1,
+                },
+                chassis::TextureFormat::Rgba8Unorm,
+                chassis::TextureUsage::COLOR_ATTACHMENT,
+            ))
+            .expect("a texture through dyn Resources")
+    };
+
+    // The same handle, asked of the executor. Different registries would give
+    // `None` here, which is exactly the failure the two-registry bug produced.
+    let resolved = gpu
+        .executor()
+        .resources()
+        .get_texture(texture)
+        .expect("the handle resolves in the executor");
+    assert_eq!(resolved.extent().width, extent.width);
+    assert_eq!(resolved.format(), chassis::TextureFormat::Rgba8Unorm);
+
+    // And through the slot table the executor records from.
+    gpu.slots_mut().set_texture(0, texture);
+    assert_eq!(gpu.slots().texture(0), Some(texture));
+    assert!(
+        gpu.executor().resources().get_texture(texture).is_some(),
+        "the slot the executor will look it up in holds the handle it can resolve",
+    );
+}

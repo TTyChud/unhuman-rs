@@ -43,7 +43,6 @@ pub struct WgpuGpu {
     device: Device,
     queue: Queue,
     adapter_index: u32,
-    resources: WgpuResources,
     executor: WgpuExecutor,
     graph: GraphAdapter,
     info: GpuInfo,
@@ -79,7 +78,8 @@ impl WgpuGpu {
         let name = device.adapter_name().to_owned();
         let max_texture_size = device.max_texture_size();
 
-        let resources = WgpuResources::new(&device);
+        // One registry, owned by the executor. Two is a bug: a handle created
+        // through `dyn Resources` would not resolve inside it.
         let executor = WgpuExecutor::new(queue.clone(), WgpuResources::new(&device), extent);
 
         let info = GpuInfo {
@@ -98,7 +98,6 @@ impl WgpuGpu {
             device,
             queue,
             adapter_index,
-            resources,
             executor,
             graph: GraphAdapter::new(),
             info,
@@ -127,12 +126,22 @@ impl WgpuGpu {
         self.adapter_index
     }
 
+    /// The one registry, through the executor that owns it.
     pub fn resources(&mut self) -> &mut WgpuResources {
-        &mut self.resources
+        self.executor.resources_mut()
     }
 
     pub fn executor(&self) -> &WgpuExecutor {
         &self.executor
+    }
+
+    /// The graph slot table the executor records from.
+    ///
+    /// A read of it alongside a write needs both, which `&mut self` cannot give,
+    /// so the read takes a temporary: `gpu.slots()` is for assertions and
+    /// debugging, not for the frame loop.
+    pub fn slots(&self) -> &SlotTable {
+        self.executor.slots()
     }
 
     pub fn slots_mut(&mut self) -> &mut SlotTable {
@@ -236,7 +245,7 @@ impl chassis::Gpu for WgpuGpu {
     }
 
     fn resources(&mut self) -> &mut dyn ResourcesTrait {
-        &mut self.resources
+        self.executor.resources_mut()
     }
 
     fn frame_begin(&mut self) -> RhiResult<()> {

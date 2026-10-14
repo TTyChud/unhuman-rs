@@ -5,6 +5,7 @@ resolver = "2"
 # built explicitly with `-p stormbreaker`.
 default-members = [
     "UHE/src/core",
+    "UHE/src/engine",
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
@@ -13,6 +14,7 @@ default-members = [
 ]
 members = [
     "UHE/src/core",
+    "UHE/src/engine",
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",

@@ -146,6 +146,33 @@ pub fn stage_legacy(stage: Stage) -> vk::PipelineStageFlags {
     }
 }
 
+/// The reverse of [`vk_format`], for a surface or swapchain that chose a format
+/// rather than being told one.
+///
+/// `None` for a format the RHI has no name for, which is most of what a driver
+/// offers. A caller that gets `None` should not substitute: the swapchain
+/// reports the wrong format and every colour is wrong.
+pub fn from_vk_format(format: vk::Format) -> Option<TextureFormat> {
+    Some(match format {
+        vk::Format::R8_UNORM => TextureFormat::R8Unorm,
+        vk::Format::R8G8_UNORM => TextureFormat::Rg8Unorm,
+        vk::Format::R8G8B8A8_UNORM => TextureFormat::Rgba8Unorm,
+        vk::Format::R8G8B8A8_SRGB => TextureFormat::Rgba8Srgb,
+        vk::Format::B8G8R8A8_UNORM => TextureFormat::Bgra8Unorm,
+        vk::Format::B8G8R8A8_SRGB => TextureFormat::Bgra8Srgb,
+        vk::Format::R16_SFLOAT => TextureFormat::R16Float,
+        vk::Format::R16G16B16A16_SFLOAT => TextureFormat::Rgba16Float,
+        vk::Format::R32_SFLOAT => TextureFormat::R32Float,
+        vk::Format::R32G32B32A32_SFLOAT => TextureFormat::Rgba32Float,
+        vk::Format::A2B10G10R10_UNORM_PACK32 => TextureFormat::R11b11G11B10Float,
+        vk::Format::D16_UNORM => TextureFormat::Depth16,
+        vk::Format::D32_SFLOAT => TextureFormat::Depth32Float,
+        vk::Format::D24_UNORM_S8_UINT => TextureFormat::Depth24Stencil8,
+        vk::Format::D32_SFLOAT_S8_UINT => TextureFormat::Depth24Stencil8,
+        _ => return None,
+    })
+}
+
 pub fn vk_format(format: TextureFormat) -> vk::Format {
     match format {
         TextureFormat::Undefined => vk::Format::UNDEFINED,

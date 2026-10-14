@@ -106,6 +106,8 @@ pub use vulkan_semaphore::Semaphore;
 pub use vulkan_shader::{content_hash, ShaderResource, Shaders};
 pub use vulkan_texture::{TextureResource, Textures};
 pub use vulkan_upload::UploadRing;
+#[path = "VulkanGpu.rs"]
+pub mod vulkan_gpu;
 #[path = "RenderGraph/VulkanRenderGraphExecutor.rs"]
 pub mod vulkan_render_graph_executor;
 #[path = "VulkanRenderPass.rs"]

@@ -89,6 +89,18 @@ impl WgpuExecutor {
         &self.resources
     }
 
+    /// Mutable, because the executor has to own the only registry.
+    ///
+    /// It has to, and that was a bug: `WgpuGpu` once built a `WgpuResources` for
+    /// itself *and* handed a second one to the executor, so a texture created
+    /// through `dyn Resources` had a handle the executor could not resolve. Every
+    /// such use failed with `InvalidHandle` at record time -- far from the cause.
+    ///
+    /// One registry, owned here, reachable from both directions.
+    pub fn resources_mut(&mut self) -> &mut WgpuResources {
+        &mut self.resources
+    }
+
     /// The frame's size, so a pass gets a viewport without asking the swapchain.
     pub fn set_extent(&mut self, extent: chassis::Extent2d) {
         self.extent = extent;

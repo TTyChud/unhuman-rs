@@ -11,37 +11,13 @@
 //! device.
 
 /// Which encoding of barriers and submits this device gets.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum SyncTier {
-    /// `vkCmdPipelineBarrier` + `vkQueueSubmit`.
-    #[default]
-    Legacy,
-    /// `vkCmdPipelineBarrier2` + `vkQueueSubmit2`.
-    Sync2,
-    /// As above, plus timeline semaphores.
-    Sync2Timeline,
-}
-
-impl SyncTier {
-    /// True for the two tiers that spell barriers `vkCmdPipelineBarrier2`.
-    ///
-    /// The question callers actually ask. `Sync2` and `Sync2Timeline` differ in
-    /// semaphore type, not in barrier spelling, so anything that lowers a
-    /// barrier should ask this rather than match on a tier name -- matching the
-    /// name is how the next tier gets added and one branch silently stops
-    /// compiling.
-    pub fn uses_sync2(self) -> bool {
-        matches!(self, SyncTier::Sync2 | SyncTier::Sync2Timeline)
-    }
-
-    pub fn supports_timeline_semaphores(self) -> bool {
-        matches!(self, SyncTier::Sync2Timeline)
-    }
-
-    pub fn supports_sync2(self) -> bool {
-        !matches!(self, SyncTier::Legacy)
-    }
-}
+///
+/// **Re-exported from `chassis`, not defined here.** There were two `SyncTier`
+/// enums with the same name and the same three variants, one in the RHI and one
+/// in the backend, and `GpuInfo::sync_tier` wanted the RHI's while
+/// `Capabilities::sync_tier` held the backend's -- so assigning one to the other
+/// was a type error with the fix "which one did you mean". One type, one name.
+pub use chassis::SyncTier;
 
 /// Packaged Vulkan 1.0 as 0x00MMmmpp.
 pub fn version_major(api_version: u32) -> u32 {

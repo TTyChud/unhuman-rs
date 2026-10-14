@@ -1,0 +1,10 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+chassis = { workspace = true }
+stormbreaker = { workspace = true }
+stormglass = { workspace = true }
