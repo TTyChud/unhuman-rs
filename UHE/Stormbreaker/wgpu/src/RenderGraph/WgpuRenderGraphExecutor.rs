@@ -1,3 +1,31 @@
+//! The wgpu render graph executor.
+//!
+//! ## Why this lives in `RenderGraph/`
+//!
+//! Because the Vulkan backend puts its executor there, and a reader who knows
+//! where to look in one backend should not have to go looking in the other. The
+//! C++ engine has `Vulkan/RenderGraph/VulkanRenderGraphExecutor.{h,cpp}`; this is
+//! the same file for the same reason.
+//!
+//! ## What is the same and what is not
+//!
+//! The *graph* is shared: `chassis::graph` compiles a frame, and both backends
+//! consume the same `CompiledGraph`. Ordering, culling and versioning are
+//! identical, and they have to be -- two backends that ordered a frame
+//! differently would not be interchangeable, they would be two engines.
+//!
+//! The *execution* is not shared, and the difference is not a workaround:
+//!
+//!  * Vulkan records barriers. `chassis::graph` emits them from declared reads
+//!    and writes; `vulkan_render_graph_barriers` lowers them.
+//!  * wgpu emits nothing. It inserts transitions itself, from the access a
+//!    render pass declares. A barrier recorded here would be a lie about a
+//!    pipeline that does not take them.
+//!
+//! So the two executors share a shape and not a body. Each has its own
+//! `ExecutorResources`, its own command buffer type, and its own idea of what a
+//! frame costs.
+
 //! Executes a compiled frame on wgpu.
 //!
 //! ## The one thing this does not do
@@ -54,7 +82,7 @@ pub struct ExecutorStats {
 /// Owns nothing that has to be torn down -- wgpu owns its objects -- so this is a
 /// thin type by design. It exists to make the ordering guarantee legible in one
 /// place rather than spread across a call site.
-pub struct WgpuExecutor {
+pub struct WgpuRenderGraphExecutor {
     queue: Queue,
     resources: WgpuResources,
     slots: SlotTable,
@@ -62,7 +90,7 @@ pub struct WgpuExecutor {
     stats: ExecutorStats,
 }
 
-impl WgpuExecutor {
+impl WgpuRenderGraphExecutor {
     pub fn new(queue: Queue, resources: WgpuResources, extent: chassis::Extent2d) -> Self {
         Self {
             queue,

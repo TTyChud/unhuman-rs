@@ -35,7 +35,7 @@ use chassis::{
 };
 
 use crate::wgpu_device::{Adapter, Device, Queue};
-use crate::wgpu_executor::WgpuExecutor;
+use crate::wgpu_render_graph_executor::WgpuRenderGraphExecutor as WgpuExecutor;
 use crate::wgpu_resources::WgpuResources;
 
 /// The wgpu backend, as the RHI sees it.

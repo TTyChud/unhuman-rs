@@ -7,7 +7,9 @@ use chassis::graph as rg;
 use chassis::graph::{NoRecording, PassRecorder, PassScope};
 use chassis::CommandList;
 use stormglass::wgpu_device::Adapter;
-use stormglass::wgpu_executor::{ExecutorStats, WgpuExecutor};
+use stormglass::wgpu_render_graph_executor::{
+    ExecutorStats, WgpuRenderGraphExecutor as WgpuExecutor,
+};
 use stormglass::wgpu_resources::WgpuResources;
 
 const WIDTH: u32 = 64;
