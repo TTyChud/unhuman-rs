@@ -479,6 +479,59 @@ numbers coincide.
 `parallel_for` runs inline when there is one worker, so the test states that as
 its precondition instead of failing on a single-core box.
 
+## The render graph, split like the C++ one
+
+`VulkanRenderGraphExecutor.rs` was 757 lines holding the executor, the barrier
+lowering, the render scope and per-pass recording -- none of which you could read
+without reading the rest. C++ keeps these apart, and for the same reason. Now:
+
+| file | what it owns |
+|---|---|
+| `VulkanRenderGraphResources.rs` | `RegisterTexture` / `RegisterBuffer` / `ClearRegistrations`, and `resolve_frame` |
+| `VulkanRenderGraphBarriers.rs` | pre/post barrier recording, `open_render_scope` |
+| `VulkanRenderGraphExecutor.rs` | resolve, record in parallel, submit, stats |
+
+The bodies were **moved verbatim**. A file split that also rewrites the functions
+is two changes wearing one name, and the rewrite is the one that breaks.
+
+**The split found a missing stage.** C++ separates `Resolve` (producing an
+`RGResolvedFrame` with real `vk::Image` / `vk::ImageView` / `vk::Buffer` handles)
+from `Record`. We did not: resolution happened *inside* each recording thread, so
+a slot pointing at nothing failed on whichever worker reached that pass, naming a
+thread and not a handle.
+
+`resolve_frame` now runs the whole frame first, before a single
+`vkBeginCommandBuffer`. A bad slot is one error, on the submitting thread, naming
+the handle.
+
+**`ClearRegistrations` is not an optimisation.** A texture destroyed after
+resolve but before submit leaves a dangling `vk::Image` in the table and tomorrow's
+barrier names a freed image. Clearing every frame is what makes the table's
+lifetime exactly one frame.
+
+### The other four files, and why they did not move
+
+C++ has `VulkanRenderGraphTypes`, `Resources`, `Builder`, `Compiler` and
+`VulkanRenderGraph` alongside the executor. Ours are `chassis/graph/{types,
+resources,builder,compiler,mod}.rs`, deliberately backend-neutral so wgpu can use
+the graph without depending on ash. A `VulkanRenderGraphTypes.h` could not be used
+by the second backend, and the second backend is the reason this exists.
+
+So the parity mapping is:
+
+| C++ | here |
+|---|---|
+| `VulkanRenderGraphTypes.{h,cpp}` | `chassis/graph/types.rs` |
+| `VulkanRenderGraphResources.{h,cpp}` | `chassis/graph/resources.rs` (neutral) + `RenderGraph/VulkanRenderGraphResources.rs` (driver objects) |
+| `VulkanRenderGraphBuilder.{h,cpp}` | `chassis/graph/builder.rs` |
+| `VulkanRenderGraphCompiler.{h,cpp}` | `chassis/graph/compiler.rs` |
+| `VulkanRenderGraph.{h,cpp}` | `chassis/graph/mod.rs` |
+| `VulkanRenderGraphExecutor.{h,cpp}` | `RenderGraph/VulkanRenderGraphExecutor.rs` |
+
+Every C++ file has a counterpart. Five of the six are in the RHI rather than the
+backend, and that is the one place this port deliberately gave up 1:1 file
+parity -- for a reason that a third backend would benefit from.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.

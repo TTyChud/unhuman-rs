@@ -108,8 +108,12 @@ pub use vulkan_texture::{TextureResource, Textures};
 pub use vulkan_upload::UploadRing;
 #[path = "VulkanGpu.rs"]
 pub mod vulkan_gpu;
+#[path = "RenderGraph/VulkanRenderGraphBarriers.rs"]
+pub mod vulkan_render_graph_barriers;
 #[path = "RenderGraph/VulkanRenderGraphExecutor.rs"]
 pub mod vulkan_render_graph_executor;
+#[path = "RenderGraph/VulkanRenderGraphResources.rs"]
+pub mod vulkan_render_graph_resources;
 #[path = "VulkanRenderPass.rs"]
 pub mod vulkan_render_pass;
 #[path = "VulkanResources.rs"]
