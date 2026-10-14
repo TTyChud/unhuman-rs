@@ -30,13 +30,15 @@
 //! passes in one buffer and emits a barrier at the range boundary, which is
 //! exactly the structure that cannot be parallel.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
 use ash::vk;
 use chassis::CommandList;
 
 use crate::vulkan_barrier_encoder::BarrierEncoder;
-use crate::vulkan_command_buffer::CommandList as VulkanCommandList;
+use crate::vulkan_buffer::Buffers;
+use crate::vulkan_command_buffer::{CommandList as VulkanCommandList, Recording};
 use crate::vulkan_descriptor_manager::Descriptors;
 use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_frame_context::Recorder;
@@ -50,11 +52,143 @@ use chassis::graph::RenderGraph as Graph;
 ///
 /// Bundled into one borrow so a pass closure takes one argument, and so the
 /// executor can check at construction that the registries outlive it.
-pub struct ExecutorResources<'a> {
-    pub pipelines: &'a Pipelines,
-    pub textures: &'a Textures,
-    pub buffers: &'a crate::vulkan_buffer::Buffers,
-    pub descriptors: &'a Descriptors,
+/// The registries a command list needs, as owned handles.
+///
+/// ## Why owned rather than borrowed
+///
+/// `grind::parallel_for` takes an `'static` closure, and a pool spawns its
+/// workers at construction, so a recording thread cannot borrow from the frame
+/// that queued it. These are `Arc` clones, and the lock is taken inside the
+/// recording thread -- once per pass, not once per handle lookup.
+///
+/// ## Why that is sound
+///
+/// Creation needs `&mut VulkanResources`, which the recording loop does not have
+/// and does not ask for, and `Resources::create_*` takes `&mut self` so no
+/// creation can overlap a frame. The write side is therefore uncontended
+/// whenever these read guards are held.
+pub struct ExecutorResources {
+    pub pipelines: Arc<RwLock<Pipelines>>,
+    pub textures: Arc<RwLock<Textures>>,
+    pub buffers: Arc<RwLock<Buffers>>,
+    pub descriptors: Arc<RwLock<Descriptors>>,
+}
+
+/// Compile-time proof of the sentence above.
+///
+/// A comment claiming a registry is read-only during recording is an argument,
+/// not a proof. If one ever grows a `Cell`, a `RefCell` or a raw pointer, the
+/// recording loop stops compiling here rather than becoming a data race that
+/// happens not to fire today.
+/// The four registries, as one capturable value.
+struct SharedRegistries {
+    pipelines: Arc<RwLock<Pipelines>>,
+    textures: Arc<RwLock<Textures>>,
+    buffers: Arc<RwLock<Buffers>>,
+    descriptors: Arc<RwLock<Descriptors>>,
+}
+
+impl SharedRegistries {
+    fn new(resources: &ExecutorResources) -> Self {
+        Self {
+            pipelines: Arc::clone(&resources.pipelines),
+            textures: Arc::clone(&resources.textures),
+            buffers: Arc::clone(&resources.buffers),
+            descriptors: Arc::clone(&resources.descriptors),
+        }
+    }
+
+    /// Another handle on the same four registries.
+    ///
+    /// Four refcount bumps, not four `Arc`s' worth of anything: each worker takes
+    /// one, and drops it when its pass finishes.
+    fn shared(&self) -> Self {
+        Self {
+            pipelines: Arc::clone(&self.pipelines),
+            textures: Arc::clone(&self.textures),
+            buffers: Arc::clone(&self.buffers),
+            descriptors: Arc::clone(&self.descriptors),
+        }
+    }
+}
+
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<ExecutorResources>();
+    assert_send_sync::<Pipelines>();
+    assert_send_sync::<Textures>();
+    assert_send_sync::<Buffers>();
+    assert_send_sync::<Descriptors>();
+};
+
+/// What recording one pass produced.
+struct RecordedPass {
+    outcome: Result<()>,
+    barriers: u32,
+}
+
+/// Record one pass into its own list.
+///
+/// A named function rather than an inline block, for one reason: a closure handed
+/// to `grind::parallel_for` cannot borrow, so the body had to be reachable
+/// without capturing anything from the frame. That it is now separately testable
+/// is a side benefit.
+#[allow(clippy::too_many_arguments)]
+fn record_pass(
+    pass: &chassis::graph::CompiledPass,
+    encoder: &BarrierEncoder,
+    slots: &SlotTable,
+    textures: &Textures,
+    buffers: &Buffers,
+    extent: &chassis::Extent2d,
+    list: &mut VulkanCommandList<'_>,
+    record: &dyn PassRecorder,
+) -> RecordedPass {
+    let mut barriers = 0u32;
+    let outcome = (|| -> Result<()> {
+        barriers += record_barriers(encoder, pass, slots, textures, buffers, list)?;
+
+        // Tell the list what layouts the graph says are current, so a transfer in
+        // this pass copies from the right layout instead of guessing one.
+        // Declared rather than tracked: the graph is the only thing that knows,
+        // and a running total across a list would need the previous list's
+        // ending state, which does not exist while they record in parallel.
+        for barrier in &pass.pre_barriers {
+            if let Some(handle) = slots.texture(barrier.texture) {
+                list.declare_layout(handle, barrier.dst_state);
+            }
+        }
+
+        // The executor opens the render scope, not the pass.
+        //
+        // The graph already knows the attachments -- that is what
+        // `CompiledPass::colors` and `.depth` are -- so a pass closure that had
+        // to open the scope could open it on the wrong attachments, and
+        // validation would say `vkCmdDraw must be issued inside an active render
+        // pass` with nothing naming who was responsible.
+        let rendering = open_render_scope(pass, slots, textures, extent, list)?;
+
+        let scope = PassScope {
+            index: pass.index,
+            name: &pass.name,
+            extent: *extent,
+            slots,
+        };
+
+        record
+            .record(&scope, list)
+            .map_err(|error| BackendError::PassRecording(error.to_string()))?;
+
+        if rendering {
+            list.end_rendering();
+        }
+
+        // After the body and after the render scope, which is the only place a
+        // post barrier can go.
+        record_post_barriers(encoder, pass, slots, textures, list).map(|_| ())
+    })();
+
+    RecordedPass { outcome, barriers }
 }
 
 /// What the executor did, for a frame dump and for tests.
@@ -129,8 +263,9 @@ impl VulkanRenderGraphExecutor {
     pub fn execute(
         &mut self,
         frame: &CompiledGraph,
-        scope_resources: ExecutorResources<'_>,
-        record: &dyn PassRecorder,
+        scope_resources: ExecutorResources,
+        record: Arc<dyn PassRecorder>,
+        jobs: &grind::Jobs,
     ) -> Result<()> {
         let passes = &frame.passes;
         if passes.is_empty() {
@@ -145,125 +280,161 @@ impl VulkanRenderGraphExecutor {
         let tier = self.recorder.tier();
         let device = self.recorder.device().clone();
 
-        let mut barrier_count = 0u32;
-        let mut failure: Option<BackendError> = None;
         // A pass recorder returns `chassis::Error`; the rest of this function
         // speaks the backend's. Bridged once, here, rather than by making every
         // call site convert.
 
-        // One encoder for the frame. It is immutable once built -- it holds a
-        // device reference and a tier, nothing mutable -- so every pass can
-        // borrow it concurrently.
+        // One encoder for the frame, shared by every pass.
+        //
+        // It owns its `ash::Device` rather than borrowing, because the passes
+        // run on worker threads and a closure handed to `grind::parallel_for` is
+        // `'static`. An `ash::Device` clone is two words and one driver refcount
+        // bump, once per frame.
+
+        // ## Recording in parallel
+        //
+        // List `i` is a distinct command buffer out of a distinct command pool,
+        // so pass `i` needs nothing from pass `j`. That is not an accident of the
+        // arena -- it is what a per-pass command pool is *for*. The spec's
+        // external-synchronisation object for recording is the **pool**, not the
+        // buffer, so one pool per pass is exactly what makes concurrent recording
+        // sound. A shared pool would be the same threading error as sharing one
+        // pool across threads, which is the mistake this layout avoids.
+        //
+        // The registries are read-locked once per pass, not once per handle
+        // lookup: four uncontended atomics per pass, against a per-lookup cost on
+        // the hottest path in recording.
+        let pass_count = passes.len();
+        // Cloned so the workers can hold it: `parallel_for` takes an `'static`
+        // closure and cannot borrow the caller's frame. `CompiledPass` is pure
+        // data -- no closures, no backend types -- so a clone is a few strings
+        // and a couple of small vecs, once per frame.
+        let pass_list: Arc<Vec<chassis::graph::CompiledPass>> = Arc::new(passes.to_vec());
+        let extent = self.extent;
+        // `Arc`d, so the closure a worker runs outlives this frame's borrow of
+        // them. A `SlotTable` clone rather than a borrow for the same reason.
+        let slots = Arc::new(self.slots().clone());
+        // One encoder for the frame, shared by every pass.
+        //
+        // It owns its `ash::Device` rather than borrowing, because the passes run
+        // on worker threads and a closure handed to `grind::parallel_for` is
+        // `'static`. An `ash::Device` clone is two words and one driver refcount
+        // bump, once per frame.
         let encoder = Arc::new(BarrierEncoder::new(tier, &device));
+        let shared = SharedRegistries::new(&scope_resources);
+        let recorder: Arc<dyn PassRecorder> = Arc::clone(&record);
+        let barriers_total = Arc::new(AtomicU32::new(0));
+        // One slot per pass. A failure is recorded *in its own slot*, not in the
+        // first to arrive, so two passes failing at once cannot make which error
+        // comes back depend on which thread won the race.
+        let failures = Arc::new(Mutex::new(vec![None::<BackendError>; pass_count]));
+        // Each worker takes its own recording out and sends it back, rather than
+        // sharing a `Vec` it would have to mutate. `parallel_for` takes an `Fn`,
+        // and `Fn` cannot mutate what it captured.
+        let (sender, finished) = std::sync::mpsc::channel();
+        // `Option` so a worker can *take* its own recording out by index. A
+        // worker and the submit path must not both be able to reach the same
+        // command buffer, and taking is what makes that structurally impossible
+        // rather than a matter of discipline.
+        let arena = Arc::new(Mutex::new(
+            recordings.into_iter().map(Some).collect::<Vec<_>>(),
+        ));
+        let shared_recordings = Arc::clone(&arena);
 
-        // Recording is parallel in structure: list `i` is a distinct buffer with
-        // its own pool, so pass `i` needs nothing from pass `j`. That is what a
-        // per-pass command pool is *for* -- the spec's external-synchronisation
-        // object for recording is the pool, not the buffer, so one pool per pass
-        // is what makes concurrent recording sound rather than accidental.
-        //
-        // It is still *sequential*, and the reason is worth stating precisely
-        // because the first version of this comment was wrong. It said the
-        // closures "are not yet `Send`, because the command list adapter borrows
-        // registries that are not synchronised". Two claims, both false:
-        //
-        //  * The registries have no interior mutability -- no `Cell`, no
-        //    `RefCell`, no raw pointers -- so they are already `Sync`.
-        //  * `grind` is not the obstacle either.
-        //
-        // The real obstacle is `'static`. `Jobs` spawns its workers when the
-        // pool is built, so a job cannot borrow from the frame that queued it,
-        // and `parallel_for` therefore takes an `'static` closure. The command
-        // list adapter borrows its registries out of `VulkanResources`, which is
-        // owned by the `Gpu` and is `&mut` for creation. Sharing it for a frame
-        // means either handing out `Arc`s and giving up `&mut` creation --
-        // `Arc::make_mut` needs `Clone` on the registries, and they own driver
-        // objects -- or giving each thread an owned snapshot of the registries,
-        // which costs a copy per frame to avoid a lock.
-        //
-        // So: not "one step away". The registries need an interior-mutability
-        // answer -- a `RwLock` per registry, or a separate immutable per-frame
-        // view built at frame start -- and that is a design decision, not a
-        // refactor. Until then this loop is sequential, and says so.
-        for (position, pass) in passes.iter().enumerate() {
-            let Some(recording) = recordings.get_mut(position) else {
-                continue;
-            };
+        let parallel = {
+            let pass_list = Arc::clone(&pass_list);
+            let slots = Arc::clone(&slots);
+            let encoder = Arc::clone(&encoder);
+            let shared = shared.shared();
+            let recorder = Arc::clone(&recorder);
+            let barriers_total = Arc::clone(&barriers_total);
+            let failures = Arc::clone(&failures);
 
-            let mut list = VulkanCommandList::new(
-                recording,
-                scope_resources.pipelines,
-                scope_resources.textures,
-                scope_resources.buffers,
-                scope_resources.descriptors,
-            );
+            move |position: u32| {
+                let position = position as usize;
+                let sender = sender.clone();
+                let Some(pass) = pass_list.get(position) else {
+                    return;
+                };
+                let Some(mut recording) = shared_recordings.lock().unwrap()[position].take() else {
+                    return;
+                };
 
-            barrier_count += record_barriers(
-                &encoder,
-                pass,
-                &self.resources,
-                scope_resources.textures,
-                scope_resources.buffers,
-                &mut list,
-            )?;
+                // Read guards for the whole pass. Held together, so all four are
+                // released at once and no writer can slip between two of them.
+                let pipelines = shared.pipelines.read().expect("registry lock");
+                let textures = shared.textures.read().expect("registry lock");
+                let buffers = shared.buffers.read().expect("registry lock");
+                let descriptors = shared.descriptors.read().expect("registry lock");
 
-            // Tell the list what layouts the graph says are current, so a
-            // transfer in this pass copies from the right layout instead of
-            // guessing one. Declared rather than tracked, because the graph is
-            // the only thing that knows: a running total across a list would
-            // need the previous list's ending state, and the lists record in
-            // parallel.
-            for barrier in &pass.pre_barriers {
-                if let Some(handle) = self.resources.texture(barrier.texture) {
-                    list.declare_layout(handle, barrier.dst_state);
+                let mut list = VulkanCommandList::new(
+                    &mut recording,
+                    &pipelines,
+                    &textures,
+                    &buffers,
+                    &descriptors,
+                );
+
+                let recorded = record_pass(
+                    pass,
+                    &encoder,
+                    &slots,
+                    &textures,
+                    &buffers,
+                    &extent,
+                    &mut list,
+                    recorder.as_ref(),
+                );
+                barriers_total.fetch_add(recorded.barriers, Ordering::Relaxed);
+
+                if let Err(error) = recorded.outcome {
+                    let mut guard = failures.lock().unwrap();
+                    if guard[position].is_none() {
+                        guard[position] = Some(error);
+                    }
                 }
+
+                // The receiver outlives `parallel_for` and is drained straight
+                // after it, so this cannot fail -- and a dropped send would be a
+                // command buffer never ended, which is the one leak this type can
+                // make.
+                sender
+                    .send((position, recording))
+                    .expect("the recording channel outlives parallel_for");
             }
+        };
 
-            // The executor opens the render scope, not the pass.
-            //
-            // The graph already knows the attachments -- that is what
-            // `CompiledPass::colors` and `.depth` are -- so a pass closure that
-            // had to open the scope would be able to open it on the wrong
-            // attachments, and validation would report `vkCmdDraw must be
-            // issued inside an active render pass` with nothing in the message
-            // pointing at who was responsible.
-            let rendering = open_render_scope(
-                pass,
-                &self.resources,
-                scope_resources.textures,
-                &self.extent,
-                &mut list,
-            )?;
+        // One job per pass, batch size one: recording a pass is not a cheap body
+        // that wants slicing, and batching would serialise passes that are
+        // independent.
+        jobs.parallel_for(pass_count as u32, parallel, 1);
 
-            let scope = PassScope {
-                index: pass.index,
-                name: &pass.name,
-                extent: self.extent,
-                slots: &self.resources,
-            };
+        let barrier_count = barriers_total.load(Ordering::Relaxed);
 
-            if let Err(error) = record.record(&scope, &mut list) {
-                failure = Some(BackendError::PassRecording(error.to_string()));
-                break;
-            }
+        // Which thread finished first is not an order, so re-sort by pass index.
+        let mut returned: Vec<(usize, Recording)> = finished.try_iter().collect();
+        returned.sort_by_key(|(position, _)| *position);
+        recordings = returned
+            .into_iter()
+            .map(|(_, recording)| recording)
+            .collect();
 
-            if rendering {
-                list.end_rendering();
-            }
-
-            // After the body and after the render scope, which is the only place
-            // a post barrier can go.
-            if let Err(error) = record_post_barriers(
-                &encoder,
-                pass,
-                &self.resources,
-                scope_resources.textures,
-                &mut list,
-            ) {
-                failure = Some(error);
-                break;
+        // The arena is taken under the lock rather than unwrapped.
+        //
+        // Unwrapping the `Arc` is the obvious move and it is wrong: `JobCounter`
+        // settles *before* the job closure is destroyed, so a worker can still
+        // hold a clone for a few instructions after `wait` returns, and
+        // `try_unwrap` would fail -- with `Recording` not being `Clone`, there
+        // being no fallback. Taking works whether or not anyone else still holds
+        // a reference, and leaves behind an empty mutex.
+        {
+            let mut guard = arena.lock().unwrap();
+            for slot in guard.iter_mut() {
+                *slot = None;
             }
         }
+
+        let failure = failures.lock().unwrap().iter().flatten().next().cloned();
 
         if let Some(error) = failure {
             // The recordings were begun, so they must be ended or the pool reset

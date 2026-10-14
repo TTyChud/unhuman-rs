@@ -81,6 +81,12 @@ pub struct VulkanGpu {
     view_handles: Vec<Option<chassis::ImageView>>,
     /// Acquire fence, made with the swapchain and reset before every acquire.
     acquire_fence: vk::Fence,
+    /// The pass-recording thread pool.
+    ///
+    /// Held here rather than borrowed from the caller because `Gpu::submit` takes
+    /// no jobs argument, and a frame should not have to thread one through every
+    /// layer to record itself in parallel.
+    jobs: std::sync::OnceLock<Arc<grind::Jobs>>,
     /// Last, because it destroys the device everything above was made from.
     context: Context,
 }
@@ -146,6 +152,7 @@ impl VulkanGpu {
             extent,
             view_handles: Vec::new(),
             acquire_fence: vk::Fence::null(),
+            jobs: std::sync::OnceLock::new(),
             context,
         })
     }
@@ -186,6 +193,17 @@ impl VulkanGpu {
         self.recorder = Some(recorder);
     }
 
+    /// The pool passes record on. Built on first use.
+    ///
+    /// `OnceLock` rather than a plain field, so *constructing* a `Gpu` -- in a
+    /// test, in a tool that only wants a device -- costs no threads. A pool
+    /// spawns `available_parallelism() - 1` of them, and a program that makes
+    /// four `Gpu`s to compare backends would otherwise have thirty-one threads
+    /// for nobody.
+    pub fn jobs(&self) -> Arc<grind::Jobs> {
+        Arc::clone(self.jobs.get_or_init(|| Arc::new(grind::Jobs::new())))
+    }
+
     pub fn context(&self) -> &Context {
         &self.context
     }
@@ -223,12 +241,12 @@ impl VulkanGpu {
 /// mutably one line later -- so the two disjoint fields would be fused into one
 /// borrow and refused. Taking the registry alone is what lets the borrow checker
 /// see that they really are disjoint.
-fn executor_resources(resources: &VulkanResources) -> ExecutorResources<'_> {
+fn executor_resources(resources: &VulkanResources) -> ExecutorResources {
     ExecutorResources {
-        pipelines: resources.pipelines(),
-        textures: resources.textures(),
-        buffers: resources.buffers(),
-        descriptors: resources.descriptors(),
+        pipelines: resources.shared_pipelines(),
+        textures: resources.shared_textures(),
+        buffers: resources.shared_buffers(),
+        descriptors: resources.shared_descriptors(),
     }
 }
 
@@ -528,11 +546,14 @@ impl chassis::Gpu for VulkanGpu {
         // to refuse.
         let recorder = self.recorder.clone();
         let resources = executor_resources(&self.resources);
+        // Cloned so the executor can hand it to `grind::parallel_for`, whose
+        // closure is `'static` and therefore cannot borrow this one.
+        let jobs = self.jobs();
         let result = match recorder {
-            Some(recorder) => self
+            Some(recorder) => self.executor.execute(&compiled, resources, recorder, &jobs),
+            None => self
                 .executor
-                .execute(&compiled, resources, recorder.as_ref()),
-            None => self.executor.execute(&compiled, resources, &NoRecording),
+                .execute(&compiled, resources, Arc::new(NoRecording), &jobs),
         };
         result.map_err(|error| chassis::Error::Unsupported(error.to_string()))
     }

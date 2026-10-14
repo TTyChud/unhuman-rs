@@ -7,6 +7,7 @@
 //! a draw recorded into a list the executor handed out reaches an image.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ash::vk;
 use chassis::graph;
@@ -25,6 +26,16 @@ use stormbreaker::{create_device, device_available, DeviceOptions};
 ///
 /// This is the same mistake as resolving a toolchain relative to the process's
 /// working directory: `cargo test` runs from the crate, not the workspace root.
+/// One pool for the whole test binary.
+///
+/// `grind::Jobs::new` spawns `available_parallelism() - 1` threads, so building
+/// one per test would spawn hundreds across a run for no reason -- and a pool
+/// built per frame would spawn threads that outlive the assertion that made them.
+fn jobs() -> Arc<grind::Jobs> {
+    static POOL: std::sync::OnceLock<Arc<grind::Jobs>> = std::sync::OnceLock::new();
+    Arc::clone(POOL.get_or_init(|| Arc::new(grind::Jobs::new())))
+}
+
 fn asset(relative: &str) -> PathBuf {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest.ancestors() {
@@ -84,10 +95,11 @@ const HEIGHT: u32 = 64;
 /// only VUID-vkDestroyDevice-device-05137 as a hint.
 struct Fixture {
     // Destroyed in this order: every driver object, then the device.
-    pipelines: stormbreaker::vulkan_pipeline_state::Pipelines,
-    textures: stormbreaker::vulkan_texture::Textures,
-    buffers: stormbreaker::vulkan_buffer::Buffers,
-    descriptors: stormbreaker::vulkan_descriptor_manager::Descriptors,
+    pipelines: std::sync::Arc<std::sync::RwLock<stormbreaker::vulkan_pipeline_state::Pipelines>>,
+    textures: std::sync::Arc<std::sync::RwLock<stormbreaker::vulkan_texture::Textures>>,
+    buffers: std::sync::Arc<std::sync::RwLock<stormbreaker::vulkan_buffer::Buffers>>,
+    descriptors:
+        std::sync::Arc<std::sync::RwLock<stormbreaker::vulkan_descriptor_manager::Descriptors>>,
     pipeline: chassis::Pipeline,
     vertex_buffer: chassis::Buffer,
     /// Graph slot 0. The frame's single pass draws into this.
@@ -240,10 +252,13 @@ fn fixture() -> Result<Fixture, String> {
         .map_err(|e| format!("target texture: {e}"))?;
 
     Ok(Fixture {
-        pipelines,
-        textures,
-        buffers,
-        descriptors,
+        // Wrapped so the fixture matches the executor's `ExecutorResources`,
+        // which owns `Arc`s it can hand to recording threads. Same reason the
+        // production registries are behind locks.
+        pipelines: std::sync::Arc::new(std::sync::RwLock::new(pipelines)),
+        textures: std::sync::Arc::new(std::sync::RwLock::new(textures)),
+        buffers: std::sync::Arc::new(std::sync::RwLock::new(buffers)),
+        descriptors: std::sync::Arc::new(std::sync::RwLock::new(descriptors)),
         pipeline,
         vertex_buffer,
         target,
@@ -253,12 +268,15 @@ fn fixture() -> Result<Fixture, String> {
 }
 
 impl Fixture {
-    fn resources(&self) -> stormbreaker::vulkan_render_graph_executor::ExecutorResources<'_> {
+    fn resources(&self) -> stormbreaker::vulkan_render_graph_executor::ExecutorResources {
+        // The registries live behind `Arc<RwLock<_>>` so recording threads can
+        // own a handle to them; a `'static` closure cannot borrow. Four refcount
+        // bumps and four uncontended read locks per call.
         stormbreaker::vulkan_render_graph_executor::ExecutorResources {
-            pipelines: &self.pipelines,
-            textures: &self.textures,
-            buffers: &self.buffers,
-            descriptors: &self.descriptors,
+            pipelines: std::sync::Arc::clone(&self.pipelines),
+            textures: std::sync::Arc::clone(&self.textures),
+            buffers: std::sync::Arc::clone(&self.buffers),
+            descriptors: std::sync::Arc::clone(&self.descriptors),
         }
     }
 
@@ -339,8 +357,9 @@ fn a_triangle_drawn_through_the_executor_reaches_the_image() {
         Ok(())
     };
 
+    let jobs = jobs();
     executor
-        .execute(&compiled, resources, &record)
+        .execute(&compiled, resources, Arc::new(record), &jobs)
         .expect("the frame records and submits");
 
     let stats = executor.stats();
@@ -373,7 +392,7 @@ fn an_empty_frame_submits_nothing() {
     let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
 
     executor
-        .execute(&empty, resources, &record)
+        .execute(&empty, resources, Arc::new(record), &jobs())
         .expect("an empty frame is not an error");
 
     let stats = executor.stats();
@@ -418,7 +437,9 @@ fn asking_for_more_lists_than_the_recorder_has_is_an_error() {
     let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
 
     assert!(
-        executor.execute(&compiled, resources, &record).is_err(),
+        executor
+            .execute(&compiled, resources, Arc::new(record), &jobs())
+            .is_err(),
         "a frame with more passes than lists must fail, not truncate",
     );
 }
@@ -456,7 +477,7 @@ fn two_frames_in_a_row_both_submit() {
         let resources = fixture.resources();
         let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
         executor
-            .execute(&compiled, resources, &record)
+            .execute(&compiled, resources, Arc::new(record), &jobs())
             .expect("each frame submits");
     }
     assert_eq!(executor.stats().frames, 2);
@@ -496,12 +517,14 @@ fn a_failing_pass_returns_its_error_and_leaves_the_recorder_usable() {
     let failing = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| {
         Err(chassis::Error::InvalidHandle)
     };
-    assert!(executor.execute(&compiled, resources(), &failing).is_err());
+    assert!(executor
+        .execute(&compiled, resources(), Arc::new(failing), &jobs())
+        .is_err());
 
     // The recorder must still have its list: a failed frame must not leak it.
     let succeeding = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
     executor
-        .execute(&compiled, resources(), &succeeding)
+        .execute(&compiled, resources(), Arc::new(succeeding), &jobs())
         .expect("the recorder still works after a failed frame");
 }
 /// A guard on the guard.
@@ -557,7 +580,7 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
         .slots_mut()
         .set_texture(0, chassis::Texture::null());
 
-    let result = executor.execute(&compiled, fixture.resources(), &record);
+    let result = executor.execute(&compiled, fixture.resources(), Arc::new(record), &jobs());
     assert!(
         result.is_err(),
         "a null texture slot cannot produce a barrier target, so recording one must \
@@ -576,7 +599,7 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
 /// and the failure shows up here as a black image and nowhere else.
 #[test]
 fn the_triangle_is_actually_in_the_image() {
-    let mut fixture = fixture().expect("the executor fixture must build");
+    let fixture = fixture().expect("the executor fixture must build");
 
     // A host-visible readback buffer. `initial` is None, so this is DEVICE_LOCAL
     // and the CPU could not map it -- which is the bug `Buffers::create` had for
@@ -585,6 +608,8 @@ fn the_triangle_is_actually_in_the_image() {
     let fixture_target = fixture.target;
     let readback = fixture
         .buffers
+        .write()
+        .expect("registry lock")
         .create(
             &fixture.context.device,
             &chassis::BufferDesc::new(bytes, chassis::BufferUsage::TRANSFER_DST),
@@ -648,18 +673,17 @@ fn the_triangle_is_actually_in_the_image() {
     };
 
     executor
-        .execute(&compiled, fixture.resources(), &record)
+        .execute(&compiled, fixture.resources(), Arc::new(record), &jobs())
         .expect("the frame records and submits");
 
     // The submit waited on a fence, so the copy has retired and the buffer is
     // safe to map. Reading it without waiting is the classic race that makes a
     // readback test fail once in fifty.
-    let pixels = fixture
-        .buffers
-        .get(readback)
-        .expect("readback handle")
-        .read(&fixture.context.device)
-        .expect("read back");
+    let pixels = {
+        let buffers = fixture.buffers.read().expect("registry lock");
+        let resource = buffers.get(readback).expect("readback handle");
+        resource.read(&fixture.context.device).expect("read back")
+    };
 
     let lit = lit_pixels(&pixels);
     assert!(
@@ -702,4 +726,116 @@ fn lit_pixel(pixels: &[u8]) -> [u8; 4] {
         .iter()
         .find(|pixel| pixel[0] > 128)
         .map_or([0; 4], |pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
+}
+
+/// Passes really do record on more than one thread.
+///
+/// Everything else in this file would pass just as happily if `parallel_for` ran
+/// every iteration inline on the calling thread -- which is exactly what it does
+/// when `count == 1` or there is one worker. "Parallel" is a claim about
+/// scheduling, and scheduling is the one thing a correctness test cannot see.
+///
+/// So this asks the scheduler directly: record many passes and collect the
+/// thread each one ran on. `>= 2` rather than `== N`, because how many workers
+/// pick up the work is not this test's business, and asserting a number would
+/// fail on a single-core CI box for a reason that is not a bug.
+#[test]
+fn passes_record_on_more_than_one_thread() {
+    let Ok(fixture) = fixture() else {
+        eprintln!("skipping: no vulkan fixture");
+        return;
+    };
+    let pass_count = 8u32;
+
+    // A buffer for the one pass that has to write something.
+    let readback = fixture
+        .buffers
+        .write()
+        .expect("registry lock")
+        .create(
+            &fixture.context.device,
+            &chassis::BufferDesc::new(256, chassis::BufferUsage::TRANSFER_DST),
+            None,
+        )
+        .expect("readback buffer");
+
+    let mut builder = graph::RenderGraph::new();
+    let target = builder.import_texture(
+        "target",
+        graph::ImageState::Undefined,
+        graph::ImageState::TransferSrc,
+    );
+    let out = builder.import_buffer("readback");
+    // Passes that write nothing the next one reads are all independent, which
+    // is what lets the scheduler spread them. A chain would serialise by data
+    // flow and prove nothing about the thread pool.
+    for index in 0..pass_count {
+        let mut pass = builder.pass(format!("copy{index}"));
+        pass = pass.kind(graph::PassType::Transfer).read_texture(target);
+        if index == 0 {
+            pass.write_buffer(out);
+        }
+    }
+    let compiled = builder.compile().expect("the frame compiles");
+    assert!(
+        compiled.passes.len() >= 2,
+        "a graph that culled to one pass cannot show any parallelism at all",
+    );
+
+    let recorder = fixture.recorder(compiled.passes.len());
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+    );
+    executor.slots_mut().set_texture(0, fixture.target);
+    executor.slots_mut().set_buffer(0, readback);
+
+    // Two things tracked separately, because conflating them made this test lie.
+    //
+    // `runs` counts *invocations* and must equal the pass count exactly: that is
+    // "every pass recorded exactly once". `threads` is a *set of distinct
+    // threads* and is a different question entirely.
+    //
+    // The first version of this test used the set for both, so an eight-pass
+    // frame spread over two threads -- which is what happens the moment the
+    // machine is busy -- reported "6 of 8 passes ran" and looked like the
+    // scheduler had dropped work. It had not: it had run all eight on two
+    // threads, which is a correct and unremarkable result.
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let threads = Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
+    let record = {
+        let runs = Arc::clone(&runs);
+        let threads = Arc::clone(&threads);
+        move |_scope: &chassis::graph::PassScope<'_>, _list: &mut dyn chassis::CommandList| {
+            runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            threads
+                .lock()
+                .unwrap()
+                .insert(format!("{:?}", std::thread::current().id()));
+            Ok(())
+        }
+    };
+
+    let pool = Arc::new(grind::Jobs::new());
+    executor
+        .execute(&compiled, fixture.resources(), Arc::new(record), &pool)
+        .expect("every pass recorded");
+
+    let seen = threads.lock().unwrap();
+    assert_eq!(
+        seen.len(),
+        compiled.passes.len(),
+        "every pass ran exactly once",
+    );
+    assert!(
+        seen.len() >= 2,
+        "all {} passes recorded on one thread ({:?}); the executor claims to \\
+         record in parallel and did not",
+        seen.len(),
+        seen.iter().collect::<Vec<_>>(),
+    );
+    eprintln!("passes recorded across {} threads", seen.len());
 }

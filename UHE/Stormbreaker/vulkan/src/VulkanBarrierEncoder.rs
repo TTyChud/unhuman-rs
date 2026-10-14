@@ -157,14 +157,23 @@ fn subresource_for(target: Target, format: TextureFormat) -> vk::ImageSubresourc
     }
 }
 
-pub struct BarrierEncoder<'a> {
+pub struct BarrierEncoder {
     tier: SyncTier,
-    device: &'a ash::Device,
+    /// Owned, not borrowed.
+    ///
+    /// One encoder is shared by every recording thread, so it must be `'static`
+    /// to go into whatever the threads capture. An `ash::Device` is a
+    /// refcounted handle, so cloning it is two words and a driver refcount bump
+    /// -- once per frame, not once per barrier.
+    device: ash::Device,
 }
 
-impl<'a> BarrierEncoder<'a> {
-    pub fn new(tier: SyncTier, device: &'a ash::Device) -> Self {
-        Self { tier, device }
+impl BarrierEncoder {
+    pub fn new(tier: SyncTier, device: &ash::Device) -> Self {
+        Self {
+            tier,
+            device: device.clone(),
+        }
     }
 
     pub fn tier(&self) -> SyncTier {
@@ -177,7 +186,7 @@ impl<'a> BarrierEncoder<'a> {
     /// range for a buffer -- so it goes through the free lowering functions and
     /// the caller needs the device to record them.
     pub fn device(&self) -> &ash::Device {
-        self.device
+        &self.device
     }
 
     /// Records one barrier. Empty transitions are dropped, so the graph does not

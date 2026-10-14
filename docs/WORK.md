@@ -433,6 +433,52 @@ the same reason `is_compatible` does, and the two *must* agree: if the hash
 deduped and `is_compatible` did not, which one a backend believes would decide
 whether a bind group and its pipeline end up with the same object.
 
+## Passes record in parallel now
+
+The executor takes a `grind::Jobs` and records every pass on a worker thread.
+8 passes across 8 threads, measured -- see below for why that needed measuring.
+
+**The blocker was `'static`, not `Send`.** `Jobs` spawns its workers when the pool
+is built, so a job cannot borrow from the frame that queued it, and
+`parallel_for` takes an `'static` closure. The registries are therefore
+`Arc<RwLock<_>>`: `Arc` because a recording thread must *own* a handle,
+`RwLock` because creation needs `&mut` and `Arc::make_mut` requires `Clone` on a
+registry that owns driver objects. The lock is taken once per pass, not once per
+handle lookup.
+
+**One command pool per pass is what makes this sound.** The spec's
+external-synchronisation object for recording is the **pool**, not the buffer. A
+shared pool would be the same threading error as sharing a pool across threads,
+which is the mistake this arena layout exists to avoid.
+
+**Three things had to become owned** to satisfy `'static`: the `BarrierEncoder`
+(now owns an `ash::Device` clone), the `CompiledPass` list (cloned per frame --
+pure data, a few strings), and the `PassRecorder` (`Arc<dyn PassRecorder>`, which
+`VulkanGpu` already held).
+
+**Errors are recorded per pass slot, not first-come.** Two passes failing at once
+must not make the reported error depend on which thread won the race; the lowest
+failing index wins. Every recording is ended and recycled either way, because a
+command buffer left in the recording state makes the pool reset illegal.
+
+**Recordings come back through a channel, not shared storage.** `parallel_for`
+takes an `Fn`, and `Fn` cannot mutate what it captured. They are also taken under
+a lock rather than by unwrapping the `Arc` -- `JobCounter` settles *before* the
+job closure is destroyed, so a worker can still hold a clone for a few
+instructions after `wait` returns, and `try_unwrap` would fail with `Recording`
+not being `Clone` and there being no fallback.
+
+**The "is it actually parallel" test counted the wrong thing.** It collected
+distinct thread ids into a set and compared the set's length against the pass
+count. An eight-pass frame spread over two threads -- which is what happens the
+moment the machine is busy -- reported "6 of 8 passes ran". No pass was lost;
+eight had run on two threads. The fix counts invocations and threads separately,
+and it took a deliberate load test to find, because on an idle machine the two
+numbers coincide.
+
+`parallel_for` runs inline when there is one worker, so the test states that as
+its precondition instead of failing on a single-core box.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.

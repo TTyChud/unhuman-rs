@@ -24,6 +24,8 @@
 //! than handing back a handle that binds nothing -- a bind group that silently
 //! binds nothing renders the wrong image and is close to undebuggable.
 
+use std::sync::{Arc, RwLock};
+
 use ash::vk;
 use chassis::Registry;
 
@@ -37,11 +39,27 @@ use crate::vulkan_texture::Textures;
 /// Owns every device object the RHI creates.
 pub struct VulkanResources {
     device: ash::Device,
-    buffers: Buffers,
-    textures: Textures,
-    shaders: Shaders,
-    pipelines: Pipelines,
-    descriptors: Descriptors,
+    /// `Arc<RwLock<_>>`, and the reason is `'static`.
+    ///
+    /// `grind::Jobs` spawns its workers when the pool is built, so a job cannot
+    /// borrow from the frame that queued it -- `parallel_for` takes an `'static`
+    /// closure. The recording threads therefore need to *own* a handle to each
+    /// registry rather than borrow one, which means `Arc`.
+    ///
+    /// And they need `&mut` for creation, which means something between `Arc` and
+    /// nothing: `Arc<Registry>` alone would need `Arc::make_mut`, and that
+    /// requires `Clone` on the registry, and a registry owns driver objects that
+    /// cannot be cloned. `RwLock` is the shape that fits -- creation takes
+    /// `write()`, recording takes `read()`, and the `&mut self` on
+    /// `Resources::create_*` already guarantees no creation overlaps a frame.
+    ///
+    /// The lock is taken once per pass, not once per handle lookup, so the cost
+    /// is one uncontended atomic per registry per pass.
+    buffers: Arc<RwLock<Buffers>>,
+    textures: Arc<RwLock<Textures>>,
+    shaders: Arc<RwLock<Shaders>>,
+    pipelines: Arc<RwLock<Pipelines>>,
+    descriptors: Arc<RwLock<Descriptors>>,
     /// Handles for the views `create_image_view` hands out.
     ///
     /// The RHI returns a `chassis::ImageView`, and the driver object behind it
@@ -69,13 +87,16 @@ impl VulkanResources {
     ) -> Self {
         Self {
             device: device.clone(),
-            buffers: Buffers::new(device, memory_properties),
-            textures: Textures::new(device, memory_properties),
+            buffers: Arc::new(RwLock::new(Buffers::new(device, memory_properties))),
+            textures: Arc::new(RwLock::new(Textures::new(device, memory_properties))),
             // The device, so `Drop` can destroy the modules. A registry with no
             // device behind it can create nothing and leaks everything.
-            shaders: Shaders::with_device(Some(device)),
-            pipelines: Pipelines::new(device, vk::PipelineCache::null()),
-            descriptors: Descriptors::new(device),
+            shaders: Arc::new(RwLock::new(Shaders::with_device(Some(device)))),
+            pipelines: Arc::new(RwLock::new(Pipelines::new(
+                device,
+                vk::PipelineCache::null(),
+            ))),
+            descriptors: Arc::new(RwLock::new(Descriptors::new(device))),
             image_views: Registry::new(),
             uniform_buffer_alignment: 1,
         }
@@ -85,24 +106,89 @@ impl VulkanResources {
         &self.device
     }
 
-    pub fn buffers(&self) -> &Buffers {
-        &self.buffers
+    pub fn buffers(&self) -> std::sync::RwLockReadGuard<'_, Buffers> {
+        self.buffers.read().expect("a poisoned registry lock")
     }
 
-    pub fn textures(&self) -> &Textures {
-        &self.textures
+    /// The write guard, for creation.
+    ///
+    /// Uncontended by construction: `Resources::create_*` takes `&mut self`, so
+    /// nothing else can be holding a read guard at the same time.
+    pub fn buffers_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, Buffers> {
+        self.buffers.write().expect("a poisoned registry lock")
     }
 
-    pub fn shaders(&self) -> &Shaders {
-        &self.shaders
+    /// An owned handle, for a recording thread that outlives this borrow.
+    pub fn shared_buffers(&self) -> Arc<RwLock<Buffers>> {
+        Arc::clone(&self.buffers)
     }
 
-    pub fn pipelines(&self) -> &Pipelines {
-        &self.pipelines
+    pub fn textures(&self) -> std::sync::RwLockReadGuard<'_, Textures> {
+        self.textures.read().expect("a poisoned registry lock")
     }
 
-    pub fn descriptors(&self) -> &Descriptors {
-        &self.descriptors
+    /// The write guard, for creation.
+    ///
+    /// Uncontended by construction: `Resources::create_*` takes `&mut self`, so
+    /// nothing else can be holding a read guard at the same time.
+    pub fn textures_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, Textures> {
+        self.textures.write().expect("a poisoned registry lock")
+    }
+
+    /// An owned handle, for a recording thread that outlives this borrow.
+    pub fn shared_textures(&self) -> Arc<RwLock<Textures>> {
+        Arc::clone(&self.textures)
+    }
+
+    pub fn shaders(&self) -> std::sync::RwLockReadGuard<'_, Shaders> {
+        self.shaders.read().expect("a poisoned registry lock")
+    }
+
+    /// The write guard, for creation.
+    ///
+    /// Uncontended by construction: `Resources::create_*` takes `&mut self`, so
+    /// nothing else can be holding a read guard at the same time.
+    pub fn shaders_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, Shaders> {
+        self.shaders.write().expect("a poisoned registry lock")
+    }
+
+    /// An owned handle, for a recording thread that outlives this borrow.
+    pub fn shared_shaders(&self) -> Arc<RwLock<Shaders>> {
+        Arc::clone(&self.shaders)
+    }
+
+    pub fn pipelines(&self) -> std::sync::RwLockReadGuard<'_, Pipelines> {
+        self.pipelines.read().expect("a poisoned registry lock")
+    }
+
+    /// The write guard, for creation.
+    ///
+    /// Uncontended by construction: `Resources::create_*` takes `&mut self`, so
+    /// nothing else can be holding a read guard at the same time.
+    pub fn pipelines_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, Pipelines> {
+        self.pipelines.write().expect("a poisoned registry lock")
+    }
+
+    /// An owned handle, for a recording thread that outlives this borrow.
+    pub fn shared_pipelines(&self) -> Arc<RwLock<Pipelines>> {
+        Arc::clone(&self.pipelines)
+    }
+
+    pub fn descriptors(&self) -> std::sync::RwLockReadGuard<'_, Descriptors> {
+        self.descriptors.read().expect("a poisoned registry lock")
+    }
+
+    /// The write guard, for creation.
+    ///
+    /// Uncontended by construction: `Resources::create_*` takes `&mut self`, so
+    /// nothing else can be holding a read guard at the same time.
+    pub fn descriptors_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, Descriptors> {
+        self.descriptors.write().expect("a poisoned registry lock")
+    }
+
+    /// An owned handle, for a recording thread that outlives this borrow.
+    pub fn shared_descriptors(&self) -> Arc<RwLock<Descriptors>> {
+        Arc::clone(&self.descriptors)
     }
 
     /// How many views were handed out and not yet accounted for.
@@ -138,7 +224,7 @@ impl VulkanResources {
     /// and every pass is making its own layout -- at which point a set allocated
     /// against one layout cannot be bound to a pipeline built with another.
     pub fn descriptor_layout_count(&self) -> usize {
-        self.descriptors.layout_count()
+        self.descriptors().layout_count()
     }
 
     pub fn live_image_views(&self) -> usize {
@@ -146,12 +232,12 @@ impl VulkanResources {
     }
 
     /// The registries a command list needs, borrowed for one frame.
-    pub fn executor_resources(&self) -> crate::vulkan_render_graph_executor::ExecutorResources<'_> {
+    pub fn executor_resources(&self) -> crate::vulkan_render_graph_executor::ExecutorResources {
         crate::vulkan_render_graph_executor::ExecutorResources {
-            pipelines: &self.pipelines,
-            textures: &self.textures,
-            buffers: &self.buffers,
-            descriptors: &self.descriptors,
+            pipelines: self.shared_pipelines(),
+            textures: self.shared_textures(),
+            buffers: self.shared_buffers(),
+            descriptors: self.shared_descriptors(),
         }
     }
 }
@@ -217,8 +303,9 @@ impl chassis::Resources for VulkanResources {
         desc: chassis::BufferDesc,
         initial: Option<&[u8]>,
     ) -> chassis::Result<chassis::Buffer> {
-        self.buffers
-            .create(&self.device, &desc, initial)
+        let device = self.device.clone();
+        self.buffers_mut()
+            .create(&device, &desc, initial)
             .map_err(Into::into)
     }
 
@@ -227,8 +314,12 @@ impl chassis::Resources for VulkanResources {
         // closing -- a texture with no name is a texture nobody can find in a
         // validation message -- but for now the label comes from nothing and the
         // backend says so in the resource label rather than inventing one.
-        self.textures
-            .create(&self.device, &desc, "texture")
+        // The device is cloned out first: `textures_mut()` borrows all of `self`,
+        // so passing `&self.device` at the same time is two overlapping borrows
+        // of the same object. An `ash::Device` clone is a refcount bump.
+        let device = self.device.clone();
+        self.textures_mut()
+            .create(&device, &desc, "texture")
             .map_err(Into::into)
     }
 
@@ -236,9 +327,10 @@ impl chassis::Resources for VulkanResources {
         &mut self,
         texture: &chassis::Texture,
     ) -> chassis::Result<chassis::ImageView> {
+        let device = self.device.clone();
         let view = self
-            .textures
-            .create_view(&self.device, *texture)
+            .textures_mut()
+            .create_view(&device, *texture)
             .map_err(chassis::Error::from)?;
         Ok(self.image_views.create(view.handle()))
     }
@@ -256,12 +348,9 @@ impl chassis::Resources for VulkanResources {
         // module created as a fragment one is accepted and fails at pipeline
         // creation instead of here. Both stages are claimed and the pipeline
         // picks, because a module's entry point does not say which it is.
-        self.shaders
-            .create_from_words(
-                &self.device,
-                &module.words,
-                vk::ShaderStageFlags::ALL_GRAPHICS,
-            )
+        let device = self.device.clone();
+        self.shaders_mut()
+            .create_from_words(&device, &module.words, vk::ShaderStageFlags::ALL_GRAPHICS)
             .map_err(Into::into)
     }
 
@@ -269,8 +358,19 @@ impl chassis::Resources for VulkanResources {
         &mut self,
         desc: chassis::PipelineDesc,
     ) -> chassis::Result<chassis::Pipeline> {
-        crate::vulkan_graphic_pipeline::create(&mut self.pipelines, &desc, &self.shaders)
-            .map_err(Into::into)
+        // Guards taken up front, then handed to the builder. Taking them in
+        // argument position would borrow `self` mutably and immutably at once,
+        // which is two overlapping borrows of the same struct -- not a lock
+        // conflict, just a borrow checker one.
+        // Two guards, one read and one write, on two *different fields*.
+        //
+        // Taken through the fields rather than through `self.shaders()` and
+        // `self.pipelines_mut()`: those borrow the whole struct, one `&` and one
+        // `&mut`, and the borrow checker is right to refuse. At field level they
+        // are genuinely disjoint, so the split is real rather than asserted.
+        let shaders = self.shaders.read().expect("registry lock");
+        let mut pipelines = self.pipelines.write().expect("registry lock");
+        crate::vulkan_graphic_pipeline::create(&mut pipelines, &desc, &shaders).map_err(Into::into)
     }
 
     fn create_bind_group(
@@ -284,19 +384,19 @@ impl chassis::Resources for VulkanResources {
         // `vk::DescriptorSetLayout` -- which is what makes binding a set to a
         // pipeline legal at all.
         let set_layout = self
-            .descriptors
+            .descriptors_mut()
             .layout(&crate::vulkan_descriptor_manager::BindGroupLayoutDesc {
                 bindings: layout.bindings.iter().map(convert_binding).collect(),
             })
             .map_err(chassis::Error::from)?;
 
         let group = self
-            .descriptors
+            .descriptors_mut()
             .allocate(set_layout)
             .map_err(chassis::Error::from)?;
 
         let set = self
-            .descriptors
+            .descriptors()
             .set(group)
             .expect("just allocated, so it is in the registry")
             .handle();
@@ -312,10 +412,8 @@ impl chassis::Resources for VulkanResources {
         let mut infos = Vec::with_capacity(buffers.len());
         let mut types = Vec::with_capacity(buffers.len());
         for (binding, buffer, offset) in buffers {
-            let resource = self
-                .buffers
-                .get(*buffer)
-                .ok_or(chassis::Error::InvalidHandle)?;
+            let buffers = self.buffers();
+            let resource = buffers.get(*buffer).ok_or(chassis::Error::InvalidHandle)?;
             // Refused rather than clamped.
             //
             // `offset >= size` gives either a zero range or a range that runs off
@@ -381,7 +479,7 @@ impl chassis::Resources for VulkanResources {
             .collect();
 
         if !writes.is_empty() {
-            self.descriptors
+            self.descriptors_mut()
                 .update(group, &writes, &[])
                 .map_err(chassis::Error::from)?;
         }
@@ -389,19 +487,23 @@ impl chassis::Resources for VulkanResources {
     }
 
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {
-        self.buffers.destroy(&self.device, buffer);
+        let device = self.device.clone();
+        self.buffers_mut().destroy(&device, buffer);
     }
 
     fn destroy_texture(&mut self, texture: chassis::Texture) {
-        self.textures.destroy(&self.device, texture);
+        let device = self.device.clone();
+        self.textures_mut().destroy(&device, texture);
     }
 
     fn destroy_pipeline(&mut self, pipeline: chassis::Pipeline) {
-        self.pipelines.destroy(&self.device, pipeline);
+        let device = self.device.clone();
+        self.pipelines_mut().destroy(&device, pipeline);
     }
 
     fn destroy_shader(&mut self, shader: chassis::Shader) {
-        self.shaders.destroy(&self.device, shader);
+        let device = self.device.clone();
+        self.shaders_mut().destroy(&device, shader);
     }
 
     fn destroy_bind_group(&mut self, _group: chassis::BindGroup) {}

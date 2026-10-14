@@ -113,11 +113,19 @@ fn a_handle_from_the_rhi_resolves_in_the_backend() {
         .expect("buffer");
     let texture = backend.create_texture(texture_desc()).expect("texture");
 
-    let resolved_buffer = backend.buffers().get(buffer).expect("buffer resolves");
-    let resolved_texture = backend.textures().get(texture).expect("texture resolves");
-    assert_eq!(resolved_buffer.size(), 256);
-    assert!(!resolved_texture.image().is_null());
-    assert_eq!(resolved_texture.extent().width, 64);
+    let resolved_buffer_size = {
+        let buffers = backend.buffers();
+        let found = buffers.get(buffer).expect("buffer resolves");
+        found.size()
+    };
+    let (resolved_image, resolved_width) = {
+        let textures = backend.textures();
+        let found = textures.get(texture).expect("texture resolves");
+        (found.image(), found.extent().width)
+    };
+    assert_eq!(resolved_buffer_size, 256);
+    assert!(!resolved_image.is_null());
+    assert_eq!(resolved_width, 64);
 
     // The view the RHI handed out is the same driver object.
     let view = backend.create_image_view(&texture).expect("image view");
