@@ -306,6 +306,29 @@ impl Recording {
         unsafe { self.device.cmd_pipeline_barrier2(self.buffer, &dependency) };
     }
 
+    /// A legacy-format image barrier, for a device on the `Legacy` sync tier.
+    ///
+    /// `barrier_image` above is the Vulkan 1.3 spelling. This is the 1.0 one, and
+    /// the two take different structs -- there is no conversion, which is the
+    /// whole reason the tier exists.
+    ///
+    /// Stages are top and bottom of the pipe because the caller has said it has
+    /// no memory dependency to express: the one place that uses this is the
+    /// present transition, which is a layout change with nothing on either side.
+    pub fn barrier_image_legacy(&mut self, barriers: &[vk::ImageMemoryBarrier<'static>]) {
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                self.buffer,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                barriers,
+            );
+        }
+    }
+
     pub fn barrier_buffer(&mut self, barriers: &[vk::BufferMemoryBarrier2<'static>]) {
         let dependency = vk::DependencyInfo::default()
             .dependency_flags(vk::DependencyFlags::empty())

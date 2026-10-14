@@ -97,6 +97,14 @@ pub trait Swapchain {
     fn current_image_view(&self) -> ImageView;
     /// Index of the acquired image.
     fn frame_index(&self) -> u32;
+    /// How many images the swapchain has.
+    ///
+    /// A frame loop needs this and it is not derivable: one image means the CPU
+    /// waits for the GPU every frame, two means it never does. A backend with no
+    /// swapchain returns `None` from `Gpu::swapchain` instead of reporting `0`,
+    /// so a `0` here would mean a real swapchain with no images, which cannot
+    /// happen.
+    fn image_count(&self) -> u32;
     fn is_out_of_date(&self) -> bool;
 }
 

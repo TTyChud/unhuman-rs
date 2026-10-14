@@ -54,6 +54,22 @@ pub fn create(
         extension_ptrs.push(c"VK_KHR_timeline_semaphore".as_ptr());
     }
 
+    // `VK_KHR_swapchain`, whenever it is on offer.
+    //
+    // It was not requested at all before, so `Swapchain::new` built an
+    // `ash::khr::swapchain::Device` that could not load `vkAcquireNextImageKHR`
+    // and the windowed path aborted. The tier comment above applies here too, but
+    // the reason this one is unconditional is different: there is no tier that
+    // renders without presenting.
+    //
+    // Only if offered. A compute-only driver without it must still be able to
+    // make a headless device, and failing at `vkCreateDevice` because of an
+    // extension nothing has asked for yet would make the backend unusable
+    // rather than merely windowless.
+    if vulkan_physical_device::has_device_extension(instance, physical_device, "VK_KHR_swapchain") {
+        extension_ptrs.push(c"VK_KHR_swapchain".as_ptr());
+    }
+
     let queue_priorities = [1.0f32];
     let queue_info = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(graphics_family)

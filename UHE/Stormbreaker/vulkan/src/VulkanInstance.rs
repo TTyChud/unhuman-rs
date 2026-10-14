@@ -74,12 +74,14 @@ pub fn create_instance(engine_name: &std::ffi::CStr, validation: bool) -> Result
         ..Default::default()
     };
 
+    let instance_extensions = required_instance_extensions(&entry);
+
     let instance_info = vk::InstanceCreateInfo {
         p_application_info: &app_info,
         ..Default::default()
     }
     .enabled_layer_names(&layer_ptrs)
-    .enabled_extension_names(&[]);
+    .enabled_extension_names(&instance_extensions);
 
     let instance = unsafe { entry.create_instance(&instance_info, None) }
         .map_err(|e| BackendError::vk("vkCreateInstance", e))?;
@@ -89,6 +91,51 @@ pub fn create_instance(engine_name: &std::ffi::CStr, validation: bool) -> Result
         instance,
         validation_enabled,
     })
+}
+
+/// The instance extensions this engine needs, out of what the loader offers.
+///
+/// ## Why this list exists at all
+///
+/// It did not, and that meant the entire windowed path had never run. The
+/// instance enabled *no* extensions, so `VK_KHR_surface` was not there,
+/// `ash::khr::surface::Instance::new` could not load its pointer, and every
+/// swapchain call aborted the process with "Unable to load
+/// `vkCreateXlibSurfaceKHR`". Nothing caught it because nothing tested it.
+///
+/// ## Why these two, and why only if offered
+///
+/// `VK_KHR_surface` is the base every other WSI extension is built on. The
+/// headless one is not needed by a windowed run, but it costs nothing to enable
+/// and it is the only way to get a surface on a machine with no display --
+/// which is most CI machines, and therefore most of the tests that should exist.
+///
+/// Enabling an extension the driver does not advertise is a `VK_ERROR_`
+/// extension-not-present at instance creation, so both are filtered.
+fn required_instance_extensions(entry: &Entry) -> Vec<*const std::os::raw::c_char> {
+    const WANTED: [&[u8]; 3] = [
+        b"VK_KHR_surface\0",
+        b"VK_EXT_headless_surface\0",
+        b"VK_KHR_headless_surface\0",
+    ];
+
+    let available = available_instance_extensions(entry);
+    WANTED
+        .iter()
+        .filter(|name| {
+            let name = std::str::from_utf8(&name[..name.len() - 1]).unwrap_or_default();
+            available.iter().any(|offered| offered == name)
+        })
+        .map(|name| name.as_ptr() as *const std::os::raw::c_char)
+        .collect()
+}
+
+/// Is this instance extension on offer by the loader?
+pub fn instance_extension_available(entry: &Entry, name: &std::ffi::CStr) -> bool {
+    let name = name.to_str().unwrap_or_default();
+    available_instance_extensions(entry)
+        .iter()
+        .any(|offered| offered == name)
 }
 
 pub fn layer_available(entry: &Entry, name: &str) -> bool {

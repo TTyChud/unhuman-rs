@@ -280,6 +280,59 @@ Three bugs it caught that per-backend tests could not:
   name and the same variants -- so `GpuInfo::sync_tier` could not be assigned
   from `Capabilities::sync_tier`. Now one type, re-exported.
 
+## The windowed path, which had never run
+
+`VulkanGpu::with_swapchain` stored a swapchain and `VulkanGpu::swapchain()`
+returned `None` regardless, so attaching one changed nothing observable. Fixing
+that meant making the path work, and it had never worked.
+
+**The instance enabled zero extensions.** Not "the wrong ones" -- `&[]`. So
+`VK_KHR_surface` was absent, `ash::khr::surface::Instance::new` could not resolve
+a single entry point, and the first call aborted the process. `VK_KHR_swapchain`
+was likewise never requested on the device. Both are now enabled when offered.
+
+**`ash` panics where Vulkan returns.** `headless_surface::Instance::new` resolves
+entry points at construction and aborts if one is missing. It does not return an
+error. So `create_headless_surface` checks the extension first and returns
+`ExtensionUnavailable` -- a machine without it is ordinary, not a reason to kill
+the process.
+
+**`currentExtent == UINT32_MAX` means "you choose".** It is in the spec, it is
+what every headless surface answers, and it is not a sentinel we invented. It was
+passed straight to `vkCreateSwapchainKHR`, which asked for a 4294967295-wide
+image. Now clamped into `minImageExtent..maxImageExtent` -- including a
+*reported* extent, since a window larger than the display should letterbox rather
+than fail. `choose_extent` is pure, so all four cases are tested with no device.
+
+**`vkAcquireNextImageKHR` returns an index, not an image.** The handle was
+fabricated as `vkImage::from_raw(index)`, which looks plausible and is not an
+object the driver knows. The image is `get_swapchain_images()[index]`.
+
+**Five more, all of them invisible until the path ran:**
+
+- the acquire fence was submitted in a signalled state -- `present` waits it, so
+  every acquire after the first was `VUID-vkAcquireNextImageKHR-fence-01287`
+- the acquire semaphore was never consumed, so the second acquire was
+  `VUID-vkAcquireNextImageKHR-semaphore-01286`; it is now `VK_NULL_HANDLE` and
+  the fence alone carries the wait
+- nothing transitioned the image to `PRESENT_SRC_KHR`, so present was
+  `VUID-VkPresentInfoKHR-pImageIndices-01430`. The render graph cannot do this
+  one: a swapchain image is handed out by the driver and no pass ever declares
+  it, so `transition_to_present` is its own single-list submit
+- that extra submit did not advance the timeline value, so it signalled the value
+  the frame's last pass already signalled
+- the image views were never destroyed, and the surface leaked whenever
+  `Swapchain::new` failed
+
+**Ownership was ambiguous and said so.** `Drop` destroyed the surface; the comment
+said "owned by someone else". `new_owning_surface` takes it and frees it on every
+error path; `new` is the borrow, for a window system that really does outlive the
+swapchain.
+
+Tests use `VK_EXT_headless_surface`, so the whole thing runs on a machine with no
+display -- which is most CI machines, and therefore most of the tests that should
+exist.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.

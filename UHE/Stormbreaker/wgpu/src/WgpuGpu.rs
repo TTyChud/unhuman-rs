@@ -175,6 +175,13 @@ impl Swapchain for WgpuGpu {
         0
     }
 
+    fn image_count(&self) -> u32 {
+        // Zero, and unreachable in practice: `Gpu::swapchain` returns `None` for
+        // wgpu, so nothing can ask. Zero rather than one because one would be a
+        // claim about an image count this backend does not have.
+        0
+    }
+
     fn is_out_of_date(&self) -> bool {
         false
     }

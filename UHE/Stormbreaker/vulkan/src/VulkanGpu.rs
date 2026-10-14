@@ -34,6 +34,9 @@
 
 use std::sync::Arc;
 
+use ash::vk;
+use ash::vk::Handle as _;
+
 use chassis::graph::pass::{NoRecording, PassRecorder, SlotTable};
 use chassis::{
     BackendChoice, GpuInfo, PassId, RenderGraph as RenderGraphTrait, Resources as ResourcesTrait,
@@ -70,8 +73,30 @@ pub struct VulkanGpu {
     recorder: Option<Arc<dyn PassRecorder>>,
     info: GpuInfo,
     extent: chassis::Extent2d,
+    /// The RHI handle for each swapchain image view, minted once and reused.
+    ///
+    /// `Vec<Option<_>>` rather than `Vec<_>`: a lazily-created view has no
+    /// handle until it exists, and a null handle would look like a real view of
+    /// image zero to anything that only compares handles.
+    view_handles: Vec<Option<chassis::ImageView>>,
+    /// Acquire fence, made with the swapchain and reset before every acquire.
+    acquire_fence: vk::Fence,
     /// Last, because it destroys the device everything above was made from.
     context: Context,
+}
+
+impl Drop for VulkanGpu {
+    fn drop(&mut self) {
+        // Null-guarded because a headless `VulkanGpu` never made one, and
+        // `vkDestroyFence` on a null handle is a crash rather than an error worth
+        // reporting.
+        unsafe {
+            if !self.acquire_fence.is_null() {
+                let _ = self.context.device.device_wait_idle();
+                self.context.device.destroy_fence(self.acquire_fence, None);
+            }
+        }
+    }
 }
 
 impl VulkanGpu {
@@ -118,6 +143,8 @@ impl VulkanGpu {
             recorder: None,
             info,
             extent,
+            view_handles: Vec::new(),
+            acquire_fence: vk::Fence::null(),
             context,
         })
     }
@@ -133,12 +160,24 @@ impl VulkanGpu {
     }
 
     /// With a swapchain, which is what a window gives.
-    pub fn with_swapchain(mut self, swapchain: VulkanSwapchain) -> Self {
+    pub fn with_swapchain(mut self, swapchain: VulkanSwapchain) -> RhiResult<Self> {
         let (width, height) = swapchain.extent();
         self.extent = chassis::Extent2d { width, height };
         self.executor.set_extent(self.extent);
+        self.view_handles = vec![None; swapchain.image_count() as usize];
+
+        // Unsigned: a fence starts unsignalled, which is exactly what
+        // `acquire` wants before it has acquired anything.
+        let fence_info = vk::FenceCreateInfo::default();
+        unsafe {
+            self.acquire_fence = self
+                .context
+                .device
+                .create_fence(&fence_info, None)
+                .map_err(|error| chassis::Error::Unsupported(format!("vkCreateFence: {error}")))?;
+        }
         self.swapchain = Some(swapchain);
-        self
+        Ok(self)
     }
 
     /// Install the code that records each pass.
@@ -210,24 +249,195 @@ impl Swapchain for VulkanGpu {
     }
 
     fn current_image_view(&self) -> chassis::ImageView {
-        // No view accessor on the backend's swapchain yet — it hands out raw
-        // `vk::ImageView` and the RHI hands out generational handles, and the
-        // registry that would bridge them does not exist.
-        //
-        // A null handle, and a null handle here is honest: there is no acquired
-        // image because `frame_begin` does not acquire one. A caller that needs
-        // one gets a clear failure rather than a view of image zero.
-        chassis::ImageView::null()
+        // `Swapchain` is a trait method, so it cannot create a view -- and it
+        // should not: this is a query about the frame in flight, not a place to
+        // allocate one. The views are built by `acquire_view` below, which the
+        // frame loop calls once it has acquired an image.
+        self.acquired_handle()
+            .unwrap_or_else(chassis::ImageView::null)
     }
 
     fn frame_index(&self) -> u32 {
-        0
+        self.acquired_index().unwrap_or(0)
+    }
+
+    fn image_count(&self) -> u32 {
+        self.swapchain
+            .as_ref()
+            .map_or(0, |swapchain| swapchain.image_count())
     }
 
     fn is_out_of_date(&self) -> bool {
         self.swapchain
             .as_ref()
             .is_some_and(VulkanSwapchain::is_out_of_date)
+    }
+}
+
+/// Implementation of the three accessors above, which need to read the swapchain.
+impl VulkanGpu {
+    /// Build and register the view of the acquired image.
+    ///
+    /// Split out of [`Swapchain::current_image_view`] for the reason in its
+    /// comment: creating a `vk::ImageView` is a device call, and a trait getter
+    /// that quietly performs one turns every debug print of the current view into
+    /// a potential allocation and a potential failure.
+    ///
+    /// `None` when headless or when nothing has been acquired.
+    pub fn acquired_view(&mut self) -> RhiResult<Option<chassis::ImageView>> {
+        let Some(index) = self.acquired_index() else {
+            return Ok(None);
+        };
+        let slot = index as usize;
+        if self.view_handles.len() <= slot {
+            return Err(chassis::Error::InvalidDescriptor(format!(
+                "swapchain returned image {index}, but the swapchain has {} images",
+                self.view_handles.len()
+            )));
+        }
+        if let Some(handle) = self.view_handles[slot] {
+            return Ok(Some(handle));
+        }
+        let view = self
+            .swapchain
+            .as_mut()
+            .expect("acquired index with no swapchain")
+            .acquired_image_view()
+            .map_err(|error| chassis::Error::Unsupported(error.to_string()))?
+            .ok_or_else(|| {
+                chassis::Error::InvalidDescriptor("acquired image has no view".to_owned())
+            })?;
+        let handle = self.resources.register_image_view(view);
+        self.view_handles[slot] = Some(handle);
+        Ok(Some(handle))
+    }
+
+    pub fn acquired_index(&self) -> Option<u32> {
+        self.swapchain
+            .as_ref()
+            .and_then(VulkanSwapchain::acquired_image_index)
+    }
+
+    pub fn acquired_handle(&self) -> Option<chassis::ImageView> {
+        self.acquired_index()
+            .and_then(|index| self.view_handles.get(index as usize).copied().flatten())
+    }
+
+    /// Take the next swapchain image.
+    ///
+    /// ## Why this is not on `chassis::Swapchain`
+    ///
+    /// Acquiring is a *frame loop* step that can fail and can block, and it needs
+    /// a semaphore and a fence. The RHI's `Swapchain` is a set of queries about a
+    /// frame in flight; putting a blocking acquire on it would make `extent()` and
+    /// `format()` look as though they might block too.
+    ///
+    /// ## The fence and semaphore
+    ///
+    /// One of each, created with the swapchain and destroyed with it. The fence
+    /// is created *unsignalled*, which is what `acquire` wants before it has
+    /// acquired anything, and waited at `present`.
+    pub fn acquire(&mut self, timeout: std::time::Duration) -> RhiResult<()> {
+        let Some(swapchain) = self.swapchain.as_mut() else {
+            return Err(chassis::Error::InvalidDescriptor(
+                "acquire on a gpu with no swapchain".to_owned(),
+            ));
+        };
+        // The fence must be unsignalled before it is submitted, and
+        // `present` waits it -- which signals it. So every acquire after the
+        // first is submitted in a signalled state, which is
+        // `VUID-vkAcquireNextImageKHR-fence-01287`.
+        unsafe {
+            self.context
+                .device
+                .reset_fences(&[self.acquire_fence])
+                .map_err(|error| chassis::Error::Unsupported(format!("vkResetFences: {error}")))?;
+        }
+
+        // No semaphore. `vkAcquireNextImageKHR` allows a null one, and a real
+        // one would have to be consumed by a submit before it can be reused --
+        // which is the render-finish semaphore work that is not wired yet.
+        // Using the fence alone is correct and, with `present` waiting anyway,
+        // no slower. Passing a semaphore nothing ever waits on would leave it
+        // signalled, and the *next* acquire would be
+        // `VUID-vkAcquireNextImageKHR-semaphore-01286`.
+        match swapchain.acquire(timeout, self.acquire_fence, vk::Semaphore::null()) {
+            Ok(_image) => Ok(()),
+            Err(error) => {
+                // Out of date is not a failure. The frame is skipped and the
+                // swapchain rebuilt, which is the documented path; reporting it as
+                // an error would make every window resize look like a crash.
+                if swapchain.is_out_of_date() {
+                    return Ok(());
+                }
+                Err(chassis::Error::Unsupported(error.to_string()))
+            }
+        }
+    }
+
+    /// Present the acquired image and release it.
+    ///
+    /// ## The empty semaphore list, and why it is not a lie
+    ///
+    /// `vkQueuePresentKHR` takes semaphores to wait on. Render-finish semaphores
+    /// are not wired through the pass recorder yet, so this passes none, and
+    /// present instead waits the acquire fence below.
+    ///
+    /// That is correct but slow -- correct because the fence is waited, not
+    /// because there is nothing to wait for. An empty list *believed* to be a
+    /// finished frame is how this becomes a race later, so the comment names what
+    /// is missing rather than describing what is there.
+    pub fn present(&mut self) -> RhiResult<()> {
+        let Some(swapchain) = self.swapchain.as_mut() else {
+            return Err(chassis::Error::InvalidDescriptor(
+                "present on a gpu with no swapchain".to_owned(),
+            ));
+        };
+        let queue = self.context.graphics_queue;
+        let (format, image) = match (
+            crate::vulkan_swapchain::chassis_format(swapchain.format())
+                .or(Some(chassis::TextureFormat::Rgba8Unorm)),
+            swapchain.acquired_image(),
+        ) {
+            (Some(format), Some(image)) => (format, image),
+            // Nothing acquired: the out-of-date path. Presenting anyway would be
+            // presenting an image index nobody holds.
+            _ => return Ok(()),
+        };
+
+        unsafe {
+            let _ = self
+                .context
+                .device
+                .wait_for_fences(&[self.acquire_fence], true, u64::MAX);
+        }
+
+        let _ = swapchain;
+
+        // The acquired image has to be in PRESENT_SRC before present, and the
+        // render graph cannot do it: a swapchain image is handed out by the
+        // driver and no pass ever declares it.
+        self.executor
+            .transition_to_present(image, format)
+            .map_err(|error| chassis::Error::Unsupported(error.to_string()))?;
+
+        let result = self
+            .swapchain
+            .as_mut()
+            .expect("checked above")
+            .present(queue, &[])
+            .map_err(|error| chassis::Error::Unsupported(error.to_string()));
+        // The image is no longer ours whatever present said. `suboptimal` is not
+        // an error and leaves the swapchain usable; only the index is cleared.
+        self.release_acquired();
+        result
+    }
+
+    /// Forget the acquired image without presenting it -- the out-of-date path.
+    fn release_acquired(&mut self) {
+        if let Some(swapchain) = self.swapchain.as_mut() {
+            swapchain.release_acquired();
+        }
     }
 }
 
@@ -281,11 +491,15 @@ impl chassis::Gpu for VulkanGpu {
     }
 
     fn swapchain(&self) -> Option<&dyn Swapchain> {
-        // A `VulkanSwapchain` is not itself a `chassis::Swapchain`, and making it
-        // one would mean the two concepts share a name and a meaning. Headless
-        // returns `None`, which is the honest answer and the reason the trait's
-        // signature is an `Option`.
-        None
+        // `self`, not the inner `VulkanSwapchain`. The backend swapchain hands
+        // out `vk::Format` and `(u32, u32)` and owns its own acquire; the RHI
+        // swapchain hands out `TextureFormat` and `Extent2d` and is a *view* of
+        // one. Two types with one job and two names is how a caller ends up
+        // asking the wrong one for the extent.
+        //
+        // Returning `self` works because `&VulkanGpu` coerces to
+        // `&dyn Swapchain` -- the same object, both interfaces.
+        self.swapchain.as_ref().map(|_| self as &dyn Swapchain)
     }
 
     fn graph(&mut self) -> &mut dyn RenderGraphTrait {

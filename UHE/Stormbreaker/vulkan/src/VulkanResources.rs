@@ -98,6 +98,18 @@ impl VulkanResources {
     /// A growing count is a leak; a count that never returns to zero means views
     /// outlive their textures, which is a use-after-free rather than a leak, and
     /// is worse.
+    /// Mint an RHI handle for a view this backend did not create from a
+    /// `Texture`.
+    ///
+    /// For swapchain images, which are owned by the swapchain rather than by the
+    /// texture registry -- so there is no `chassis::Texture` to hand to
+    /// `create_image_view`, but the RHI still needs a handle it can pass to a
+    /// render pass. The registry stores the pairing and destroys nothing; the
+    /// swapchain owns the view and frees it with the image it looks at.
+    pub fn register_image_view(&mut self, view: ash::vk::ImageView) -> chassis::ImageView {
+        self.image_views.create(view)
+    }
+
     pub fn live_image_views(&self) -> usize {
         self.image_views.len()
     }

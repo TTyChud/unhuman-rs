@@ -285,6 +285,80 @@ impl VulkanRenderGraphExecutor {
         Ok(())
     }
 
+    /// Move one image into `PRESENT_SRC_KHR` and submit that.
+    ///
+    /// ## Why this is here and not in the render graph
+    ///
+    /// The graph derives barriers from declared reads and writes, and a
+    /// swapchain image is never declared by anyone -- it is handed out by
+    /// `vkAcquireNextImageKHR`. So the final transition to a presentable layout
+    /// has no pass that could own it, and without it `vkQueuePresentKHR` fails
+    /// with `VUID-VkPresentInfoKHR-pImageIndices-01430`: "must be in
+    /// `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`, but is in `UNDEFINED`".
+    ///
+    /// ## Why `UNDEFINED` on the way in
+    ///
+    /// Discarding is always legal, so this does not care what was there before --
+    /// including a previous frame's contents. That is the one thing a present
+    /// transition must not assume.
+    ///
+    /// ## One list, submitted on its own
+    ///
+    /// Not appended to the frame's lists: the frame is already submitted by the
+    /// time a swapchain is presentable, and the present path waits for the device
+    /// anyway. Serialising the two would be correct and slower.
+    pub fn transition_to_present(
+        &mut self,
+        image: ash::vk::Image,
+        format: chassis::TextureFormat,
+    ) -> Result<()> {
+        let tier = self.recorder.tier();
+        let mut recordings = self.recorder.take(1)?;
+        let mut recording = match recordings.pop() {
+            Some(recording) => recording,
+            None => {
+                return Err(crate::vulkan_error::BackendError::ListArenaExhausted {
+                    requested: 1,
+                    available: 0,
+                })
+            }
+        };
+
+        // One barrier description, lowered for the tier. Building it twice and
+        // letting each lowering read its own copy is how the two spellings drift.
+        let barrier = chassis::graph::types::ImageBarrier {
+            // Not a real texture: this barrier names an image directly, and
+            // nothing reads `texture` when the target is given.
+            texture: 0,
+            src_access: chassis::graph::types::Access::None,
+            dst_access: chassis::graph::types::Access::None,
+            src_stage: chassis::graph::types::Stage::TopOfPipe,
+            dst_stage: chassis::graph::types::Stage::BottomOfPipe,
+            src_state: chassis::graph::types::ImageState::Undefined,
+            dst_state: chassis::graph::types::ImageState::Present,
+        };
+        let target = crate::vulkan_barrier_encoder::Target::color(image, 1, 1);
+
+        if tier.uses_sync2() {
+            let barrier2 = crate::vulkan_barrier_encoder::image_barrier2(target, barrier, format);
+            recording.barrier_image(&[barrier2]);
+        } else {
+            recording.barrier_image_legacy(&[crate::vulkan_barrier_encoder::image_barrier_legacy(
+                target, barrier, format,
+            )]);
+        }
+
+        recordings.push(recording.end()?);
+        let result = self.recorder.submit(recordings, self.value_base);
+        // The timeline value has to advance for *every* submit, including this
+        // one. Without it the present transition signals the value the frame's
+        // last pass already signalled, and that is
+        // `VUID-VkSubmitInfo2-semaphore-03882`: "signal value (2) must be greater
+        // than current value (2)".
+        self.value_base += 1;
+        result
+    }
+
     pub fn last_frame_passes(&self) -> usize {
         self.last_frame
     }
