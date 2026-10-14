@@ -31,10 +31,18 @@ Plus `cargo fmt --check`, which found real drift the moment CI was written down.
 
 ## CI
 
-`.github/workflows/ci.yml`, three jobs:
+`.github/workflows/ci.yml`, **Linux only**. Not a matrix. This engine targets one
+platform; a CI matrix over platforms it does not ship is an invitation to add
+`#[cfg]` nobody exercises locally.
+
+Four jobs:
 
 - **logic** — no GPU needed. fmt, clippy, and the suites that never touch a
   driver: `grind`, `chassis`, `adam`, `forge`.
+- **smoke** — build questions, not behaviour: workspace with all targets, in
+  release, `--locked`, doc tests, and a check that every C++ class has a Rust
+  counterpart *or a recorded reason it does not*. That last one is why
+  `VulkanRenderPass` is no longer on a "dead code, skip it" list.
 - **vulkan** — the backend against Mesa's **lavapipe** with the validation layer
   loaded. Same driver interface, same validation rules, on a CPU. Without this
   the backend suite would only ever run on one machine, which is how nine real

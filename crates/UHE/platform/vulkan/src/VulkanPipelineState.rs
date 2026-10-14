@@ -263,6 +263,30 @@ impl Pipelines {
     /// Called before the device goes away. A leaked `VkDescriptorSetLayout` is
     /// not reported by validation as an error, it is simply gone, and the next
     /// run gets a different handle for the same shape.
+    /// Destroy one pipeline and forget its description.
+    ///
+    /// The pipeline layout is deliberately *not* destroyed here: layouts are
+    /// shared by shape across pipelines and are owned by `destroy_layouts`. A
+    /// per-pipeline destroy of the layout frees it while another pipeline still
+    /// names it, which is a use-after-free the driver finds on the next draw
+    /// rather than at the destroy call.
+    ///
+    /// Removing the description is the part that is easy to forget: leaving it
+    /// means the same description returns a handle to freed memory.
+    pub fn destroy(&mut self, device: &ash::Device, handle: chassis::Pipeline) -> bool {
+        let Some(resource) = self.registry.get(handle) else {
+            return false;
+        };
+        let pipeline = resource.pipeline;
+        let removed = self.registry.remove(handle).is_some();
+        if removed {
+            self.by_description
+                .retain(|_, candidate| *candidate != handle);
+            unsafe { device.destroy_pipeline(pipeline, None) };
+        }
+        removed
+    }
+
     pub fn destroy_layouts(&mut self) {
         for (_, pipeline_layout) in self.pipeline_layouts.drain(..) {
             unsafe { self.device.destroy_pipeline_layout(pipeline_layout, None) };

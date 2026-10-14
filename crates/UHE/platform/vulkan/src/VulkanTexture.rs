@@ -68,6 +68,9 @@ pub struct Textures {
     device: ash::Device,
     registry: Registry<TextureResource, chassis::TextureTag>,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    /// Extra views made by `create_view`. The view inside a `TextureResource`
+    /// dies with the resource; these do not.
+    views: Vec<crate::vulkan_image_view::ImageView>,
 }
 
 impl Textures {
@@ -79,6 +82,7 @@ impl Textures {
             device: device.clone(),
             registry: Registry::new(),
             memory_properties,
+            views: Vec::new(),
         }
     }
 
@@ -190,6 +194,46 @@ impl Textures {
         self.registry.get(handle)
     }
 
+    /// A second view of an existing texture.
+    ///
+    /// `create` already makes one view alongside the image, so this exists for
+    /// the case the RHI needs and the texture did not anticipate: a sampler
+    /// wants a view with a different aspect or mip range than a render target
+    /// does. Returning the existing view would be wrong for that, so a new one is
+    /// made and tracked for destruction.
+    ///
+    /// A null handle is refused rather than producing a null view, which the
+    /// driver accepts and the frame then reads as a zero-sized attachment.
+    pub fn create_view(
+        &mut self,
+        device: &ash::Device,
+        handle: Texture,
+    ) -> Result<crate::vulkan_image_view::ImageView> {
+        let Some(resource) = self.registry.get(handle) else {
+            return Err(BackendError::InvalidHandle);
+        };
+        let view = crate::vulkan_image_view::create_default(
+            device,
+            resource.image(),
+            vulkan_types::vk_format(resource.format()),
+            vulkan_types::aspect(resource.format()),
+            resource.mip_levels(),
+            1,
+        )?;
+        self.views.push(view);
+        Ok(view)
+    }
+
+    /// Views made by `create_view`, destroyed with the textures.
+    ///
+    /// Held here rather than by the caller because the RHI's
+    /// `create_image_view` hands back a bare `vk::ImageView` and has no destroy
+    /// for it -- a view that outlives its texture is a use-after-free, and one
+    /// that never dies is a leak validation only mentions at `vkDestroyDevice`.
+    pub fn views(&self) -> &[crate::vulkan_image_view::ImageView] {
+        &self.views
+    }
+
     pub fn destroy(&mut self, device: &ash::Device, handle: Texture) -> bool {
         match self.registry.remove(handle) {
             Some(resource) => {
@@ -215,6 +259,18 @@ impl Textures {
 
 impl Drop for Textures {
     fn drop(&mut self) {
+        // Views first. A view must not outlive the image it views, and the
+        // images are destroyed on the next line.
+        //
+        // This was a leak I introduced: `create_view` pushes into `self.views`
+        // with a comment claiming the views die with their texture, which was
+        // true of the view inside a TextureResource and false of these. The RHI
+        // suite caught it as VUID-vkDestroyDevice-device-05137 naming a bare
+        // VkImageView -- an error about teardown that says nothing about which
+        // object, which is the only kind worth not having.
+        for view in self.views.drain(..) {
+            crate::vulkan_image_view::destroy(&self.device, view.handle());
+        }
         for (_, resource) in self.registry.iter() {
             resource.destroy(&self.device);
         }

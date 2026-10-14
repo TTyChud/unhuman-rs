@@ -1,6 +1,16 @@
 name: CI
 
-# Two jobs, and the split is not cosmetic.
+# Linux only. Deliberately, not a matrix.
+#
+# This engine targets one platform, and a CI matrix over platforms it does not
+# ship is a standing invitation to add `#[cfg]` that nobody exercises locally. A
+# green Windows job proves the code compiles there, not that anything works, and
+# it costs minutes on every commit to say so.
+#
+# If a second platform is ever supported, that is a change of scope, and it
+# should come with someone who can test on it -- not a row in a matrix.
+#
+# Three jobs, and the split is not cosmetic.
 #
 # `logic` needs no GPU at all and runs everywhere. `vulkan` runs the backend
 # against Mesa's **lavapipe**, a software Vulkan implementation, with the
@@ -16,6 +26,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
+# Linux, and only Linux. See the note at the top.
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

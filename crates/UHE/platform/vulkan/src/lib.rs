@@ -120,3 +120,5 @@ pub mod vulkan_render_graph_resources;
 pub mod vulkan_render_graph_types;
 #[path = "VulkanRenderPass.rs"]
 pub mod vulkan_render_pass;
+#[path = "VulkanResources.rs"]
+pub mod vulkan_resources;
