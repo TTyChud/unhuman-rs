@@ -165,7 +165,15 @@ pub trait RenderGraph {
 /// `Option<Box<dyn Gpu>>` rather than a concrete backend type.
 pub trait Gpu {
     fn info(&self) -> &GpuInfo;
-    fn swapchain(&self) -> &dyn Swapchain;
+    /// The swapchain, or `None` when there is not one.
+    ///
+    /// `Option`, not a bare reference. A headless run -- a GPU test, a
+    /// server-side frame, a CI job with no window -- has a real `Gpu` and no
+    /// swapchain, and a signature that says otherwise forces every caller to
+    /// carry a dummy. It also makes the difference between backends honest:
+    /// wgpu can create a headless device and Vulkan cannot create a window
+    /// without one.
+    fn swapchain(&self) -> Option<&dyn Swapchain>;
     fn graph(&mut self) -> &mut dyn RenderGraph;
     fn resources(&mut self) -> &mut dyn Resources;
 
