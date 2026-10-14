@@ -157,14 +157,34 @@ impl VulkanRenderGraphExecutor {
         let encoder = Arc::new(BarrierEncoder::new(tier, &device));
 
         // Recording is parallel in structure: list `i` is a distinct buffer with
-        // its own pool, so pass `i` needs nothing from pass `j`.
+        // its own pool, so pass `i` needs nothing from pass `j`. That is what a
+        // per-pass command pool is *for* -- the spec's external-synchronisation
+        // object for recording is the pool, not the buffer, so one pool per pass
+        // is what makes concurrent recording sound rather than accidental.
         //
-        // It is *sequential* in execution for now, and the reason is not a
-        // missing job system -- `grind` is right there. It is that the recording
-        // closures in this backend are not yet `Send`, because the command list
-        // adapter borrows registries that are not synchronised. Finishing that
-        // is one step, and this loop is written so the step is a replacement of
-        // the body rather than a rewrite of the structure.
+        // It is still *sequential*, and the reason is worth stating precisely
+        // because the first version of this comment was wrong. It said the
+        // closures "are not yet `Send`, because the command list adapter borrows
+        // registries that are not synchronised". Two claims, both false:
+        //
+        //  * The registries have no interior mutability -- no `Cell`, no
+        //    `RefCell`, no raw pointers -- so they are already `Sync`.
+        //  * `grind` is not the obstacle either.
+        //
+        // The real obstacle is `'static`. `Jobs` spawns its workers when the
+        // pool is built, so a job cannot borrow from the frame that queued it,
+        // and `parallel_for` therefore takes an `'static` closure. The command
+        // list adapter borrows its registries out of `VulkanResources`, which is
+        // owned by the `Gpu` and is `&mut` for creation. Sharing it for a frame
+        // means either handing out `Arc`s and giving up `&mut` creation --
+        // `Arc::make_mut` needs `Clone` on the registries, and they own driver
+        // objects -- or giving each thread an owned snapshot of the registries,
+        // which costs a copy per frame to avoid a lock.
+        //
+        // So: not "one step away". The registries need an interior-mutability
+        // answer -- a `RwLock` per registry, or a separate immutable per-frame
+        // view built at frame start -- and that is a design decision, not a
+        // refactor. Until then this loop is sequential, and says so.
         for (position, pass) in passes.iter().enumerate() {
             let Some(recording) = recordings.get_mut(position) else {
                 continue;
