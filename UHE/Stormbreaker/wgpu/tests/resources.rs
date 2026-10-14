@@ -255,7 +255,7 @@ fn a_bind_group_is_built_from_its_declared_layout() {
 
         let resources: &mut dyn Resources = &mut resources;
         let group = resources
-            .create_bind_group(&layout, &[(0, buffer, 0)])
+            .create_bind_group(&layout, &[(0, buffer, 0)], &[], &[])
             .expect("a bind group");
         assert!(!group.is_null(), "a real handle");
 
@@ -329,11 +329,11 @@ fn an_offset_at_or_past_the_end_is_refused() {
 
         let resources: &mut dyn Resources = &mut resources;
         assert!(resources
-            .create_bind_group(&layout, &[(0, buffer, 256)])
+            .create_bind_group(&layout, &[(0, buffer, 256)], &[], &[])
             .is_err());
         assert!(
             resources
-                .create_bind_group(&layout, &[(0, buffer, 1 << 20)])
+                .create_bind_group(&layout, &[(0, buffer, 1 << 20)], &[], &[])
                 .is_err(),
             "a wildly out-of-range offset is refused too",
         );
@@ -543,4 +543,156 @@ fn asset(relative: &str) -> std::path::PathBuf {
         }
     }
     panic!("could not find {relative} above {}", manifest.display());
+}
+
+/// A texture that can be *sampled*, as opposed to the shared `texture_desc`
+/// which is a render target.
+///
+/// The distinction is not academic: wgpu checks that a view bound to a
+/// `SampledImage` descriptor came from a texture with `TEXTURE_BINDING`, and
+/// fails with "Usage flags RENDER_ATTACHMENT do not contain TEXTURE_BINDING".
+/// Vulkan makes no such check at bind time -- it is a layout question, not a
+/// usage one -- so this exact mistake is invisible on one backend and fatal on
+/// the other.
+fn sampled_texture_desc() -> chassis::TextureDesc {
+    chassis::TextureDesc::new_2d(
+        chassis::Extent {
+            width: 16,
+            height: 16,
+            depth: 1,
+        },
+        chassis::TextureFormat::Rgba8Unorm,
+        chassis::TextureUsage::SAMPLED,
+    )
+}
+
+/// A sampler and an image bound with it, through the trait.
+///
+/// The mirror of the Vulkan `an_image_and_a_sampler_bind_together`, and the test
+/// that would have caught `count: Some(1)` if it had been written for images
+/// first. It was not, so it was caught by probing all three spellings by hand.
+#[test]
+fn an_image_and_a_sampler_bind_together() {
+    with_backend!(|resources| {
+        let layout = chassis::DescriptorSetLayoutDesc::new("material")
+            .with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::SampledImage,
+                chassis::StageMask::ALL,
+            ))
+            .with(chassis::BindingDesc::new(
+                1,
+                chassis::DescriptorKind::Sampler,
+                chassis::StageMask::ALL,
+            ));
+
+        let texture = resources
+            .create_texture(sampled_texture_desc())
+            .expect("a sampled texture");
+        let view = resources
+            .create_image_view(&texture)
+            .expect("an image view");
+        let sampler = resources
+            .create_sampler(&chassis::SamplerDesc::trilinear())
+            .expect("a sampler");
+        assert!(!sampler.is_null());
+
+        let resources: &mut dyn Resources = &mut resources;
+        let group = resources
+            .create_bind_group(&layout, &[], &[(0, view)], &[(1, sampler)])
+            .expect("an image bind group");
+        assert!(!group.is_null());
+
+        resources.destroy_sampler(sampler);
+    });
+}
+
+/// `CombinedImageSampler` exists on Vulkan and **does not exist here**.
+///
+/// WebGPU has no combined descriptor, so `wgpu::BindingResource` has no variant
+/// for one: the variants are Buffer, Sampler, TextureView and their array forms.
+/// The RHI's most convenient descriptor kind cannot be expressed on this backend.
+///
+/// So it is refused, and the refusal names the alternative. The parity test
+/// asserts the two backends *disagree* here, which is the one place they must.
+#[test]
+fn a_combined_image_sampler_is_refused_with_the_alternative() {
+    with_backend!(|resources| {
+        let layout =
+            chassis::DescriptorSetLayoutDesc::new("material").with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::CombinedImageSampler,
+                chassis::StageMask::ALL,
+            ));
+        let texture = resources
+            .create_texture(sampled_texture_desc())
+            .expect("a sampled texture");
+        let view = resources
+            .create_image_view(&texture)
+            .expect("an image view");
+        let sampler = resources
+            .create_sampler(&chassis::SamplerDesc::clamped())
+            .expect("a sampler");
+
+        let resources: &mut dyn Resources = &mut resources;
+        let error = resources
+            .create_bind_group(&layout, &[], &[(0, view)], &[(0, sampler)])
+            .expect_err("wgpu has no combined image sampler");
+        let message = error.to_string();
+        assert!(
+            message.contains("SampledImage") && message.contains("Sampler"),
+            "the error names the alternative to use instead: {message}",
+        );
+    });
+}
+
+/// Two bind groups, one texture, **different samplers**.
+///
+/// The shape every material system has: a shared texture bound with a per-material
+/// filter. The test is that the two groups are two groups.
+///
+/// It exists because a bind group cache keyed on the *layout* alone -- which is
+/// the obvious key, and is what `DescriptorSetLayoutDesc::hash` gives -- returns
+/// one group for both, and then every material in the scene samples with
+/// whichever filter was built first. The symptom is "my nearest-filtered texture
+/// is blurry" and the cause is a hash that forgot a field.
+#[test]
+fn two_samplers_on_one_texture_are_two_groups() {
+    with_backend!(|resources| {
+        let layout = chassis::DescriptorSetLayoutDesc::new("material")
+            .with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::SampledImage,
+                chassis::StageMask::ALL,
+            ))
+            .with(chassis::BindingDesc::new(
+                1,
+                chassis::DescriptorKind::Sampler,
+                chassis::StageMask::ALL,
+            ));
+
+        let texture = resources
+            .create_texture(sampled_texture_desc())
+            .expect("a sampled texture");
+        let view = resources.create_image_view(&texture).expect("a view");
+        let nearest = resources
+            .create_sampler(&chassis::SamplerDesc::nearest())
+            .expect("nearest");
+        let clamped = resources
+            .create_sampler(&chassis::SamplerDesc::clamped())
+            .expect("clamped");
+        assert_ne!(nearest, clamped, "two samplers are two handles");
+
+        let resources: &mut dyn Resources = &mut resources;
+        let a = resources
+            .create_bind_group(&layout, &[], &[(0, view)], &[(1, nearest)])
+            .expect("first");
+        let b = resources
+            .create_bind_group(&layout, &[], &[(0, view)], &[(1, clamped)])
+            .expect("second");
+        assert_ne!(
+            a, b,
+            "the same layout with a different sampler is a different group"
+        );
+    });
 }

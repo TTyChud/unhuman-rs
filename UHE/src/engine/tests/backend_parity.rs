@@ -57,7 +57,9 @@ macro_rules! both_backends {
                 let Some(mut gpu) = open(choice) else {
                     continue;
                 };
-                let context = format!("{choice:?}");
+                // Lowercased so a test can name a backend with `contains`
+                // without caring how `Debug` spells it.
+                let context = format!("{choice:?}").to_lowercase();
                 $body(&mut *gpu, &context);
                 ran += 1;
             }
@@ -215,7 +217,7 @@ both_backends!(
             .unwrap_or_else(|error| panic!("{context}: uniform buffer: {error}"));
 
         let group = resources
-            .create_bind_group(&layout, &[(0, buffer, 0)])
+            .create_bind_group(&layout, &[(0, buffer, 0)], &[], &[])
             .unwrap_or_else(|error| panic!("{context}: bind group: {error}"));
         assert!(!group.is_null(), "{context}: a real bind group handle");
 
@@ -224,13 +226,13 @@ both_backends!(
         // debug, so both backends have to agree on what they will not do.
         assert!(
             resources
-                .create_bind_group(&layout, &[(0, buffer, 256)])
+                .create_bind_group(&layout, &[(0, buffer, 256)], &[], &[])
                 .is_err(),
             "{context}: an offset at the end of the buffer is refused, not clamped",
         );
         assert!(
             resources
-                .create_bind_group(&layout, &[(9, buffer, 0)])
+                .create_bind_group(&layout, &[(9, buffer, 0)], &[], &[])
                 .is_err(),
             "{context}: writing a binding the layout does not declare is refused",
         );
@@ -242,6 +244,141 @@ both_backends!(
         gpu.frame_begin().expect("frame_begin");
         gpu.submit().expect("submit after a bind group");
         gpu.wait_idle();
+    }
+);
+
+// Samplers and sampled images, both backends, through `dyn Resources`.
+//
+// The descriptor path a renderer spends its life in. Two of these cases are
+// *not* identical across backends, and the test says so rather than asserting a
+// sameness that does not exist:
+//
+//  * `CombinedImageSampler` works on Vulkan and is refused on wgpu, because
+//    WebGPU has no combined descriptor.
+//  * A sampled view must come from a `TEXTURE_BINDING` texture on wgpu and may
+//    come from anything on Vulkan, which checks layouts at barrier time instead.
+both_backends!(
+    a_sampler_and_an_image_bind_through_the_trait,
+    |gpu: &mut dyn Gpu, context: &str| {
+        let layout = chassis::DescriptorSetLayoutDesc::new("material")
+            .with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::SampledImage,
+                chassis::StageMask::ALL,
+            ))
+            .with(chassis::BindingDesc::new(
+                1,
+                chassis::DescriptorKind::Sampler,
+                chassis::StageMask::ALL,
+            ));
+
+        let sampler = {
+            let resources: &mut dyn Resources = gpu.resources();
+            let sampler = resources
+                .create_sampler(&chassis::SamplerDesc::trilinear())
+                .unwrap_or_else(|error| panic!("{context}: sampler: {error}"));
+            assert!(!sampler.is_null(), "{context}: a real sampler handle");
+
+            let texture = resources
+                .create_texture(chassis::TextureDesc::new_2d(
+                    chassis::Extent {
+                        width: 16,
+                        height: 16,
+                        depth: 1,
+                    },
+                    chassis::TextureFormat::Rgba8Unorm,
+                    chassis::TextureUsage::SAMPLED,
+                ))
+                .unwrap_or_else(|error| panic!("{context}: sampled texture: {error}"));
+            let view = resources
+                .create_image_view(&texture)
+                .unwrap_or_else(|error| panic!("{context}: image view: {error}"));
+
+            let group = resources
+                .create_bind_group(&layout, &[], &[(0, view)], &[(1, sampler)])
+                .unwrap_or_else(|error| panic!("{context}: image bind group: {error}"));
+            assert!(!group.is_null(), "{context}: a real bind group handle");
+            sampler
+        };
+
+        // A destroyed handle must not resolve. One that resolves to a destroyed
+        // object is worse than one that does not resolve at all.
+        {
+            let resources: &mut dyn Resources = gpu.resources();
+            resources.destroy_sampler(sampler);
+        }
+        let resources: &mut dyn Resources = gpu.resources();
+        let again = resources
+            .create_sampler(&chassis::SamplerDesc::nearest())
+            .unwrap_or_else(|error| panic!("{context}: second sampler: {error}"));
+        assert_ne!(again, sampler, "{context}: a slot was not released");
+    }
+);
+
+// The one place the two backends must *disagree*.
+//
+// Vulkan has `COMBINED_IMAGE_SAMPLER` and it is the convenient default. wgpu
+// implements WebGPU, which has no combined descriptor at all -- `BindingResource`
+// is Buffer, Sampler, TextureView and their array forms, and there is no fifth.
+//
+// So the RHI's most convenient descriptor kind cannot be expressed on one of the
+// two backends. The honest response is to refuse and name the alternative, and
+// the test asserts the refusal rather than papering over it.
+both_backends!(
+    a_combined_image_sampler_is_refused_where_it_does_not_exist,
+    |gpu: &mut dyn Gpu, context: &str| {
+        let layout =
+            chassis::DescriptorSetLayoutDesc::new("material").with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::CombinedImageSampler,
+                chassis::StageMask::ALL,
+            ));
+
+        let outcome = {
+            let resources: &mut dyn Resources = gpu.resources();
+            let texture = resources
+                .create_texture(chassis::TextureDesc::new_2d(
+                    chassis::Extent {
+                        width: 16,
+                        height: 16,
+                        depth: 1,
+                    },
+                    chassis::TextureFormat::Rgba8Unorm,
+                    chassis::TextureUsage::SAMPLED,
+                ))
+                .unwrap_or_else(|error| panic!("{context}: texture: {error}"));
+            let view = resources
+                .create_image_view(&texture)
+                .unwrap_or_else(|error| panic!("{context}: view: {error}"));
+            let sampler = resources
+                .create_sampler(&chassis::SamplerDesc::clamped())
+                .unwrap_or_else(|error| panic!("{context}: sampler: {error}"));
+            resources.create_bind_group(&layout, &[], &[(0, view)], &[(0, sampler)])
+        };
+
+        match outcome {
+            Ok(_) => {
+                // Vulkan. A combined descriptor is one binding carrying both
+                // halves, which is exactly what the layout declared.
+                assert!(
+                    !context.contains("wgpu"),
+                    "{context} accepted a combined image sampler",
+                );
+            }
+            Err(error) => {
+                // wgpu. The message has to name the alternative, or the caller is
+                // left guessing.
+                assert!(
+                    context.contains("wgpu"),
+                    "{context} refused a combined image sampler: {error}",
+                );
+                let message = error.to_string();
+                assert!(
+                    message.contains("SampledImage") && message.contains("Sampler"),
+                    "{context}: the refusal names what to use instead: {message}",
+                );
+            }
+        }
     }
 );
 

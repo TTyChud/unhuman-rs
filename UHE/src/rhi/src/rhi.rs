@@ -1,8 +1,10 @@
 use std::fmt;
 
-use crate::desc::{BufferDesc, DescriptorSetLayoutDesc, PipelineDesc, RenderPassDesc, TextureDesc};
+use crate::desc::{
+    BufferDesc, DescriptorSetLayoutDesc, PipelineDesc, RenderPassDesc, SamplerDesc, TextureDesc,
+};
 use crate::format::TextureFormat;
-use crate::handle::{BindGroup, Buffer, ImageView, Pipeline, Shader, Texture};
+use crate::handle::{BindGroup, Buffer, ImageView, Pipeline, Sampler, Shader, Texture};
 
 /// Error type for every fallible RHI operation.
 ///
@@ -171,29 +173,43 @@ pub trait Resources {
     /// its set, so a bind group and the pipeline that reads it are built from one
     /// description and cannot disagree.
     ///
-    /// ## Buffers
+    /// ## Buffers, images and samplers
     ///
-    /// One entry per *explicitly bound* binding: the binding number, the buffer,
-    /// and a byte offset into it. The range runs to the end of the buffer.
+    /// One entry per *explicitly bound* binding. Buffers carry a byte offset;
+    /// images are a view and samplers are a sampler, both keyed by binding
+    /// number.
     ///
     /// Explicit numbers rather than positional, because a layout may declare
     /// bindings 0 and 7 and leave the gap for another resource kind, and
     /// "whichever index you passed" is not a rule anyone can hold in their head.
     ///
-    /// Sampled images and samplers are not here yet; they need an `ImageView` and
-    /// a sampler, and adding half the descriptor kinds now would leave a signature
-    /// that looks complete and silently drops the other half.
+    /// ## Why images and samplers are two arguments
+    ///
+    /// Because Vulkan wants them as two bindings when they are two, and wgpu
+    /// wants one. `DescriptorKind::CombinedImageSampler` is the case where they
+    /// are one, and the backend collapses the two lists for it -- so a caller
+    /// writes one binding number and gets the pairing the layout asked for.
     fn create_bind_group(
         &mut self,
         layout: &DescriptorSetLayoutDesc,
         buffers: &[(u32, Buffer, u64)],
+        images: &[(u32, ImageView)],
+        samplers: &[(u32, Sampler)],
     ) -> Result<BindGroup>;
+
+    /// A sampler.
+    ///
+    /// Its own object rather than parameters to `create_bind_group`, because a
+    /// sampler outlives the group it is written into and is shared by every
+    /// group that samples the same way.
+    fn create_sampler(&mut self, desc: &SamplerDesc) -> Result<Sampler>;
 
     fn destroy_buffer(&mut self, buffer: Buffer);
     fn destroy_texture(&mut self, texture: Texture);
     fn destroy_pipeline(&mut self, pipeline: Pipeline);
     fn destroy_shader(&mut self, shader: Shader);
     fn destroy_bind_group(&mut self, group: BindGroup);
+    fn destroy_sampler(&mut self, sampler: Sampler);
 }
 
 pub type PassId = u32;

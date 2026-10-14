@@ -67,6 +67,12 @@ pub struct VulkanResources {
     /// after its texture, which nothing checks -- so the registry exists at least
     /// to make the pairing explicit and to give the error a handle to name.
     image_views: Registry<vk::ImageView, chassis::ImageViewTag>,
+    /// `chassis::Sampler` to `vk::Sampler`.
+    ///
+    /// Owned here rather than reached through the texture registry, because a
+    /// sampler is not a view of anything: it outlives every texture it samples
+    /// and is shared by every bind group that filters the same way.
+    samplers: Registry<vk::Sampler, chassis::SamplerTag>,
     /// `VkPhysicalDeviceLimits::minUniformBufferOffsetAlignment`.
     ///
     /// Checked in `create_bind_group` rather than left to validation, because a
@@ -78,6 +84,30 @@ pub struct VulkanResources {
     /// rather than a wrong one -- which is the honest default, since guessing a
     /// limit would reject offsets the device would have accepted.
     uniform_buffer_alignment: vk::DeviceSize,
+}
+
+impl Drop for VulkanResources {
+    /// Frees the live samplers.
+    ///
+    /// ## Why this exists and the others do not
+    ///
+    /// Buffers, textures and pipelines are destroyed explicitly through
+    /// `destroy_*`, and a caller that forgets leaks -- visible under validation as
+    /// `vkDestroyDevice-device-05137`.
+    ///
+    /// Samplers were getting the same treatment, and the first test that created
+    /// one without destroying it leaked a `VkSampler`. That is the argument for
+    /// *this* type and not the others: a sampler is small, is created per
+    /// material rather than per resource, and nothing else in the frame owns it.
+    ///
+    /// The layouts and descriptor sets go with the descriptor pool, and the pool
+    /// goes when `Descriptors` drops.
+    fn drop(&mut self) {
+        let device = self.device.clone();
+        for (_, sampler) in self.samplers.iter() {
+            unsafe { device.destroy_sampler(*sampler, None) };
+        }
+    }
 }
 
 impl VulkanResources {
@@ -98,6 +128,7 @@ impl VulkanResources {
             ))),
             descriptors: Arc::new(RwLock::new(Descriptors::new(device))),
             image_views: Registry::new(),
+            samplers: Registry::new(),
             uniform_buffer_alignment: 1,
         }
     }
@@ -227,6 +258,25 @@ impl VulkanResources {
         self.descriptors().layout_count()
     }
 
+    /// The `vk::ImageView` behind an RHI view handle.
+    ///
+    /// A `Result`, not an `Option`: "unknown handle" and "known handle, no view"
+    /// are different bugs and the caller has to say which one it hit.
+    pub fn resolve_image_view(&self, view: chassis::ImageView) -> chassis::Result<vk::ImageView> {
+        self.image_views
+            .get(view)
+            .copied()
+            .ok_or(chassis::Error::InvalidHandle)
+    }
+
+    /// The `vk::Sampler` behind an RHI sampler handle.
+    pub fn resolve_sampler(&self, sampler: chassis::Sampler) -> chassis::Result<vk::Sampler> {
+        self.samplers
+            .get(sampler)
+            .copied()
+            .ok_or(chassis::Error::InvalidHandle)
+    }
+
     pub fn live_image_views(&self) -> usize {
         self.image_views.len()
     }
@@ -284,6 +334,53 @@ fn declared_type(
             )));
         }
     })
+}
+
+/// `chassis::Filter` as `vk::Filter`.
+fn filter_of(filter: chassis::Filter) -> vk::Filter {
+    match filter {
+        chassis::Filter::Nearest => vk::Filter::NEAREST,
+        chassis::Filter::Linear => vk::Filter::LINEAR,
+    }
+}
+
+/// `chassis::Filter` as `vk::SamplerMipmapMode`.
+///
+/// **Not** `vk::Filter`. A mip *mode* is three-valued and a mag/min filter is
+/// two, so mapping three onto two loses `LINEAR_MIPMAP_LINEAR` -- which is
+/// trilinear -- and quietly gives bilinear instead. That bug looks like "the
+/// textures are blurry", and it is in most engines.
+fn mipmap_mode_of(filter: chassis::Filter) -> vk::SamplerMipmapMode {
+    match filter {
+        chassis::Filter::Nearest => vk::SamplerMipmapMode::NEAREST,
+        chassis::Filter::Linear => vk::SamplerMipmapMode::LINEAR,
+    }
+}
+
+/// `chassis::AddressMode` as `vk::SamplerAddressMode`.
+fn address_mode_of(mode: chassis::AddressMode) -> vk::SamplerAddressMode {
+    match mode {
+        chassis::AddressMode::Repeat => vk::SamplerAddressMode::REPEAT,
+        chassis::AddressMode::MirroredRepeat => vk::SamplerAddressMode::MIRRORED_REPEAT,
+        chassis::AddressMode::ClampToEdge => vk::SamplerAddressMode::CLAMP_TO_EDGE,
+    }
+}
+
+/// The declared kind of `binding`, or an error naming it.
+fn declared_kind(
+    layout: &chassis::DescriptorSetLayoutDesc,
+    binding: u32,
+) -> chassis::Result<chassis::DescriptorKind> {
+    layout
+        .bindings
+        .iter()
+        .find(|declared| declared.binding == binding)
+        .map(|declared| declared.kind)
+        .ok_or_else(|| {
+            chassis::Error::InvalidDescriptor(format!(
+                "binding {binding} was written but the layout does not declare it"
+            ))
+        })
 }
 
 /// Map a backend error onto the RHI's.
@@ -377,11 +474,13 @@ impl chassis::Resources for VulkanResources {
         &mut self,
         layout: &chassis::DescriptorSetLayoutDesc,
         buffers: &[(u32, chassis::Buffer, u64)],
+        images: &[(u32, chassis::ImageView)],
+        samplers: &[(u32, chassis::Sampler)],
     ) -> chassis::Result<chassis::BindGroup> {
         // The same descriptor the pipeline declares, so the set and the layout it
-        // was allocated against come from one description. `Descriptors` hashes it,
-        // so a pipeline and its bind group built from equal descriptors share one
-        // `vk::DescriptorSetLayout` -- which is what makes binding a set to a
+        // was allocated against come from one description. `Descriptors` hashes
+        // it, so a pipeline and its bind group built from equal descriptors share
+        // one `vk::DescriptorSetLayout` -- which is what makes binding a set to a
         // pipeline legal at all.
         let set_layout = self
             .descriptors_mut()
@@ -401,35 +500,24 @@ impl chassis::Resources for VulkanResources {
             .expect("just allocated, so it is in the registry")
             .handle();
 
-        // Two passes, not one.
-        //
-        // `WriteDescriptorSet::buffer_info` *borrows* the `DescriptorBufferInfo`,
-        // so building both in a single loop keeps a borrow of `infos` live across
-        // the next iteration's `infos.push` -- which may reallocate. The borrow
-        // checker is right to refuse and there is no way to make it wrong in a
-        // way that is also correct in general, so: collect the infos, then point
-        // the writes at them.
-        let mut infos = Vec::with_capacity(buffers.len());
-        let mut types = Vec::with_capacity(buffers.len());
+        // `WriteDescriptorSet` *borrows* its `DescriptorBufferInfo` /
+        // `DescriptorImageInfo`, so every info is collected first and the writes
+        // built afterwards. Building both in one loop keeps a borrow live across
+        // the next `push`, which may reallocate.
+        let mut buffer_infos = Vec::with_capacity(buffers.len());
+        let mut buffer_types = Vec::with_capacity(buffers.len());
         for (binding, buffer, offset) in buffers {
             let buffers = self.buffers();
             let resource = buffers.get(*buffer).ok_or(chassis::Error::InvalidHandle)?;
-            // Refused rather than clamped.
-            //
-            // `offset >= size` gives either a zero range or a range that runs off
-            // the end, and both are `vkUpdateDescriptorSets` validation errors:
-            // `VUID-VkDescriptorBufferInfo-range-00341` and
-            // `...-offset-00340`. This used to be `saturating_sub`, which turned
-            // an offset of 256 into a range of 0 -- the call returned `Ok` and the
-            // descriptor was written pointing at nothing.
-            //
-            // Clamping is worse than useless here: the message names neither the
-            // buffer nor the offset, and a descriptor that reads nothing is
-            // indistinguishable from one reading a cleared buffer.
-            let size = resource.size();
-            // Alignment first: a misaligned offset that is also past the end
-            // should name the alignment, which is the thing that is wrong about
-            // it in both cases.
+
+            // Refused rather than clamped: `offset >= size` gives either a zero
+            // range or one that runs off the end, and both are
+            // `vkUpdateDescriptorSets` validation errors. This used to be
+            // `saturating_sub`, which turned an offset of 256 into a range of 0
+            // -- the call returned `Ok` and the descriptor pointed at nothing.
+            // Alignment first. A misaligned offset that is also past the end
+            // should name the alignment, which is the thing wrong about it in
+            // both cases.
             let alignment = match declared_type(layout, *binding)? {
                 vk::DescriptorType::UNIFORM_BUFFER => self.uniform_buffer_alignment,
                 _ => 1,
@@ -440,43 +528,131 @@ impl chassis::Resources for VulkanResources {
                      device's minUniformBufferOffsetAlignment ({alignment})"
                 )));
             }
+
+            let size = resource.size();
             if *offset >= size {
                 return Err(chassis::Error::InvalidDescriptor(format!(
                     "binding {binding}: offset {offset} is at or past the end of a \
                      {size}-byte buffer"
                 )));
             }
-            infos.push(
+            buffer_infos.push(
                 vk::DescriptorBufferInfo::default()
                     .buffer(resource.handle())
                     .offset(*offset)
-                    // The range runs to the end of the buffer. `WHOLE_SIZE` would
-                    // run past the allocation for any non-zero offset, which
-                    // validation reports as a range exceeding the buffer --
-                    // confusingly attributed to the descriptor rather than to the
-                    // offset.
                     .range(size - *offset),
             );
-            types.push(declared_type(layout, *binding)?);
+            buffer_types.push(declared_type(layout, *binding)?);
         }
 
-        let writes: Vec<vk::WriteDescriptorSet<'_>> = infos
-            .iter()
-            .zip(types)
-            .enumerate()
-            .map(|(slot, (info, descriptor_type))| {
-                let binding = buffers[slot].0;
+        // Samplers resolved up front so a `CombinedImageSampler` can pair its two
+        // halves without a second lookup.
+        let mut sampler_handles = Vec::with_capacity(samplers.len());
+        for (_, sampler) in samplers {
+            sampler_handles.push(self.resolve_sampler(*sampler)?);
+        }
+
+        let mut image_infos = Vec::with_capacity(images.len());
+        let mut image_types = Vec::with_capacity(images.len());
+        for (binding, view) in images {
+            let kind = declared_kind(layout, *binding)?;
+            // The layout is not optional and it is not a default.
+            //
+            // `DescriptorImageInfo` zero-initialises to `UNDEFINED`, and writing a
+            // sampled image in `UNDEFINED` is
+            // `VUID-VkWriteDescriptorSet-descriptorType-04149`: "allowed layouts
+            // are SHADER_READ_ONLY_OPTIMAL, GENERAL, ...". A validation error at
+            // update time, and on a driver that does not check, a read of
+            // undefined memory at draw time.
+            //
+            // It follows from the *declared* kind rather than being chosen here:
+            // it has to agree with the layout the pass declared, and the graph is
+            // the only thing that knows.
+            let image_layout = match kind {
+                chassis::DescriptorKind::StorageImage => vk::ImageLayout::GENERAL,
+                _ => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            };
+            let mut info = vk::DescriptorImageInfo::default()
+                .image_layout(image_layout)
+                .image_view(self.resolve_image_view(*view)?);
+            if kind == chassis::DescriptorKind::CombinedImageSampler {
+                let Some(slot) = samplers.iter().position(|(number, _)| number == binding) else {
+                    return Err(chassis::Error::InvalidDescriptor(format!(
+                        "binding {binding} is a CombinedImageSampler and no sampler \
+                         was given for it; Vulkan's combined descriptor needs both \
+                         halves"
+                    )));
+                };
+                info = info.sampler(sampler_handles[slot]);
+            }
+            image_infos.push(info);
+            image_types.push(crate::vulkan_descriptor_set::descriptor_type_of(kind));
+        }
+
+        let mut writes: Vec<vk::WriteDescriptorSet<'_>> = Vec::new();
+        for (slot, info) in buffer_infos.iter().enumerate() {
+            writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(set)
-                    .dst_binding(binding)
+                    .dst_binding(buffers[slot].0)
                     // Must match what the layout declares. `vkUpdateDescriptorSets`
                     // does not check -- it writes -- and the mismatch surfaces at
-                    // draw time as "descriptor type mismatch", naming neither the
-                    // layout nor the write.
-                    .descriptor_type(descriptor_type)
-                    .buffer_info(std::slice::from_ref(info))
-            })
-            .collect();
+                    // draw time naming neither the layout nor the write.
+                    .descriptor_type(buffer_types[slot])
+                    .buffer_info(std::slice::from_ref(info)),
+            );
+        }
+        for (slot, info) in image_infos.iter().enumerate() {
+            writes.push(
+                vk::WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(images[slot].0)
+                    .descriptor_type(image_types[slot])
+                    .image_info(std::slice::from_ref(info)),
+            );
+        }
+        // Two passes over one shared `kinds` vector.
+        //
+        // One pass cannot: `writes` borrows `sampler_infos[slot]`, and that
+        // borrow is still live at the next iteration's `push`. Two passes that
+        // each *decided* the kind independently is how they came to disagree --
+        // one skipped combined bindings and the other wrote them, so a combined
+        // binding indexed an empty vector. Sharing `kinds` means there is one
+        // decision, read twice.
+        let mut sampler_kinds = Vec::with_capacity(samplers.len());
+        for (binding, _) in samplers {
+            sampler_kinds.push(declared_kind(layout, *binding)?);
+        }
+
+        let mut sampler_infos = Vec::with_capacity(samplers.len());
+        for (slot, (binding, _)) in samplers.iter().enumerate() {
+            let kind = sampler_kinds[slot];
+            if kind == chassis::DescriptorKind::CombinedImageSampler {
+                // Already carried on the image write above. Writing it again
+                // would make the same binding carry two descriptors of different
+                // types, which is `VUID-VkWriteDescriptorSet-descriptorType-00332`
+                // at update time and "descriptor type mismatch" at draw time.
+                continue;
+            }
+            if kind != chassis::DescriptorKind::Sampler {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding} is a {kind:?}, not a sampler"
+                )));
+            }
+            sampler_infos.push(vk::DescriptorImageInfo::default().sampler(sampler_handles[slot]));
+        }
+        for (slot, (binding, _)) in samplers.iter().enumerate() {
+            if sampler_kinds[slot] == chassis::DescriptorKind::CombinedImageSampler {
+                continue;
+            }
+            writes.push(
+                vk::WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(*binding)
+                    .descriptor_type(vk::DescriptorType::SAMPLER)
+                    .image_info(std::slice::from_ref(&sampler_infos[slot])),
+            );
+        }
 
         if !writes.is_empty() {
             self.descriptors_mut()
@@ -484,6 +660,48 @@ impl chassis::Resources for VulkanResources {
                 .map_err(chassis::Error::from)?;
         }
         Ok(group)
+    }
+
+    fn create_sampler(&mut self, desc: &chassis::SamplerDesc) -> chassis::Result<chassis::Sampler> {
+        let info = vk::SamplerCreateInfo::default()
+            .mag_filter(filter_of(desc.mag_filter))
+            .min_filter(filter_of(desc.min_filter))
+            .mipmap_mode(mipmap_mode_of(desc.mip_filter))
+            .address_mode_u(address_mode_of(desc.address_u))
+            .address_mode_v(address_mode_of(desc.address_v))
+            .address_mode_w(address_mode_of(desc.address_w))
+            // Anisotropy left at 1, Vulkan's default, which needs no feature.
+            // Higher needs `samplerFilterMinmax` or an anisotropy feature, and
+            // asking on a device without either is a `vkCreateSampler` failure
+            // that reads as "samplers do not work". `SamplerDesc` does not offer
+            // it yet; that is where it would go.
+            .anisotropy_enable(false)
+            // The largest finite float: not `f32::MAX`, which is infinite and a
+            // validation error, and not zero, which silently drops every mip.
+            // Vulkan clamps `maxLod` to the image's own level count, so "as high
+            // as possible" needs no device query.
+            .max_lod(f32::from_bits(0x407f_ffff))
+            .border_color(vk::BorderColor::FLOAT_TRANSPARENT_BLACK)
+            // Normalized coordinates. Unnormalized exists in Vulkan and not in
+            // the RHI, so a sampler that only worked for one of them would be a
+            // trap for the first caller.
+            .unnormalized_coordinates(false);
+
+        let device = self.device.clone();
+        let sampler = unsafe { device.create_sampler(&info, None) }
+            .map_err(|error| chassis::Error::Unsupported(format!("vkCreateSampler: {error}")))?;
+        Ok(self.samplers.create(sampler))
+    }
+
+    fn destroy_sampler(&mut self, sampler: chassis::Sampler) {
+        // The slot first, then the driver object: a handle that still resolves to
+        // a destroyed sampler is worse than one that does not resolve at all.
+        let Some(handle) = self.samplers.get(sampler).copied() else {
+            return;
+        };
+        let device = self.device.clone();
+        self.samplers.remove(sampler);
+        unsafe { device.destroy_sampler(handle, None) };
     }
 
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {

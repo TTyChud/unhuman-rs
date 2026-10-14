@@ -89,6 +89,13 @@ pub type ImageView = Handle<ImageViewTag>;
 pub type Pipeline = Handle<PipelineTag>;
 pub type Shader = Handle<ShaderTag>;
 pub type BindGroup = Handle<BindGroupTag>;
+/// A sampler: filter, address mode, compare.
+///
+/// Its own handle and its own tag. It is not a `Texture` and not an
+/// `ImageView`, and folding it into either would make a bind group's "which
+/// image, filtered how" unexpressible -- which is exactly the pair Vulkan wants
+/// as two bindings and wgpu wants as one.
+pub type Sampler = Handle<SamplerTag>;
 
 #[derive(Debug)]
 pub struct BufferTag;
@@ -102,6 +109,7 @@ pub struct PipelineTag;
 pub struct ShaderTag;
 #[derive(Debug)]
 pub struct BindGroupTag;
+pub struct SamplerTag;
 
 struct Slot<T> {
     generation: u32,

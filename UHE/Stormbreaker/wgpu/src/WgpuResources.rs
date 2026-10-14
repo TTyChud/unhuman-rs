@@ -122,6 +122,7 @@ pub struct WgpuResources {
     shaders: Registry<ShaderResource, chassis::ShaderTag>,
     pipelines: Registry<PipelineResource, chassis::PipelineTag>,
     pub(crate) bind_groups: Registry<wgpu::BindGroup, chassis::BindGroupTag>,
+    samplers: Registry<wgpu::Sampler, chassis::SamplerTag>,
     /// `DescriptorSetLayoutDesc::hash` to the layout built from it.
     ///
     /// Shared between pipeline creation and bind group creation, and it has to
@@ -146,6 +147,7 @@ impl WgpuResources {
             shaders: Registry::new(),
             pipelines: Registry::new(),
             bind_groups: Registry::new(),
+            samplers: Registry::new(),
             bind_group_layouts: std::collections::HashMap::new(),
         }
     }
@@ -204,6 +206,23 @@ impl WgpuResources {
 
     fn forget_shader(&mut self, handle: chassis::Shader) {
         self.shaders.remove(handle);
+    }
+}
+
+/// `chassis::Filter` as `wgpu::FilterMode`.
+fn filter_of(filter: chassis::Filter) -> wgpu::FilterMode {
+    match filter {
+        chassis::Filter::Nearest => wgpu::FilterMode::Nearest,
+        chassis::Filter::Linear => wgpu::FilterMode::Linear,
+    }
+}
+
+/// `chassis::AddressMode` as `wgpu::AddressMode`.
+fn address_mode_of(mode: chassis::AddressMode) -> wgpu::AddressMode {
+    match mode {
+        chassis::AddressMode::Repeat => wgpu::AddressMode::Repeat,
+        chassis::AddressMode::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+        chassis::AddressMode::ClampToEdge => wgpu::AddressMode::ClampToEdge,
     }
 }
 
@@ -420,6 +439,8 @@ impl chassis::Resources for WgpuResources {
         &mut self,
         layout: &chassis::DescriptorSetLayoutDesc,
         buffers: &[(u32, chassis::Buffer, u64)],
+        images: &[(u32, chassis::ImageView)],
+        samplers: &[(u32, chassis::Sampler)],
     ) -> chassis::Result<chassis::BindGroup> {
         // The *same* layout object the pipeline was built with, from the shared
         // cache. Building it here as well would give two equal layouts, and wgpu
@@ -439,13 +460,22 @@ impl chassis::Resources for WgpuResources {
         // on a corrupt SPIR-V body and Vulkan returns `Result`. The rule that
         // follows: where a wgpu call cannot fail, this layer checks what it needs
         // and turns the panic into an error.
-        let mut entries = Vec::with_capacity(buffers.len());
+        let declared = |binding: u32| -> chassis::Result<chassis::DescriptorKind> {
+            layout
+                .bindings
+                .iter()
+                .find(|d| d.binding == binding)
+                .map(|d| d.kind)
+                .ok_or_else(|| {
+                    chassis::Error::InvalidDescriptor(format!(
+                        "binding {binding} was written but the layout does not declare it"
+                    ))
+                })
+        };
+
+        let mut entries = Vec::with_capacity(buffers.len() + images.len() + samplers.len());
         for (binding, buffer, offset) in buffers {
-            if !layout.bindings.iter().any(|d| d.binding == *binding) {
-                return Err(chassis::Error::InvalidDescriptor(format!(
-                    "binding {binding} was written but the layout does not declare it"
-                )));
-            }
+            declared(*binding)?;
             let resource = self
                 .buffers
                 .get(*buffer)
@@ -467,6 +497,68 @@ impl chassis::Resources for WgpuResources {
             });
         }
 
+        // Images. The declared kind decides the entry shape, because wgpu's
+        // `CombinedImageSampler` is one binding carrying both and a
+        // `SampledImage` is two -- which is the same pairing the layout described,
+        // so the caller writes the same binding numbers on both backends.
+        for (binding, view) in images {
+            let kind = declared(*binding)?;
+            let texture = self.views.get(*view).ok_or(chassis::Error::InvalidHandle)?;
+            entries.push(match kind {
+                chassis::DescriptorKind::SampledImage | chassis::DescriptorKind::StorageImage => {
+                    wgpu::BindGroupEntry {
+                        binding: *binding,
+                        resource: wgpu::BindingResource::TextureView(texture),
+                    }
+                }
+                chassis::DescriptorKind::CombinedImageSampler => {
+                    // **wgpu has no combined image sampler.**
+                    //
+                    // There is no `BindingResource::SamplerAndTextureView`; the
+                    // variants are Buffer, Sampler, TextureView, and their array
+                    // forms, because WebGPU -- which wgpu implements -- has no
+                    // combined descriptor. Vulkan has `COMBINED_IMAGE_SAMPLER` and
+                    // uses it by default.
+                    //
+                    // So the RHI's most convenient descriptor kind does not exist
+                    // on this backend, and the honest answer is to say so and name
+                    // the alternative. Silently building two entries for one
+                    // binding would produce a group the layout cannot accept.
+                    return Err(chassis::Error::Unsupported(format!(
+                        "binding {binding} is a CombinedImageSampler, which wgpu does \
+                         not have; declare SampledImage and Sampler as two bindings"
+                    )));
+                }
+                other => {
+                    return Err(chassis::Error::InvalidDescriptor(format!(
+                        "binding {binding} is a {other:?}, not an image"
+                    )));
+                }
+            });
+        }
+
+        for (binding, sampler) in samplers {
+            let kind = declared(*binding)?;
+            if kind == chassis::DescriptorKind::CombinedImageSampler {
+                // Carried by the image entry above. Adding it again would give one
+                // binding two entries, which wgpu rejects.
+                continue;
+            }
+            if kind != chassis::DescriptorKind::Sampler {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding} is a {kind:?}, not a sampler"
+                )));
+            }
+            entries.push(wgpu::BindGroupEntry {
+                binding: *binding,
+                resource: wgpu::BindingResource::Sampler(
+                    self.samplers
+                        .get(*sampler)
+                        .ok_or(chassis::Error::InvalidHandle)?,
+                ),
+            });
+        }
+
         let group = self
             .device
             .inner()
@@ -476,6 +568,41 @@ impl chassis::Resources for WgpuResources {
                 entries: &entries,
             });
         Ok(self.bind_groups.create(group))
+    }
+
+    fn create_sampler(&mut self, desc: &chassis::SamplerDesc) -> chassis::Result<chassis::Sampler> {
+        let sampler = self
+            .device
+            .inner()
+            .create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("sampler"),
+                address_mode_u: address_mode_of(desc.address_u),
+                address_mode_v: address_mode_of(desc.address_v),
+                address_mode_w: address_mode_of(desc.address_w),
+                mag_filter: filter_of(desc.mag_filter),
+                min_filter: filter_of(desc.min_filter),
+                // `mipmap_filter` is its own enum here and takes a
+                // `FilterMode`, not a `Filter` -- so the same three-to-two mistake
+                // Vulkan invites does not exist. Worth knowing before porting the
+                // Vulkan mapping across.
+                // `MipmapFilterMode`, not `FilterMode`. Two enums with the same
+                // two variants and different names -- and the one that belongs is
+                // the longer. Porting the Vulkan mapping across unchanged is the
+                // mistake, and the compiler catches it.
+                mipmap_filter: match desc.mip_filter {
+                    chassis::Filter::Nearest => wgpu::MipmapFilterMode::Nearest,
+                    chassis::Filter::Linear => wgpu::MipmapFilterMode::Linear,
+                },
+                ..Default::default()
+            });
+        Ok(self.samplers.create(sampler))
+    }
+
+    fn destroy_sampler(&mut self, sampler: chassis::Sampler) {
+        // `wgpu::Sampler` is reference counted with no explicit destroy, so
+        // releasing the registry's reference is the whole of it. The slot goes
+        // so a stale handle cannot resolve to a later sampler.
+        self.samplers.remove(sampler);
     }
 
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {

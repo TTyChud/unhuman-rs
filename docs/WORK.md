@@ -532,6 +532,55 @@ Every C++ file has a counterpart. Five of the six are in the RHI rather than the
 backend, and that is the one place this port deliberately gave up 1:1 file
 parity -- for a reason that a third backend would benefit from.
 
+## Samplers, sampled images, and the one descriptor kind that does not port
+
+`Resources::create_bind_group` now takes images and samplers alongside buffers,
+and `create_sampler` exists on both backends. `chassis::Sampler` is its own
+handle with its own tag: a sampler is not a view of anything, it outlives every
+texture it samples, and folding it into `Texture` or `ImageView` would make
+"which image, filtered how" unexpressible.
+
+**Three bugs validation caught in the first working version**, all of them mine:
+
+- **`imageLayout` was left `UNDEFINED`.** `vk::DescriptorImageInfo` zero-
+  initialises, and writing a sampled image in `UNDEFINED` is
+  `VUID-VkWriteDescriptorSet-descriptorType-04149`. It follows from the
+  *declared* kind -- `SHADER_READ_ONLY_OPTIMAL` for a sample,
+  `GENERAL` for a storage image -- and not from what is convenient here.
+- **Two loops disagreed about which bindings were combined.** One decided the
+  kind and skipped combined bindings; the other wrote them and indexed an empty
+  vector. Fixed by sharing one `kinds` vector, so there is one decision read
+  twice rather than two decisions.
+- **Samplers leaked.** `VulkanResources` now has a `Drop` for them, with the
+  argument written down: a sampler is small, is created per material rather than
+  per resource, and nothing else in the frame owns it.
+
+**`mipmap_mode` is not `vk::Filter`.** A mip mode is three-valued and a
+mag/min filter is two, so mapping three onto two loses `LINEAR_MIPMAP_LINEAR` --
+which is trilinear -- and quietly gives bilinear. That bug looks like "the
+textures are blurry" and is in most engines.
+
+**`maxLod` is not `f32::MAX` and not zero.** An infinite `maxLod` is a
+validation error; zero silently drops every mip. The largest finite float is both.
+
+### The one that does not port: `CombinedImageSampler`
+
+Vulkan has `COMBINED_IMAGE_SAMPLER` and it is the convenient default. **wgpu
+does not.** WebGPU has no combined descriptor, so `BindingResource` is Buffer,
+Sampler, TextureView and their array forms -- there is no fifth. The RHI's most
+convenient descriptor kind cannot be expressed on one of the two backends.
+
+It is refused, and the refusal names the alternative. The parity test asserts the
+two backends *disagree* here, which is the one place they must: pretending
+otherwise would mean a renderer written against the common subset.
+
+### The other asymmetry worth knowing
+
+A view bound to a `SampledImage` descriptor must come from a `TEXTURE_BINDING`
+texture on wgpu, and may come from anything on Vulkan -- which checks layouts at
+barrier time instead. So "bind a render target as a texture by mistake" is a
+validation error on one backend and invisible on the other.
+
 ## Roadmap
 
 The full plan is in `session.md` (untracked — it is machine-local). Ten phases,

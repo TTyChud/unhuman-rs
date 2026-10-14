@@ -25,15 +25,15 @@ pub use backend::{
     ENVIRONMENT_VARIABLE as BACKEND_ENVIRONMENT_VARIABLE, FLAG as BACKEND_FLAG,
 };
 pub use desc::{
-    BindingDesc, BlendState, BufferDesc, ColorAttachmentDesc, ColorTargetState,
-    DepthAttachmentDesc, DepthState, DescriptorKind, DescriptorSetLayoutDesc, Extent, IndexFormat,
-    LoadOp, PipelineDesc, PrimitiveState, RenderPassDesc, ShaderStage, ShaderStageDesc, StageMask,
-    TextureDesc, VertexAttribute, VertexLayout,
+    AddressMode, BindingDesc, BlendState, BufferDesc, ColorAttachmentDesc, ColorTargetState,
+    DepthAttachmentDesc, DepthState, DescriptorKind, DescriptorSetLayoutDesc, Extent, Filter,
+    IndexFormat, LoadOp, PipelineDesc, PrimitiveState, RenderPassDesc, SamplerDesc, ShaderStage,
+    ShaderStageDesc, StageMask, TextureDesc, VertexAttribute, VertexLayout,
 };
 pub use format::{BufferUsage, SampleCount, TextureFormat, TextureUsage};
 pub use handle::{
     BindGroup, BindGroupTag, Buffer, BufferTag, Handle, ImageView, ImageViewTag, Pipeline,
-    PipelineTag, Registry, Shader, ShaderTag, Texture, TextureTag,
+    PipelineTag, Registry, Sampler, SamplerTag, Shader, ShaderTag, Texture, TextureTag,
 };
 pub use rhi::{
     CommandList, Error, Extent2d, Gpu, GpuInfo, PassId, RenderGraph, Resources, Result, Swapchain,

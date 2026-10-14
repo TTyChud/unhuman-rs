@@ -242,7 +242,7 @@ fn bind_groups_refuse_what_they_cannot_write() {
     ));
 
     let error = backend
-        .create_bind_group(&layout, &[(0, buffer, 0)])
+        .create_bind_group(&layout, &[(0, buffer, 0)], &[], &[])
         .expect_err("sampled images are not written yet");
     assert!(
         matches!(error, chassis::Error::InvalidDescriptor(_)),

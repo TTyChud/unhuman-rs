@@ -243,6 +243,80 @@ pub enum DescriptorKind {
     InputAttachment,
 }
 
+/// How a sampler filters.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum Filter {
+    Nearest,
+    #[default]
+    Linear,
+}
+
+/// What happens outside 0..1.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum AddressMode {
+    #[default]
+    Repeat,
+    MirroredRepeat,
+    ClampToEdge,
+}
+
+/// A texture sampler.
+///
+/// Filter and address mode only. Anisotropy, compare (for shadow maps) and
+/// border colour are deliberately absent rather than defaulted: a sampler that
+/// silently enables anisotropy on a backend that spells it differently, or that
+/// quietly turns off depth comparison and renders shadows wrong, is worse than
+/// one that cannot be asked for it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct SamplerDesc {
+    pub mag_filter: Filter,
+    pub min_filter: Filter,
+    pub mip_filter: Filter,
+    pub address_u: AddressMode,
+    pub address_v: AddressMode,
+    pub address_w: AddressMode,
+}
+
+impl SamplerDesc {
+    /// Nearest, no mips: what a pixel-art texture wants and what a
+    /// non-mipmapped texture needs.
+    pub const fn nearest() -> Self {
+        Self {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            mip_filter: Filter::Nearest,
+            address_u: AddressMode::Repeat,
+            address_v: AddressMode::Repeat,
+            address_w: AddressMode::Repeat,
+        }
+    }
+
+    /// Trilinear with repeat. The default for a mipmapped colour texture.
+    pub const fn trilinear() -> Self {
+        Self {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            mip_filter: Filter::Linear,
+            address_u: AddressMode::Repeat,
+            address_v: AddressMode::Repeat,
+            address_w: AddressMode::Repeat,
+        }
+    }
+
+    /// Linear, clamped. What a render target wants: sampling outside it should
+    /// give the edge pixel, not a wrapped one from the other side of the screen.
+    pub const fn clamped() -> Self {
+        Self {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            mip_filter: Filter::Linear,
+            address_u: AddressMode::ClampToEdge,
+            address_v: AddressMode::ClampToEdge,
+            address_w: AddressMode::ClampToEdge,
+        }
+    }
+}
+
 /// One binding within a set.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct BindingDesc {
