@@ -860,6 +860,7 @@ dependencies = [
 name = "stormglass"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "chassis",
  "forge",
  "pollster",

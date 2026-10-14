@@ -84,6 +84,24 @@ impl BufferUsage {
     pub const TRANSFER_SRC: BufferUsage = BufferUsage(1 << 4);
     pub const TRANSFER_DST: BufferUsage = BufferUsage(1 << 5);
     pub const INDIRECT: BufferUsage = BufferUsage(1 << 6);
+    /// The CPU may map this buffer to read it.
+    ///
+    /// Needed by nothing on Vulkan and everything on wgpu, which is why it did
+    /// not exist until the second backend did. Vulkan reads back by mapping
+    /// host-visible memory, with no flag on the buffer at all; wgpu requires
+    /// `MAP_READ` at *creation* and refuses the map otherwise:
+    ///
+    /// ```text
+    /// Usage flags COPY_SRC | COPY_DST of Buffer do not contain
+    /// required usage flags MAP_READ
+    /// ```
+    ///
+    /// So this is the seam being wrong rather than either backend, and a
+    /// readback that works on one backend and fails on the other with a usage
+    /// error is exactly the failure two backends are supposed to expose early.
+    /// The Vulkan backend ignores it: mapping is decided by memory type there,
+    /// and a buffer that asked for `MAP_READ` is host-visible either way.
+    pub const MAP_READ: BufferUsage = BufferUsage(1 << 7);
 
     pub fn contains(self, other: BufferUsage) -> bool {
         self.0 & other.0 == other.0

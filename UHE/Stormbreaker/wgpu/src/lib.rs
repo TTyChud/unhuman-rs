@@ -12,3 +12,6 @@ pub mod wgpu_resources;
 
 #[path = "WgpuPipeline.rs"]
 pub mod wgpu_pipeline;
+
+#[path = "WgpuCommandBuffer.rs"]
+pub mod wgpu_command_buffer;

@@ -114,11 +114,18 @@ impl Adapter {
         // return type the renderer would have to handle.
         let requested = pollster::block_on(self.inner.request_device(&wgpu::DeviceDescriptor {
             label: Some(label),
-            // No features requested. Every feature asked for and not supported
-            // fails device creation on some machine and not others, which is the
-            // worst possible failure for a test suite: it passes locally and
-            // fails on the one machine that matters.
-            required_features: wgpu::Features::empty(),
+            // Features are requested *adaptively*: each one is asked for only
+            // when the adapter has it.
+            //
+            // The earlier rule here was "request nothing", which is right for
+            // anything optional and wrong for anything load-bearing.
+            // `MAPPABLE_PRIMARY_BUFFERS` is load-bearing: without it wgpu refuses
+            // to create a buffer that can be read back, and a readback is how
+            // both backends' tests prove anything. Requesting it unconditionally
+            // would fail device creation on an adapter without it -- which is the
+            // worst failure for a test suite, because it passes on the machine
+            // you have and fails on the one that matters.
+            required_features: self.inner.features() & wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
             required_limits: wgpu::Limits::downlevel_defaults(),
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
@@ -353,6 +360,11 @@ pub fn to_wgpu_buffer_usage(usage: chassis::BufferUsage) -> wgpu::BufferUsages {
     }
     if usage.contains(chassis::BufferUsage::TRANSFER_DST) {
         out |= wgpu::BufferUsages::COPY_DST;
+    }
+    // `MAP_READ` has no Vulkan equivalent: Vulkan decides readability from the
+    // memory type, not from a buffer flag. See the comment on the variant.
+    if usage.contains(chassis::BufferUsage::MAP_READ) {
+        out |= wgpu::BufferUsages::MAP_READ;
     }
     out
 }

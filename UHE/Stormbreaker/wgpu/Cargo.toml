@@ -21,6 +21,7 @@ pollster = "0.4"
 wgpu = { version = "30", features = ["spirv"] }
 
 [dev-dependencies]
+bytemuck = "1"
 chassis = { workspace = true }
 forge = { workspace = true }
 stormbreaker = { workspace = true }
