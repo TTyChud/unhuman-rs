@@ -141,6 +141,11 @@ impl Adapter {
 }
 
 /// The device. Owns every wgpu object, so it is what `Drop` matters on.
+///
+/// `Clone`, and cheap: a `wgpu::Device` is a handle to a shared object, so
+/// cloning is a refcount bump. Every resource registry needs one and passing a
+/// borrow would mean the registries could not outlive the caller's device.
+#[derive(Clone)]
 pub struct Device {
     inner: wgpu::Device,
     index: u32,
@@ -311,6 +316,18 @@ pub fn to_wgpu_texture_usage(usage: chassis::TextureUsage) -> wgpu::TextureUsage
         out |= wgpu::TextureUsages::TEXTURE_BINDING;
     }
     out
+}
+
+/// Vertex formats. A vertex attribute format is a different enum from a texture
+/// format -- `Float32x4` is a vertex format and `Rgba32Float` is a texture
+/// format -- so this is a separate mapping and not a reuse of the other one.
+pub fn to_vertex_format(format: TextureFormat) -> Option<wgpu::VertexFormat> {
+    Some(match format {
+        TextureFormat::R32Float => wgpu::VertexFormat::Float32,
+        TextureFormat::Rgba32Float => wgpu::VertexFormat::Float32x4,
+        // The packed unorm formats, which is how a mesh format usually arrives.
+        _ => return None,
+    })
 }
 
 /// wgpu buffer usages, from the RHI's.

@@ -10,8 +10,17 @@ repository.workspace = true
 chassis = { workspace = true }
 forge = { workspace = true }
 pollster = "0.4"
-wgpu = "30"
+# The `spirv` feature is what lets `ShaderSource::SpirV` exist at all, and
+# without it this backend cannot take a module from `forge` -- which is the whole
+# point of sharing one compiler between the two backends.
+#
+# It also pulls in `naga`, which is a real cost and a real benefit: naga validates
+# SPIR-V on the way into a shader module, so a malformed one is reported here
+# with a message naming the module, rather than as an opaque failure at pipeline
+# creation. The Vulkan backend gets that from the driver's own parser instead.
+wgpu = { version = "30", features = ["spirv"] }
 
 [dev-dependencies]
 chassis = { workspace = true }
+forge = { workspace = true }
 stormbreaker = { workspace = true }

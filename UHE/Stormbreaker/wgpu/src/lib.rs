@@ -6,3 +6,9 @@
 
 #[path = "WgpuDevice.rs"]
 pub mod wgpu_device;
+
+#[path = "WgpuResources.rs"]
+pub mod wgpu_resources;
+
+#[path = "WgpuPipeline.rs"]
+pub mod wgpu_pipeline;
