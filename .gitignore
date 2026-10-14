@@ -1,1 +1,6 @@
 /target
+
+# Local handoff notes. Not for the repo: it names this machine's GPU,
+# the C++ checkout's relative path, and what is unfinished, none of which
+# belongs in a commit.
+/session.md
