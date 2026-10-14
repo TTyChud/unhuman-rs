@@ -1,16 +1,21 @@
 name: CI
 
-# Linux only. Deliberately, not a matrix.
+# Two platforms, because the C++ engine supported both and this one will too.
 #
-# This engine targets one platform, and a CI matrix over platforms it does not
-# ship is a standing invitation to add `#[cfg]` that nobody exercises locally. A
-# green Windows job proves the code compiles there, not that anything works, and
-# it costs minutes on every commit to say so.
+# The Linux jobs carry the weight: lavapipe means the Vulkan backend is genuinely
+# exercised, every commit. The Windows job proves something narrower and is
+# labelled honestly -- a GitHub Windows runner has no Vulkan driver, so it builds
+# and runs the logic suites and nothing that touches the backend.
 #
-# If a second platform is ever supported, that is a change of scope, and it
-# should come with someone who can test on it -- not a row in a matrix.
+# That is still worth minutes per commit. Platform-specific breakage is
+# invisible from Linux until it lands: a `#[cfg]` that silently excludes a file, a
+# path separator assumption, an `unsafe` block that only misbehaves on one
+# allocator. Compile-only is not "working", but it is not nothing.
 #
-# Three jobs, and the split is not cosmetic.
+# When Windows gets a real backend test, it needs a driver the runner can see.
+# That is the job to add then, not a row to widen now.
+#
+# Four jobs, and the split is not cosmetic.
 #
 # `logic` needs no GPU at all and runs everywhere. `vulkan` runs the backend
 # against Mesa's **lavapipe**, a software Vulkan implementation, with the
@@ -138,6 +143,37 @@ jobs:
           name: validation-log
           path: validation.log
           if-no-files-found: ignore
+
+  windows:
+    name: windows (build + logic tests)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Workspace builds with all targets
+        run: cargo build --workspace --all-targets
+
+      - name: Release build
+        run: cargo build --workspace --release
+
+      # No Vulkan on this runner, so `--no-vulkan`. The backend suites skip
+      # rather than fail here, which is the honest outcome: this job is about
+      # the platform, not the driver.
+      - name: Logic tests
+        run: .\scripts\gate.ps1 --no-vulkan
 
   shaders:
     name: shaders (regenerate and diff)

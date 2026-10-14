@@ -31,11 +31,23 @@ Plus `cargo fmt --check`, which found real drift the moment CI was written down.
 
 ## CI
 
-`.github/workflows/ci.yml`, **Linux only**. Not a matrix. This engine targets one
-platform; a CI matrix over platforms it does not ship is an invitation to add
-`#[cfg]` nobody exercises locally.
+`.github/workflows/ci.yml`, **Linux and Windows**, because the C++ engine
+supported both and this one will.
 
-Four jobs:
+The Linux jobs carry the weight -- lavapipe means the Vulkan backend is genuinely
+exercised every commit. The Windows job proves something narrower and says so: a
+GitHub Windows runner has **no Vulkan driver**, so it builds and runs the logic
+suites and nothing touching the backend. That is still worth minutes per commit,
+because platform breakage is invisible from Linux until it lands: a `#[cfg]` that
+silently excludes a file, a path separator assumption, an `unsafe` block that only
+misbehaves on one allocator. Compile-only is not "working", but it is not nothing.
+
+`scripts/gate.ps1` mirrors `scripts/gate.sh`. Two copies rather than a wrapper,
+because bash on a Windows runner is a Git Bash layer with its own path rules and a
+gate that behaves differently on the platform it is meant to check is worse than
+no gate.
+
+Five jobs:
 
 - **logic** — no GPU needed. fmt, clippy, and the suites that never touch a
   driver: `grind`, `chassis`, `adam`, `forge`.
@@ -144,7 +156,10 @@ puts the frontend too.
 0% of the 21,745-line C++ engine outside the backend.
 
 - [ ] **8. `eyes`** — window + input. Needs `ash-window` + `winit`. Unblocks a
-      real window and therefore a real swapchain.
+      real window and therefore a real swapchain. **Both platforms**, so the
+      windowing layer is the first place platform differences become real rather
+      than theoretical -- and the Windows CI job exists partly so that code gets
+      compiled early enough for that to be cheap.
 - [ ] **9. `meats`** — ECS on hecs, hierarchy, scene serialisation (2,943 C++
       lines).
 - [ ] **10. `bifrost`** — renderer frontend: passes, camera, material, mesh.

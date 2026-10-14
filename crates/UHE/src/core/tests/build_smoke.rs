@@ -11,11 +11,13 @@
 use std::process::Command;
 
 /// Run a cargo command and return its output, failing loudly.
+/// Run cargo and capture everything it said.
+///
+/// `--offline` is deliberately not used: a smoke test that cannot fetch is
+/// testing the wrong thing, and CI has network.
 fn cargo(args: &[&str]) -> (bool, String) {
     let output = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .args(args)
-        // `--offline` would be wrong here: a smoke test that cannot fetch is
-        // testing the wrong thing. CI has network.
         .output()
         .unwrap_or_else(|e| panic!("could not run cargo {args:?}: {e}"));
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
