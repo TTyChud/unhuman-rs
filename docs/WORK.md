@@ -141,15 +141,25 @@ Do not port. Each was measured, not assumed.
 
 | C++ | why |
 |---|---|
-| `VulkanRenderPass.cpp` | 39 lines, obsolete under dynamic rendering |
-| `VulkanShaderManager.h` | has no `.cpp` at all |
+| `VulkanBinaryFence.h` | `VulkanFence.h:16` says in its own comment that it overlaps with `VulkanFence` and "the two should be consolidated". One sync type, not two. |
+| `VulkanBinarySemaphore.h/.cpp` | the `.cpp` says "Intentionally empty: VulkanBinarySemaphore is an unimplemented placeholder". Nothing in the tree references it. |
+| `VulkanShaderManager.h/.cpp` | **it does have a `.cpp`** — earlier note here claimed otherwise, and that was wrong. The correct reason to skip it: `Init()` and `ShutDown()` are both empty bodies. |
 | `vma_usage.cpp` | 4 lines, allocates nothing |
-| `VulkanBinaryFence.h` / `VulkanBinarySemaphore.h` | the same type defined twice, an ODR violation flagged in the engine's own `docs/vulkan-sync-and-rendergraph.md:87-90` |
+| `UI/VulkanImGui*.h` | **not skipped — relocated.** Referenced by `UHE/src/UHE/ImGui/ImGuiLayer.cpp`. They belong with the UI layer, not the backend. |
 | `UHE/Renderer2D/` | already `EXCLUDE`d from the C++ build (`UHE/CMakeLists.txt:12`) |
 | `Platform/Linux/` | vestigial; `Window::Create` always returns `WindowsWindow` |
 | `UHE/Test/` | declarations with no bodies; `cargo test` replaces them |
 | Tracy macros | replaced by `VulkanScopes.rs` debug-utils labels |
 | global descriptor set | `VulkanCommandBuffer.cpp:370-375`, flagged at `docs/framegraph-and-rendergraph.md:57`; not carried over |
+
+## Ash 0.38 builder trap
+
+`default().some_builder().p_pointer(&slice)` sets the pointer and **leaves the
+count at zero**. Count fields are only set by the struct literal.
+
+Hit three times: `stage_count` (segfaulted RADV), `dynamic_state_count`,
+`attachment_count`. Every `*_count` beside a pointer in this backend is now
+written as a struct field.
 
 ## Decisions made, do not relitigate without a reason
 

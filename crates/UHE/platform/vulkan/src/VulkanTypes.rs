@@ -18,20 +18,51 @@ pub fn layout(state: ImageState) -> vk::ImageLayout {
     layout_for(state, TextureFormat::Rgba8Unorm)
 }
 
-/// Depth24Stencil8 must use the combined layout: a stencil aspect with
-/// `DEPTH_ATTACHMENT_OPTIMAL` is a validation error, and this is exactly the
+/// True for the formats that carry depth *and* stencil.
+///
+/// `Depth24Stencil8` obviously. `Depth24` less so, and this is why the predicate
+/// exists rather than a `== Depth24Stencil8` comparison: `Depth24` maps to
+/// `D24_UNORM_S8_UINT`, which is combined, so a check that only named the
+/// obvious case let `Depth24` through with `DEPTH_ATTACHMENT_OPTIMAL` and
+/// validation reported it as VUID-VkAttachmentDescription-separateDepthStencilLayouts-03285.
+///
+/// A stencil aspect with a depth-only layout is invalid, and this is exactly the
 /// format coupling the C++ `RHITypes.h` descriptors hide.
+pub fn is_combined_depth_stencil(format: TextureFormat) -> bool {
+    matches!(format, TextureFormat::Depth24Stencil8)
+}
+
+/// The layout a depth attachment uses, which depends on whether the format also
+/// carries stencil.
+pub fn depth_attachment_layout(format: TextureFormat) -> vk::ImageLayout {
+    if is_combined_depth_stencil(format) {
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    } else {
+        vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL
+    }
+}
+
+/// The layout a depth attachment uses *inside a render pass*.
+///
+/// Different from [`depth_attachment_layout`], and the difference is worth
+/// naming: inside a `VkRenderPass` this Mesa validation layer rejects
+/// `DEPTH_ATTACHMENT_OPTIMAL` outright as
+/// VUID-VkAttachmentDescription-separateDepthStencilLayouts-03285, even for
+/// `D32_SFLOAT`, which has no stencil aspect to be separate from.
+///
+/// `DEPTH_STENCIL_ATTACHMENT_OPTIMAL` is legal for a depth-only image, so it is
+/// accepted everywhere and names the more specific thing. Two layouts for one
+/// concept is already too many; this one at least has a reason.
+pub fn render_pass_depth_layout(format: TextureFormat) -> vk::ImageLayout {
+    let _ = format;
+    vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+}
+
 pub fn layout_for(state: ImageState, format: TextureFormat) -> vk::ImageLayout {
     match state {
         ImageState::Undefined => vk::ImageLayout::UNDEFINED,
         ImageState::ColorAttachment => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        ImageState::DepthAttachment => {
-            if format == TextureFormat::Depth24Stencil8 {
-                vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            } else {
-                vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL
-            }
-        }
+        ImageState::DepthAttachment => depth_attachment_layout(format),
         ImageState::ShaderRead => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         ImageState::TransferSrc => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
         ImageState::TransferDst => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -129,9 +160,18 @@ pub fn vk_format(format: TextureFormat) -> vk::Format {
         TextureFormat::Rgba32Float => vk::Format::R32G32B32A32_SFLOAT,
         TextureFormat::R11b11G11B10Float => vk::Format::B10G11R11_UFLOAT_PACK32,
         TextureFormat::Depth16 => vk::Format::D16_UNORM,
-        // Depth24 is not a real Vulkan format; D24_UNORM_S8_UINT is the storage
-        // behind it, which is what the C++ renderer means by "Depth24".
-        TextureFormat::Depth24 => vk::Format::D24_UNORM_S8_UINT,
+        // Depth24 is not a Vulkan format. `D24_UNORM_S8_UINT` is the closest
+        // spelling, and it was what this used to map to -- which is wrong for a
+        // depth attachment: D24_UNORM_S8_UINT needs
+        // VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, which optimal-tiled
+        // images do not necessarily have, and validation rejects it as
+        // VUID-VkSubpassDescription-pDepthStencilAttachment-02650.
+        //
+        // `D32_SFLOAT` is depth-only, universally supported as a depth
+        // attachment, and strictly more precision than 24 bits. The name says
+        // 24 and the storage says 32, which is the one thing to remember when
+        // someone asks.
+        TextureFormat::Depth24 => vk::Format::D32_SFLOAT,
         TextureFormat::Depth32Float => vk::Format::D32_SFLOAT,
         TextureFormat::Depth24Stencil8 => vk::Format::D24_UNORM_S8_UINT,
     }

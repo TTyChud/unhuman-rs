@@ -43,7 +43,7 @@ pub mod vulkan_framebuffer;
 pub mod vulkan_image_view;
 #[path = "VulkanScopes.rs"]
 pub mod vulkan_scopes;
-#[path = "VulkanSwapchain.rs"]
+#[path = "VulkanSwapChain.rs"]
 pub mod vulkan_swapchain;
 #[path = "VulkanTexture2D.rs"]
 pub mod vulkan_texture_2d;
@@ -119,3 +119,5 @@ pub mod vulkan_render_graph_compiler;
 pub mod vulkan_render_graph;
 #[path = "RenderGraph/VulkanRenderGraphExecutor.rs"]
 pub mod vulkan_render_graph_executor;
+#[path = "VulkanRenderPass.rs"]
+pub mod vulkan_render_pass;
