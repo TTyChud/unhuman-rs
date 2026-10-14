@@ -68,15 +68,20 @@ Never push. Commit only; the owner pushes.
 ## Layout
 
 ```
-crates/UHE/
-  platform/vulkan/     the Vulkan backend. No renderer, no render graph.
+UHE/                        at the repository root, like the C++ tree
+  platform/
+    vulkan/                 stormbreaker: the Vulkan backend
+    wgpu/                   stormglass: the wgpu backend
   src/
-    core/              adam: engine, app, the Plugin base
-    rhi/               chassis: the backend-neutral RHI interface
-    jobs/              grind: the job system
-    shaders/           forge: Slang in, SPIR-V out
-    renderer/          the render graph and the renderer -- as a Plugin. Coming.
+    core/                   adam: engine, app, the Plugin base
+    rhi/                    chassis: the backend-neutral RHI, the seam
+    jobs/                   grind: the job system
+    shaders/                forge: Slang in, SPIR-V out
+    renderer/               the render graph and the renderer, as a Plugin. Coming.
 ```
+
+Not under `crates/`. That was `crates/UHE/src`, which said `UHE` twice and
+meant nothing -- the directory name and the crate names already carry it.
 
 `platform/vulkan` is `UHE/src/Platform/Vulkan/` and `src/core` is `UHE/src/UHE/`.
 The renderer is deliberately **not** in `platform`: a backend that knows how to

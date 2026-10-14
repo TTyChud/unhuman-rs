@@ -1,0 +1,17 @@
+[package]
+name = "stormglass"
+description = "The wgpu backend. Same chassis::Gpu as the Vulkan one."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chassis = { workspace = true }
+forge = { workspace = true }
+pollster = "0.4"
+wgpu = "30"
+
+[dev-dependencies]
+chassis = { workspace = true }
+stormbreaker = { workspace = true }

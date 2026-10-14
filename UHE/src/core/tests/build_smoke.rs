@@ -157,16 +157,16 @@ fn every_declared_member_exists_on_disk() {
     let mut checked = 0;
     for line in text.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix("\"crates/") else {
+        let Some(rest) = line.strip_prefix("\"UHE/") else {
             continue;
         };
         let Some(path) = rest.strip_suffix("\",") else {
             continue;
         };
-        let directory = root.join("crates").join(path);
+        let directory = root.join("UHE").join(path);
         assert!(
             directory.join("Cargo.toml").is_file(),
-            "Cargo.toml lists crates/{path} but it has no Cargo.toml on disk",
+            "Cargo.toml lists UHE/{path} but it has no Cargo.toml on disk",
         );
         checked += 1;
     }
@@ -194,7 +194,7 @@ fn the_backend_file_map_is_accounted_for() {
         return;
     };
 
-    let rust_src = root.join("crates/UHE/platform/vulkan/src");
+    let rust_src = root.join("UHE/platform/vulkan/src");
     let rust: Vec<String> = walk(&rust_src)
         .into_iter()
         .map(|p| {

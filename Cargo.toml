@@ -4,18 +4,20 @@ resolver = "2"
 # machine with no cmake, no Vulkan SDK and no driver. The backend crates are
 # built explicitly with `-p stormbreaker`.
 default-members = [
-    "crates/UHE/src/core",
-    "crates/UHE/src/rhi",
-    "crates/UHE/src/shaders",
-    "crates/UHE/src/jobs",
-    "crates/UHE/platform/vulkan",
+    "UHE/src/core",
+    "UHE/src/rhi",
+    "UHE/src/shaders",
+    "UHE/src/jobs",
+    "UHE/platform/vulkan",
+    "UHE/platform/wgpu",
 ]
 members = [
-    "crates/UHE/src/core",
-    "crates/UHE/src/rhi",
-    "crates/UHE/src/shaders",
-    "crates/UHE/src/jobs",
-    "crates/UHE/platform/vulkan",
+    "UHE/src/core",
+    "UHE/src/rhi",
+    "UHE/src/shaders",
+    "UHE/src/jobs",
+    "UHE/platform/vulkan",
+    "UHE/platform/wgpu",
 ]
 
 [workspace.package]
@@ -25,8 +27,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/unhuman-engine/unhuman-rs.git"
 
 [workspace.dependencies]
-adam = { path = "crates/UHE/src/core" }
-chassis = { path = "crates/UHE/src/rhi" }
-forge = { path = "crates/UHE/src/shaders" }
-grind = { path = "crates/UHE/src/jobs" }
-stormbreaker = { path = "crates/UHE/platform/vulkan" }
+adam = { path = "UHE/src/core" }
+chassis = { path = "UHE/src/rhi" }
+forge = { path = "UHE/src/shaders" }
+grind = { path = "UHE/src/jobs" }
+stormbreaker = { path = "UHE/platform/vulkan" }
+stormglass = { path = "UHE/platform/wgpu" }
