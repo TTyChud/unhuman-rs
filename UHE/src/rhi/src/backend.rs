@@ -124,7 +124,9 @@ impl fmt::Display for BackendSource {
             BackendSource::Default => "default",
             BackendSource::Flag => "--backend",
             BackendSource::Environment => "UHE_BACKEND",
-            BackendSource::Settings => "settings",
+            // Names the file *and* the key. "settings" alone is ambiguous the
+            // moment there is a second source that reads a file.
+            BackendSource::Settings => "the settings file",
         })
     }
 }
@@ -152,15 +154,22 @@ impl Default for BackendSelection {
 }
 
 impl BackendSelection {
-    /// Work out the backend from a command line and an environment.
+    /// Work out the backend from a command line, an environment and a settings
+    /// file. First one that says anything wins.
     ///
-    /// Both are passed in rather than read from the process, so the whole
+    /// All three are *passed in* rather than read from the process, so the whole
     /// decision is a pure function and can be tested for every combination --
-    /// including "the flag wins", which is the one that matters and the one that
-    /// silently stops being true when someone adds a third source.
+    /// including each one beating each other one, which is the property that
+    /// silently stops being true when a fourth source is added.
+    ///
+    /// `settings` is the `backend` key from a [`crate::settings::Settings`], or
+    /// `None` for a file that does not mention one. It is not the file itself:
+    /// finding and reading a file is `engine`'s job, and a library that reaches
+    /// for the filesystem cannot be tested without one.
     pub fn resolve(
         arguments: &[String],
         environment: Option<&str>,
+        settings: Option<&str>,
     ) -> Result<Self, UnknownBackend> {
         if let Some(value) = flag_value(arguments) {
             return Ok(Self {
@@ -173,6 +182,14 @@ impl BackendSelection {
                 return Ok(Self {
                     choice: value.parse()?,
                     source: BackendSource::Environment,
+                });
+            }
+        }
+        if let Some(value) = settings {
+            if !value.trim().is_empty() {
+                return Ok(Self {
+                    choice: value.parse()?,
+                    source: BackendSource::Settings,
                 });
             }
         }

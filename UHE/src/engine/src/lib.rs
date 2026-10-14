@@ -59,8 +59,36 @@ pub fn create_gpu(request: GpuRequest) -> Result<Box<dyn Gpu>, CreateError> {
     }
 }
 
-/// Resolve and build in one call, from the process's own arguments and
-/// environment.
+/// Read the settings file, if there is one.
+///
+/// ## Where it looks
+///
+/// `$UHE_SETTINGS` if set, otherwise `./unhuman.settings`.
+///
+/// A **missing** file is not an error and says nothing. Every game ships with
+/// settings nobody wrote and runs on the defaults, and an engine that refuses to
+/// start without a config file is an engine nobody runs before they have one.
+///
+/// A file that *cannot be read* -- permissions, a directory, invalid UTF-8 --
+/// is also not fatal here, and it prints why. The alternative is a launcher that
+/// says "backend: vulkan" in the log and quietly used wgpu because the file was
+/// unreadable, which is precisely the bug the `BackendSource` exists to prevent.
+/// So the file is unreadable but the *answer* is still knowable: it falls through
+/// to the next source and the log says the file was skipped.
+pub fn load_settings() -> (Option<chassis::settings::Settings>, Option<String>) {
+    let path = std::env::var_os(chassis::settings::PATH_VARIABLE)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(chassis::settings::FILE_NAME));
+
+    match std::fs::read_to_string(&path) {
+        Ok(text) => (Some(chassis::settings::Settings::parse(&text)), None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (None, None),
+        Err(error) => (None, Some(format!("{}: {error}", path.display()))),
+    }
+}
+
+/// Resolve and build in one call, from the process's own arguments, environment
+/// and settings file.
 ///
 /// The seam that `main` should call and nothing else should.
 pub fn create_gpu_from_process(
@@ -69,7 +97,21 @@ pub fn create_gpu_from_process(
     engine_name: &'static CStr,
     extent: chassis::Extent2d,
 ) -> Result<(Box<dyn Gpu>, BackendSelection), CreateError> {
-    let selection = BackendSelection::resolve(arguments, environment).map_err(CreateError::Name)?;
+    let (settings, skipped) = load_settings();
+    if let Some(reason) = skipped {
+        eprintln!(
+            "unhuman: ignoring settings file ({reason}); falling through to the \
+             next backend source"
+        );
+    }
+    let selection = BackendSelection::resolve(
+        arguments,
+        environment,
+        settings
+            .as_ref()
+            .and_then(chassis::settings::Settings::backend),
+    )
+    .map_err(CreateError::Name)?;
     let gpu = create_gpu(GpuRequest {
         selection: BackendSelection {
             choice: selection.choice,

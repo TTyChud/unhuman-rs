@@ -236,11 +236,30 @@ Three ways to say it, first wins:
 3. a `backend` key in the settings file
 
 `chassis::backend::BackendSelection::resolve` is a pure function of
-`(arguments, environment)`, so every combination is tested -- including "the
-flag wins", which is the one that silently stops being true when a fourth source
-is added. An unrecognised value is an **error**, not a fallback: `--backend vlkan`
-that quietly got wgpu would be reported as "the wrong backend", and nothing
-would point here.
+`(arguments, environment, settings)`, so every combination is tested -- pairwise,
+not in a chain, because "flag beats environment" passing says nothing about "flag
+beats settings", and the failing pair is the one nobody thinks to test. An
+unrecognised value is an **error**, not a fallback: `--backend vlkan` that quietly
+got wgpu would be reported as "the wrong backend", and nothing would point here.
+
+`chassis::settings` is the file: `key = value`, no sections, no types, `#`
+comments. It is deliberately that small, because the only key in it today is
+`backend` and a settings system with nesting and inheritance would be a project
+waiting for a second caller. A line that is not a `key = value` pair is *ignored*
+rather than refused -- it is nearly always a comment style the parser does not
+know, and a settings file that refuses to load because of a stray `;` is a file
+people stop editing.
+
+`BackendSource::Settings` existed from the first commit that introduced the enum
+and **nothing could produce it** -- `resolve` took two arguments. The variant was
+a claim about a feature that did not exist. It does now.
+
+Reading the file is `engine`'s job, not `chassis`'s: a library that reaches for
+the filesystem cannot be tested without one. A *missing* file is silent, because
+every game ships with settings nobody wrote. A file that cannot be read is
+skipped with a line on stderr saying so -- an engine that silently used wgpu
+because the file was unreadable, having logged that the backend was vulkan, is
+the exact failure `BackendSource` exists to prevent.
 
 `engine::create_gpu` turns a `BackendSelection` into a `Box<dyn Gpu>`. Both
 backends are implemented. The settings-file source is still a stub.

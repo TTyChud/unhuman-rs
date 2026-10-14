@@ -38,8 +38,9 @@ fn wgpu_is_the_default_backend() {
 /// which is why it is a test rather than a comment.
 #[test]
 fn the_flag_beats_the_environment() {
-    let selection = BackendSelection::resolve(&arguments(&["--backend", "vulkan"]), Some("wgpu"))
-        .expect("both are valid");
+    let selection =
+        BackendSelection::resolve(&arguments(&["--backend", "vulkan"]), Some("wgpu"), None)
+            .expect("both are valid");
     assert_eq!(selection.choice, BackendChoice::Vulkan);
     assert_eq!(selection.source, BackendSource::Flag);
 }
@@ -52,7 +53,7 @@ fn both_flag_spellings_work() {
         arguments(&["--backend", "vulkan"]),
         arguments(&["--backend=vulkan"]),
     ] {
-        let selection = BackendSelection::resolve(&form, None).expect("valid");
+        let selection = BackendSelection::resolve(&form, None, None).expect("valid");
         assert_eq!(selection.choice, BackendChoice::Vulkan, "for {form:?}");
         assert_eq!(selection.source, BackendSource::Flag);
     }
@@ -60,13 +61,13 @@ fn both_flag_spellings_work() {
 
 #[test]
 fn the_environment_is_used_when_there_is_no_flag() {
-    let selection = BackendSelection::resolve(&[], Some("vulkan")).expect("valid");
+    let selection = BackendSelection::resolve(&[], Some("vulkan"), None).expect("valid");
     assert_eq!(selection.choice, BackendChoice::Vulkan);
     assert_eq!(selection.source, BackendSource::Environment);
 
     // An empty value is nobody saying anything, so the default stands rather than
     // an error -- an exported-but-blank variable is a normal accident.
-    let blank = BackendSelection::resolve(&[], Some("  ")).expect("blank is not a choice");
+    let blank = BackendSelection::resolve(&[], Some("  "), None).expect("blank is not a choice");
     assert_eq!(blank.choice, BackendChoice::Wgpu);
     assert_eq!(blank.source, BackendSource::Default);
 }
@@ -77,7 +78,7 @@ fn the_environment_is_used_when_there_is_no_flag() {
 /// will be reported as "the wrong backend", and nothing would point here.
 #[test]
 fn a_misspelled_backend_is_an_error_naming_what_was_asked_for() {
-    let error = BackendSelection::resolve(&arguments(&["--backend", "vlkan"]), None)
+    let error = BackendSelection::resolve(&arguments(&["--backend", "vlkan"]), None, None)
         .expect_err("a typo is not a backend");
     assert!(
         error.to_string().contains("vlkan"),
@@ -95,7 +96,7 @@ fn a_misspelled_backend_is_an_error_naming_what_was_asked_for() {
 #[test]
 fn names_are_matched_case_insensitively_and_trimmed() {
     for spelling in ["vulkan", "VULKAN", " Vulkan ", "\tvk\n"] {
-        let selection = BackendSelection::resolve(&arguments(&["--backend", spelling]), None)
+        let selection = BackendSelection::resolve(&arguments(&["--backend", spelling]), None, None)
             .unwrap_or_else(|e| panic!("{spelling:?} should parse: {e}"));
         assert_eq!(selection.choice, BackendChoice::Vulkan, "for {spelling:?}");
     }
@@ -108,7 +109,7 @@ fn names_are_matched_case_insensitively_and_trimmed() {
 #[test]
 fn a_flag_with_no_value_falls_through_to_the_default() {
     let selection =
-        BackendSelection::resolve(&arguments(&["--backend"]), None).expect("does not panic");
+        BackendSelection::resolve(&arguments(&["--backend"]), None, None).expect("does not panic");
     assert_eq!(selection.choice, BackendChoice::Wgpu);
 }
 
@@ -260,4 +261,101 @@ fn a_resource_made_through_the_trait_resolves_in_the_executor() {
         gpu.executor().resources().get_texture(texture).is_some(),
         "the slot the executor will look it up in holds the handle it can resolve",
     );
+}
+
+/// The settings file is the third source, and it is last.
+///
+/// `BackendSource::Settings` existed from the start and nothing could ever
+/// produce it -- `resolve` took only two arguments. So the variant was a claim
+/// about a feature that did not exist, and this is the test that makes it true.
+///
+/// First-one-that-says-anything wins, checked pairwise rather than in a chain:
+/// "flag beats environment" passing says nothing about "flag beats settings",
+/// and the failing pair is the one nobody thinks to test.
+#[test]
+fn the_settings_file_is_the_last_source() {
+    let from_file = || BackendSelection::resolve(&[], None, Some("wgpu")).expect("valid");
+
+    // The flag beats both.
+    let selection = BackendSelection::resolve(
+        &arguments(&["--backend", "vulkan"]),
+        Some("wgpu"),
+        Some("wgpu"),
+    )
+    .expect("valid");
+    assert_eq!(selection.choice, BackendChoice::Vulkan);
+    assert_eq!(selection.source, BackendSource::Flag);
+
+    // The environment beats the settings file.
+    let selection = BackendSelection::resolve(&[], Some("vulkan"), Some("wgpu")).expect("valid");
+    assert_eq!(selection.choice, BackendChoice::Vulkan);
+    assert_eq!(selection.source, BackendSource::Environment);
+
+    // And with only the file, the file decides -- and says so.
+    let selection = from_file();
+    assert_eq!(selection.choice, BackendChoice::Wgpu);
+    assert_eq!(selection.source, BackendSource::Settings);
+    assert!(
+        selection.source.to_string().contains("settings"),
+        "the log line names where the answer came from: {}",
+        selection.source,
+    );
+}
+
+/// A blank source is nobody saying anything, not somebody saying "blank".
+///
+/// All three sources can be blank -- an empty environment variable, an empty
+/// `UHE_BACKEND`, a settings file with `backend =` and nothing after it -- and
+/// all three have to fall through rather than fail. This is the case that makes
+/// "first one that says anything" true instead of "first one that exists".
+#[test]
+fn a_blank_source_falls_through_rather_than_failing() {
+    for blank in ["", "   ", "\t"] {
+        let selection = BackendSelection::resolve(&[], Some(blank), Some(blank)).expect("blank");
+        assert_eq!(selection.choice, BackendChoice::Wgpu);
+        assert_eq!(
+            selection.source,
+            BackendSource::Default,
+            "{blank:?} is nobody saying anything",
+        );
+    }
+
+    // A blank environment with a real settings file still gets the settings.
+    let selection = BackendSelection::resolve(&[], Some("  "), Some("vulkan")).expect("valid");
+    assert_eq!(selection.source, BackendSource::Settings);
+}
+
+/// A settings file with a backend nobody has heard of is an error, like any
+/// other source.
+///
+/// The alternative -- falling through to wgpu -- would make a typo in a file the
+/// user deliberately edited mean "wgpu, mysteriously", and the error would name
+/// the flag instead of the file.
+#[test]
+fn a_misspelled_backend_in_settings_is_an_error() {
+    let error = BackendSelection::resolve(&[], None, Some("vlkan"))
+        .expect_err("a typo in the settings file is still a typo");
+    assert!(error.0.contains("vlkan"), "names what was asked: {error}");
+}
+
+/// The settings file really does feed the selection, end to end.
+///
+/// `resolve` takes a string rather than a file so it stays pure, which means
+/// something has to do the reading. This checks that `Settings::parse` produces
+/// something `resolve` accepts, because those are two functions that could
+/// disagree about what a `backend` key means.
+#[test]
+fn a_parsed_settings_file_drives_the_choice() {
+    let settings = chassis::settings::Settings::parse(
+        "# unhuman.settings\nwindow.width = 1280\nbackend = vulkan\n",
+    );
+    let selection = BackendSelection::resolve(&[], None, settings.backend()).expect("valid");
+    assert_eq!(selection.choice, BackendChoice::Vulkan);
+    assert_eq!(selection.source, BackendSource::Settings);
+
+    // And a file that does not mention a backend leaves the choice alone.
+    let settings = chassis::settings::Settings::parse("window.width = 1280\n");
+    assert_eq!(settings.backend(), None);
+    let selection = BackendSelection::resolve(&[], None, settings.backend()).expect("valid");
+    assert_eq!(selection.source, BackendSource::Default);
 }

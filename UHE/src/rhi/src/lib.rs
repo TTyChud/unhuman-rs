@@ -18,6 +18,7 @@ mod desc;
 mod format;
 mod handle;
 mod rhi;
+pub mod settings;
 
 pub use backend::{
     flag_value, BackendChoice, BackendSelection, BackendSource, UnknownBackend,
