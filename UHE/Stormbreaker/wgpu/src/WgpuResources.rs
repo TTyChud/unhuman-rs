@@ -39,20 +39,7 @@ use crate::wgpu_device::{self, Device};
 ///
 /// wgpu owns the `RenderPipeline`, so as with buffers and textures this only has
 /// to exist to keep the handle resolving.
-pub struct PipelineResource {
-    inner: wgpu::RenderPipeline,
-    label: String,
-}
-
-impl PipelineResource {
-    pub fn inner(&self) -> &wgpu::RenderPipeline {
-        &self.inner
-    }
-
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-}
+pub use crate::wgpu_pipeline::PipelineResource;
 
 /// What the RHI calls a buffer.
 pub struct BufferResource {
@@ -162,6 +149,15 @@ impl WgpuResources {
 
     pub fn get_shader(&self, handle: chassis::Shader) -> Option<&ShaderResource> {
         self.shaders.get(handle)
+    }
+
+    /// Stores a compiled pipeline. Called by `wgpu_pipeline`, which builds one
+    /// and needs somewhere to put it.
+    pub(crate) fn register_pipeline(
+        &mut self,
+        pipeline: crate::wgpu_pipeline::PipelineResource,
+    ) -> chassis::Pipeline {
+        self.pipelines.create(pipeline)
     }
 
     pub fn get_pipeline(&self, handle: chassis::Pipeline) -> Option<&PipelineResource> {
@@ -308,6 +304,17 @@ impl chassis::Resources for WgpuResources {
         let module = forge::Module::from_bytes(spirv)
             .ok_or_else(|| chassis::Error::InvalidDescriptor("not SPIR-V".to_owned()))?;
 
+        // The magic number is checked above by `forge`, and that check is doing
+        // more than tidiness: wgpu's `create_shader_module` is infallible, so a
+        // module it dislikes goes to an error scope, and with no scope installed
+        // it *panics*. Vulkan's returns `Result` and does not. Validating here is
+        // what makes the two backends agree on the common case -- truncated and
+        // wrong-magic input.
+        //
+        // What it does not catch is a module with a correct magic number and a
+        // corrupt body. That panics here and is not caught, deliberately: a panic
+        // is loud and immediate, and wrapping it in a catch would turn a
+        // specific failure into a silent wrong answer.
         let inner = self
             .device
             .inner()

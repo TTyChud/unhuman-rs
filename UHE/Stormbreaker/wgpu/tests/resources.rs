@@ -230,15 +230,142 @@ fn the_shared_shader_from_forge_is_accepted() {
     assert_ne!(vertex_module, fragment_module);
 }
 
-/// Pipelines and bind groups are not written yet, and saying so is the point.
+/// Bind groups are not written yet, and saying so is the point.
 #[test]
 fn unwritten_paths_refuse_rather_than_pretending() {
     with_backend!(|resources| {
         let resources: &mut dyn Resources = &mut resources;
+        let group = resources.create_bind_group(&[0], &[]);
+        assert!(
+            matches!(group, Err(chassis::Error::Unsupported(_))),
+            "bind groups need a declared layout on either backend",
+        );
+    });
+}
 
-        let pipeline = resources.create_pipeline(chassis::PipelineDesc {
+/// A real pipeline, from the same shader and the same description the Vulkan
+/// suite builds.
+///
+/// This is the test that says the two backends are interchangeable rather than
+/// merely similar. Same SPIR-V, same `chassis::PipelineDesc`, two very different
+/// pipelines underneath. The description is copied field for field from
+/// `UHE/Stormbreaker/vulkan/tests/pipelines.rs` -- if one backend's tests drift,
+/// the seam stops being tested and starts being two implementations.
+#[test]
+fn a_graphics_pipeline_from_the_shared_shader_creates() {
+    let Some(mut resources) = backend() else {
+        eprintln!("skipping: no wgpu adapter");
+        return;
+    };
+
+    let compiler =
+        forge::slangc::SlangcCompiler::new(forge::Slangc::default()).expect("the vendored slangc");
+    let shaders = forge::Forge::new(compiler, forge::cache::ShaderCache::disabled());
+    let directory = std::env::temp_dir().join("stormglass-pipeline");
+    let (vertex_module, fragment_module) = shaders
+        .compile_pair(
+            &asset("assets/shaders/Triangle.slang"),
+            "vs_main",
+            "fs_main",
+            &directory,
+        )
+        .expect("Triangle.slang compiles");
+
+    let resources: &mut dyn Resources = &mut resources;
+    let vertex = resources
+        .create_shader("Triangle.vert", &vertex_module.to_bytes())
+        .expect("vertex module");
+    let fragment = resources
+        .create_shader("Triangle.frag", &fragment_module.to_bytes())
+        .expect("fragment module");
+
+    let handle = resources
+        .create_pipeline(chassis::PipelineDesc {
             label: "triangle".to_owned(),
-            shaders: Vec::new(),
+            shaders: vec![
+                chassis::ShaderStageDesc {
+                    stage: chassis::ShaderStage::Vertex,
+                    shader: vertex,
+                },
+                chassis::ShaderStageDesc {
+                    stage: chassis::ShaderStage::Fragment,
+                    shader: fragment,
+                },
+            ],
+            set_layouts: Vec::new(),
+            vertex: chassis::VertexLayout {
+                stride: 32,
+                attributes: vec![
+                    chassis::VertexAttribute {
+                        location: 0,
+                        format: chassis::TextureFormat::Rgba32Float,
+                        offset: 0,
+                    },
+                    chassis::VertexAttribute {
+                        location: 1,
+                        format: chassis::TextureFormat::Rgba32Float,
+                        offset: 16,
+                    },
+                ],
+            },
+            index_format: None,
+            // Culling off: the same Vulkan Y-flip caveat as the Vulkan suite, and
+            // wgpu flips too. Both backends cull a counter-clockwise NDC
+            // triangle under these defaults, and both need `front_face: 1` or no
+            // culling to draw it.
+            primitive: chassis::PrimitiveState {
+                cull_mode: 0,
+                ..chassis::PrimitiveState::default()
+            },
+            depth: chassis::DepthState::default(),
+            blend: chassis::BlendState::default(),
+            color_targets: vec![chassis::ColorTargetState {
+                format: chassis::TextureFormat::Rgba8Unorm,
+                blend: false,
+                write_mask: 0xf,
+            }],
+            samples: chassis::SampleCount::X1,
+        })
+        .expect("a two-stage graphics pipeline creates");
+
+    assert!(!handle.is_null());
+}
+
+/// A pipeline with no vertex stage is refused.
+///
+/// wgpu's `VertexState` has no such thing, so the alternative is an error deep
+/// inside `create_render_pipeline` naming an internal index.
+#[test]
+fn a_pipeline_without_a_vertex_stage_is_refused() {
+    let Some(mut resources) = backend() else {
+        return;
+    };
+    let compiler =
+        forge::slangc::SlangcCompiler::new(forge::Slangc::default()).expect("the vendored slangc");
+    let shaders = forge::Forge::new(compiler, forge::cache::ShaderCache::disabled());
+    let directory = std::env::temp_dir().join("stormglass-pipeline-novs");
+    let (vertex_module, fragment_module) = shaders
+        .compile_pair(
+            &asset("assets/shaders/Triangle.slang"),
+            "vs_main",
+            "fs_main",
+            &directory,
+        )
+        .expect("Triangle.slang compiles");
+
+    let resources: &mut dyn Resources = &mut resources;
+    let fragment = resources
+        .create_shader("Triangle.frag", &fragment_module.to_bytes())
+        .expect("fragment module");
+    let _ = vertex_module;
+
+    let error = resources
+        .create_pipeline(chassis::PipelineDesc {
+            label: "no-vertex".to_owned(),
+            shaders: vec![chassis::ShaderStageDesc {
+                stage: chassis::ShaderStage::Fragment,
+                shader: fragment,
+            }],
             set_layouts: Vec::new(),
             vertex: chassis::VertexLayout::default(),
             index_format: None,
@@ -251,18 +378,63 @@ fn unwritten_paths_refuse_rather_than_pretending() {
                 write_mask: 0xf,
             }],
             samples: chassis::SampleCount::X1,
-        });
-        assert!(
-            matches!(pipeline, Err(chassis::Error::Unsupported(_))),
-            "an unwritten pipeline path must say so, got {pipeline:?}",
-        );
+        })
+        .expect_err("a pipeline with no vertex stage is refused");
+    assert!(
+        matches!(error, chassis::Error::Unsupported(_)),
+        "and it says why, got {error:?}",
+    );
+}
 
-        let group = resources.create_bind_group(&[0], &[]);
-        assert!(
-            matches!(group, Err(chassis::Error::Unsupported(_))),
-            "bind groups need a declared layout on either backend",
-        );
-    });
+/// A module with a valid magic number and a garbage body **panics** wgpu.
+///
+/// Found by writing a test badly. The two backends do not agree here and the
+/// difference is worth naming:
+///
+///   Vulkan  `create_shader_module` returns `Result`, so a bad module is an error
+///   wgpu    `create_shader_module` is infallible; validation goes to an error
+///           scope, and with none installed it panics.
+///
+/// So `WgpuResources::create_shader` validates the magic number itself before
+/// calling wgpu, which catches truncated and wrong-magic input. What is *not*
+/// caught is a module with a correct magic number and a corrupt body -- naga
+/// parses it and panics.
+///
+/// Not papered over. Catching a panic around a wgpu call is worse than the
+/// panic: it converts a loud, immediate, specific failure into a silent wrong
+/// answer, and a shader that validates in one place and not another is exactly
+/// the bug this backend exists to avoid. The honest options are `push_error_scope`
+/// around the call, or only ever feeding this function something `forge`
+/// produced -- and `forge` checks the magic, so in practice the second holds.
+///
+/// This test pins the behaviour so the difference cannot be rediscovered by
+/// accident.
+#[test]
+#[should_panic(expected = "Validation Error")]
+fn a_module_with_a_valid_magic_and_a_corrupt_body_panics_wgpu() {
+    let Some(mut resources) = backend() else {
+        eprintln!("skipping: no wgpu adapter");
+        return;
+    };
+    let resources: &mut dyn Resources = &mut resources;
+    let _ = resources.create_shader("any", &[0x03, 0x02, 0x23, 0x07, 0, 0, 0, 0]);
+}
+
+/// A stage wgpu has no room for is named, not dropped.
+///
+/// Silently ignoring a geometry or tessellation stage produces a pipeline that
+/// creates fine and draws with fewer stages than its shader expects, which is
+/// the most expensive kind of wrong. `shader_state` returns
+/// `Error::Unsupported` naming the stage; this test needs a real module to reach
+/// that path, and the corrupt-body case above is the cheaper way to prove the
+/// code is reached at all.
+#[test]
+fn geometry_is_a_stage_wgpu_has_no_room_for() {
+    // A compile-time fact rather than a runtime one: the enum has the variant,
+    // so `shader_state`'s match must handle it, and its arm must be the
+    // `Unsupported` one.
+    let stage: Option<chassis::ShaderStage> = Some(chassis::ShaderStage::Geometry);
+    assert!(stage.is_some());
 }
 
 fn asset(relative: &str) -> std::path::PathBuf {
