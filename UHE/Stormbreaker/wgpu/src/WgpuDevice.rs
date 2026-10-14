@@ -181,6 +181,12 @@ impl Device {
     }
 }
 
+/// `Clone`, and cheap: a `wgpu::Queue` is a handle to a shared object.
+///
+/// The executor needs its own, because it outlives the call that built it and
+/// `wgpu::Queue` is not `Clone`. Rather than reach into private fields to make a
+/// copy, the type says what it is.
+#[derive(Clone)]
 pub struct Queue {
     inner: wgpu::Queue,
     family: u32,

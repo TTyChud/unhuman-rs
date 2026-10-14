@@ -18,3 +18,6 @@ pub mod wgpu_command_buffer;
 
 #[path = "WgpuExecutor.rs"]
 pub mod wgpu_executor;
+
+#[path = "WgpuGpu.rs"]
+pub mod wgpu_gpu;

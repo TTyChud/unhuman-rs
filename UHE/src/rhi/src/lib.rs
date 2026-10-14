@@ -13,11 +13,16 @@
 /// which is what lets both `UHE/Stormbreaker/*` backends use the same one.
 pub mod graph;
 
+pub mod backend;
 mod desc;
 mod format;
 mod handle;
 mod rhi;
 
+pub use backend::{
+    flag_value, BackendChoice, BackendSelection, BackendSource, UnknownBackend,
+    ENVIRONMENT_VARIABLE as BACKEND_ENVIRONMENT_VARIABLE, FLAG as BACKEND_FLAG,
+};
 pub use desc::{
     BindingDesc, BlendState, BufferDesc, ColorAttachmentDesc, ColorTargetState,
     DepthAttachmentDesc, DepthState, DescriptorKind, DescriptorSetLayoutDesc, Extent, IndexFormat,

@@ -153,10 +153,21 @@ pub trait RenderGraph {
     /// Topological sort, dead-pass cull, lifetimes, barrier synthesis.
     fn compile(&mut self) -> Result<Vec<PassId>>;
 
-    /// Records every pass into its own command list, then hands back the
-    /// submission order. Recording runs across `jobs`; submission stays on the
-    /// calling thread because Vulkan requires it.
-    fn execute(&mut self, jobs: &grind::Jobs, lists: &mut [Box<dyn CommandList>]) -> Result<()>;
+    /// Records every pass into its own command list and submits, in compiled
+    /// order.
+    ///
+    /// **The command lists are no longer passed in.** They used to be, and that
+    /// was a wart: it said the *caller* owned command-buffer lifetime, while both
+    /// executors own it. Vulkan's needs one pool per list -- the pool is the
+    /// external-synchronisation object for recording -- and wgpu's encoder holds a
+    /// borrow the caller cannot express. Making the caller manage either is a
+    /// requirement neither API actually has.
+    ///
+    /// `jobs` is the parallelism a backend *may* use for recording. It is a
+    /// parameter rather than a promise because one backend recording on N threads
+    /// and another on one is a legitimate difference, and the trait should not
+    /// imply otherwise.
+    fn execute(&mut self, jobs: &grind::Jobs) -> Result<()>;
 }
 
 /// The device.

@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 chassis = { workspace = true }
 forge = { workspace = true }
+grind = { workspace = true }
 pollster = "0.4"
 # The `spirv` feature is what lets `ShaderSource::SpirV` exist at all, and
 # without it this backend cannot take a module from `forge` -- which is the whole
@@ -24,4 +25,5 @@ wgpu = { version = "30", features = ["spirv"] }
 bytemuck = "1"
 chassis = { workspace = true }
 forge = { workspace = true }
+grind = { workspace = true }
 stormbreaker = { workspace = true }

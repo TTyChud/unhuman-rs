@@ -220,6 +220,32 @@ Hit three times: `stage_count` (segfaulted RADV), `dynamic_state_count`,
 `attachment_count`. Every `*_count` beside a pointer in this backend is now
 written as a struct field.
 
+## Backend selection
+
+**wgpu is the default. Vulkan is opt-in.** Not a performance decision and not a
+preference -- a *stability* one. When a frame goes wrong the first question is
+always "the backend or the engine", and the default should be the one that
+usually works. Vulkan is fully implemented and fully tested; it is the path to
+bare metal and the only one that reaches a 1.0 device, and it is opt-*in* so that
+finding out whether it is the unstable one does not need a rebuild.
+
+Three ways to say it, first wins:
+
+1. `--backend vulkan` (also `--backend=vulkan`)
+2. `UHE_BACKEND=vulkan`
+3. a `backend` key in the settings file
+
+`chassis::backend::BackendSelection::resolve` is a pure function of
+`(arguments, environment)`, so every combination is tested -- including "the
+flag wins", which is the one that silently stops being true when a fourth source
+is added. An unrecognised value is an **error**, not a fallback: `--backend vlkan`
+that quietly got wgpu would be reported as "the wrong backend", and nothing
+would point here.
+
+`chassis::Gpu` now has an implementation (`WgpuGpu`). `VulkanGpu` does not exist
+yet, so the choice is currently the only one -- the mechanism and the default are
+tested, the second backend is the remaining work.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.
