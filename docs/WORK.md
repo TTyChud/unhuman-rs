@@ -532,6 +532,27 @@ Every C++ file has a counterpart. Five of the six are in the RHI rather than the
 backend, and that is the one place this port deliberately gave up 1:1 file
 parity -- for a reason that a third backend would benefit from.
 
+## Roadmap
+
+The full plan is in `session.md` (untracked — it is machine-local). Ten phases,
+in dependency order:
+
+0. Close the backend gap: window system, wgpu swapchain, descriptors, samplers,
+   wgpu errors, wgpu parallel recording, compute on both.
+1. `bifrost` — the render graph frontend over `chassis::graph`.
+2. Resources — cache, deferred destruction by frame number, upload heap.
+3. Geometry — meshes, vertex layouts, sub-allocation, LOD.
+4. Materials and shaders — parameters as data, bind group caching, variants.
+5. Camera, culling, draw submission.
+6. Lighting — clustered, shadows, PBR, IBL, AO.
+7. Post — HDR, bloom, tonemap, TAA, DoF, SSR.
+8. Animation, particles, terrain.
+9. `meats`, `vault`, `mirror`, `femur`, `wire`, `pings`, the binaries.
+10. Shipping — one backend per build, GPU timestamps, frame capture, device loss.
+
+Each phase ends with a test that would fail if it regressed, not with "it
+compiles". The table of those tests is in `session.md`.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.
