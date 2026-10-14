@@ -194,7 +194,7 @@ fn the_backend_file_map_is_accounted_for() {
         return;
     };
 
-    let rust_src = root.join("UHE/platform/vulkan/src");
+    let rust_src = root.join("UHE/Stormbreaker/vulkan/src");
     let rust: Vec<String> = walk(&rust_src)
         .into_iter()
         .map(|p| {

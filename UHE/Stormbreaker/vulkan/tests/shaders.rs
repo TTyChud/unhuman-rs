@@ -14,7 +14,7 @@ use stormbreaker::{create_device, device_available, BackendError, DeviceOptions}
 /// A path inside the workspace, found by walking up from this crate.
 ///
 /// Never a fixed `../../assets`. The crate moved when the workspace gained its
-/// `UHE/src` and `UHE/platform` shape, and a depth-sensitive path that resolves
+/// the `UHE/src` and `UHE/Stormbreaker` shape, and a depth-sensitive path that resolves
 /// to nothing makes every shader test skip *while reporting success* -- the most
 /// expensive bug in this project's history, because it hid a `stage_count` bug
 /// that segfaulted the driver the first time a pipeline was ever created.

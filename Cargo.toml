@@ -8,16 +8,16 @@ default-members = [
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
-    "UHE/platform/vulkan",
-    "UHE/platform/wgpu",
+    "UHE/Stormbreaker/vulkan",
+    "UHE/Stormbreaker/wgpu",
 ]
 members = [
     "UHE/src/core",
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
-    "UHE/platform/vulkan",
-    "UHE/platform/wgpu",
+    "UHE/Stormbreaker/vulkan",
+    "UHE/Stormbreaker/wgpu",
 ]
 
 [workspace.package]
@@ -31,5 +31,5 @@ adam = { path = "UHE/src/core" }
 chassis = { path = "UHE/src/rhi" }
 forge = { path = "UHE/src/shaders" }
 grind = { path = "UHE/src/jobs" }
-stormbreaker = { path = "UHE/platform/vulkan" }
-stormglass = { path = "UHE/platform/wgpu" }
+stormbreaker = { path = "UHE/Stormbreaker/vulkan" }
+stormglass = { path = "UHE/Stormbreaker/wgpu" }

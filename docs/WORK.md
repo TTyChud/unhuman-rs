@@ -69,9 +69,10 @@ Never push. Commit only; the owner pushes.
 
 ```
 UHE/                        at the repository root, like the C++ tree
-  platform/
-    vulkan/                 stormbreaker: the Vulkan backend
-    wgpu/                   stormglass: the wgpu backend
+  Stormbreaker/             every GPU backend, behind chassis::Gpu
+    vulkan/                 stormbreaker
+    wgpu/                   stormglass
+  platform/                 platform code only -- windowing, input, OS specifics
   src/
     core/                   adam: engine, app, the Plugin base
     rhi/                    chassis: the backend-neutral RHI, the seam
@@ -83,11 +84,22 @@ UHE/                        at the repository root, like the C++ tree
 Not under `crates/`. That was `crates/UHE/src`, which said `UHE` twice and
 meant nothing -- the directory name and the crate names already carry it.
 
-`platform/vulkan` is `UHE/src/Platform/Vulkan/` and `src/core` is `UHE/src/UHE/`.
-The renderer is deliberately **not** in `platform`: a backend that knows how to
-draw is a backend that cannot be swapped for one that knows how to draw
-differently. It belongs beside the engine as a plugin, which is where the C++
-puts the frontend too.
+### Why the backends are in `Stormbreaker/` and not `platform/`
+
+Vulkan and wgpu are graphics APIs, not platforms. The same Vulkan backend runs on
+Linux and Windows, and wgpu runs on Vulkan, Metal and DX12 from one
+implementation. Putting them under `platform/` would say "this is the Windows
+graphics" and "this is the Linux graphics", which is precisely the false choice
+the two-backend design exists to avoid.
+
+`UHE/platform/` keeps one rule: **if moving to another operating system would
+mean rewriting it, it is not platform code.** That leaves windowing, input and
+anything naming `std::os::windows` -- which is `eyes`, and nothing yet.
+
+The renderer is deliberately not in `Stormbreaker/` either. A backend that knows
+how to draw is a backend that cannot be swapped for one that draws differently.
+It belongs beside the engine as a plugin, which is where the C++ puts the
+frontend too.
 
 ## Backend completion
 
