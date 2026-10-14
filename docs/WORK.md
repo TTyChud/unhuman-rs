@@ -80,7 +80,10 @@ UHE/                        at the repository root, like the C++ tree
     shaders/                forge: Slang in, SPIR-V out
     renderer/               the renderer frontend, as a Plugin. Coming.
   and chassis (UHE/src/rhi) now owns the *render graph*:
-    chassis::graph          types, resources, builder, compiler, facade
+    chassis::graph          types, resources, builder, compiler, facade,
+                           and `pass.rs` -- SlotTable, PassScope, PassRecorder,
+                           the renderer-to-backend seam. A renderer implements
+                           PassRecorder once and both backends call it.
                            -- moved out of the Vulkan backend, because a wgpu
                               backend that needed the graph would otherwise have
                               to depend on the Vulkan crate. Two backends

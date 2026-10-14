@@ -54,6 +54,12 @@ pub enum BackendError {
     UploadTooLarge { size: u64, capacity: u64 },
     /// A chassis handle did not resolve: stale generation, or never created.
     InvalidHandle,
+    /// A pass recorder returned an error.
+    ///
+    /// The RHI's error type crossing into the backend's, bridged in one place so
+    /// the renderer above sees `chassis::Error` and the backend below sees
+    /// `BackendError`, with one conversion rather than one at every call site.
+    PassRecording(String),
     /// Descriptor pool creation failed or none exists.
     NoDescriptorPool,
     /// More descriptor bindings than the layout allows.
@@ -105,6 +111,9 @@ impl fmt::Display for BackendError {
             BackendError::NotTimeline => write!(f, "operation needs a timeline semaphore"),
             BackendError::SurfaceOutOfDate => write!(f, "surface is out of date"),
             BackendError::InvalidHandle => write!(f, "handle did not resolve"),
+            BackendError::PassRecording(message) => {
+                write!(f, "a pass failed to record: {message}")
+            }
             BackendError::NoDescriptorPool => write!(f, "no descriptor pool"),
             BackendError::TooManyBindings { count } => {
                 write!(

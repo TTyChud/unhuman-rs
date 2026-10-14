@@ -330,7 +330,7 @@ fn a_triangle_drawn_through_the_executor_reaches_the_image() {
 
     let pipeline = fixture.pipeline;
     let vertex_buffer = fixture.vertex_buffer;
-    let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+    let record = move |scope: &chassis::graph::PassScope<'_>,
                        list: &mut dyn chassis::CommandList| {
         list.bind_pipeline(&pipeline);
         list.bind_vertex_buffer(0, &vertex_buffer, 0);
@@ -370,8 +370,7 @@ fn an_empty_frame_submits_nothing() {
     );
     let empty = graph::CompiledGraph::default();
     let resources = fixture.resources();
-    let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                  _: &mut dyn chassis::CommandList| Ok(());
+    let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
 
     executor
         .execute(&empty, resources, &record)
@@ -416,8 +415,7 @@ fn asking_for_more_lists_than_the_recorder_has_is_an_error() {
     );
 
     let resources = fixture.resources();
-    let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                  _: &mut dyn chassis::CommandList| Ok(());
+    let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
 
     assert!(
         executor.execute(&compiled, resources, &record).is_err(),
@@ -456,8 +454,7 @@ fn two_frames_in_a_row_both_submit() {
 
     for _ in 0..2 {
         let resources = fixture.resources();
-        let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                      _: &mut dyn chassis::CommandList| Ok(());
+        let record = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
         executor
             .execute(&compiled, resources, &record)
             .expect("each frame submits");
@@ -496,15 +493,13 @@ fn a_failing_pass_returns_its_error_and_leaves_the_recorder_usable() {
     executor.slots_mut().set_texture(0, fixture.target);
 
     let resources = || fixture.resources();
-    let failing = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                   _: &mut dyn chassis::CommandList| {
-        Err(stormbreaker::BackendError::InvalidHandle)
+    let failing = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| {
+        Err(chassis::Error::InvalidHandle)
     };
     assert!(executor.execute(&compiled, resources(), &failing).is_err());
 
     // The recorder must still have its list: a failed frame must not leak it.
-    let succeeding = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                      _: &mut dyn chassis::CommandList| Ok(());
+    let succeeding = |_: &chassis::graph::PassScope<'_>, _: &mut dyn chassis::CommandList| Ok(());
     executor
         .execute(&compiled, resources(), &succeeding)
         .expect("the recorder still works after a failed frame");
@@ -537,7 +532,7 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
     );
 
     // Slot 0 deliberately left null.
-    let slots = stormbreaker::vulkan_render_graph_executor::SlotTable::default();
+    let slots = chassis::graph::SlotTable::default();
     let encoder = stormbreaker::vulkan_barrier_encoder::BarrierEncoder::new(
         stormbreaker::SyncTier::Legacy,
         &fixture.context.device,
@@ -551,8 +546,7 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
         },
     );
     let pipeline = fixture.pipeline;
-    let record = move |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                       list: &mut dyn chassis::CommandList| {
+    let record = move |_: &chassis::graph::PassScope<'_>, list: &mut dyn chassis::CommandList| {
         list.bind_pipeline(&pipeline);
         Ok(())
     };
@@ -634,7 +628,7 @@ fn the_triangle_is_actually_in_the_image() {
 
     let pipeline = fixture.pipeline;
     let vertex_buffer = fixture.vertex_buffer;
-    let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
+    let record = move |scope: &chassis::graph::PassScope<'_>,
                        list: &mut dyn chassis::CommandList| {
         if scope.name == "draw" {
             list.bind_pipeline(&pipeline);
@@ -646,7 +640,9 @@ fn the_triangle_is_actually_in_the_image() {
         // The readback pass. The image is in TRANSFER_SRC by the time this
         // records -- the graph's post barrier on the draw pass put it there --
         // and the buffer is in TRANSFER_DST.
-        let buffer = scope.buffer(0)?;
+        let Some(buffer) = scope.buffer(0) else {
+            return Err(chassis::Error::InvalidHandle);
+        };
         list.copy_texture_to_buffer(&fixture_target, &buffer);
         Ok(())
     };

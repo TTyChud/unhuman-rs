@@ -42,6 +42,7 @@ use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_frame_context::Recorder;
 use crate::vulkan_pipeline_state::Pipelines;
 use crate::vulkan_texture::Textures;
+use chassis::graph::pass::{PassRecorder, PassScope, SlotTable};
 use chassis::graph::CompiledGraph;
 use chassis::graph::RenderGraph as Graph;
 
@@ -54,92 +55,6 @@ pub struct ExecutorResources<'a> {
     pub textures: &'a Textures,
     pub buffers: &'a crate::vulkan_buffer::Buffers,
     pub descriptors: &'a Descriptors,
-}
-
-/// Graph slot index to the handle the RHI uses.
-///
-/// The graph names resources by slot (`TextureId` is a `u32`); the RHI names
-/// them by generational handle. This is the translation, and it has to live
-/// somewhere the executor can reach -- a graph pass cannot hold a handle,
-/// because the graph is recompiled every frame and the handle belongs to a
-/// resource that outlives it.
-#[derive(Clone, Debug, Default)]
-pub struct SlotTable {
-    pub textures: Vec<chassis::Texture>,
-    pub buffers: Vec<chassis::Buffer>,
-}
-
-impl SlotTable {
-    pub fn texture(&self, slot: u32) -> Result<chassis::Texture> {
-        self.textures
-            .get(slot as usize)
-            .copied()
-            .ok_or(BackendError::InvalidHandle)
-    }
-
-    pub fn buffer(&self, slot: u32) -> Result<chassis::Buffer> {
-        self.buffers
-            .get(slot as usize)
-            .copied()
-            .ok_or(BackendError::InvalidHandle)
-    }
-
-    pub fn set_texture(&mut self, slot: u32, handle: chassis::Texture) {
-        if self.textures.len() <= slot as usize {
-            self.textures
-                .resize(slot as usize + 1, chassis::Texture::null());
-        }
-        self.textures[slot as usize] = handle;
-    }
-
-    pub fn set_buffer(&mut self, slot: u32, handle: chassis::Buffer) {
-        if self.buffers.len() <= slot as usize {
-            self.buffers
-                .resize(slot as usize + 1, chassis::Buffer::null());
-        }
-        self.buffers[slot as usize] = handle;
-    }
-}
-
-/// What one pass is told before it records.
-///
-/// Deliberately narrow. A pass that could reach the whole graph would be able to
-/// record work that belongs to another pass, and then the graph's ordering
-/// guarantee would only cover the barriers, not the draws.
-pub struct PassScope<'a> {
-    pub index: u32,
-    pub name: &'a str,
-    pub extent: chassis::Extent2d,
-    pub slots: &'a SlotTable,
-}
-
-impl<'a> PassScope<'a> {
-    pub fn texture(&self, slot: u32) -> Result<chassis::Texture> {
-        self.slots.texture(slot)
-    }
-
-    pub fn buffer(&self, slot: u32) -> Result<chassis::Buffer> {
-        self.slots.buffer(slot)
-    }
-}
-
-/// Records one pass into one command list.
-///
-/// `Send + Sync` because this is called from worker threads. A frontend that
-/// cannot share its recording code across threads cannot use the parallel path,
-/// which is a real constraint and one worth stating rather than hiding behind a
-/// mutex that would put us back where the C++ started.
-pub trait PassRecorder: Send + Sync {
-    fn record(&self, scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<()>;
-}
-
-impl<F> PassRecorder for F
-where
-    F: Fn(&PassScope<'_>, &mut dyn CommandList) -> Result<()> + Send + Sync,
-{
-    fn record(&self, scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<()> {
-        self(scope, list)
-    }
 }
 
 /// What the executor did, for a frame dump and for tests.
@@ -232,6 +147,9 @@ impl VulkanRenderGraphExecutor {
 
         let mut barrier_count = 0u32;
         let mut failure: Option<BackendError> = None;
+        // A pass recorder returns `chassis::Error`; the rest of this function
+        // speaks the backend's. Bridged once, here, rather than by making every
+        // call site convert.
 
         // One encoder for the frame. It is immutable once built -- it holds a
         // device reference and a tier, nothing mutable -- so every pass can
@@ -276,7 +194,7 @@ impl VulkanRenderGraphExecutor {
             // need the previous list's ending state, and the lists record in
             // parallel.
             for barrier in &pass.pre_barriers {
-                if let Ok(handle) = self.resources.texture(barrier.texture) {
+                if let Some(handle) = self.resources.texture(barrier.texture) {
                     list.declare_layout(handle, barrier.dst_state);
                 }
             }
@@ -305,7 +223,7 @@ impl VulkanRenderGraphExecutor {
             };
 
             if let Err(error) = record.record(&scope, &mut list) {
-                failure = Some(error);
+                failure = Some(BackendError::PassRecording(error.to_string()));
                 break;
             }
 
@@ -394,7 +312,9 @@ fn open_render_scope(
     // two disagree.
     let mut desc = chassis::RenderPassDesc::default();
     for color in &pass.colors {
-        let handle = slots.texture(color.texture)?;
+        let Some(handle) = slots.texture(color.texture) else {
+            return Err(BackendError::InvalidHandle);
+        };
         if textures.get(handle).is_none() {
             return Err(BackendError::InvalidHandle);
         }
@@ -414,7 +334,9 @@ fn open_render_scope(
         });
     }
     if let Some(depth) = &pass.depth {
-        let handle = slots.texture(depth.texture)?;
+        let Some(handle) = slots.texture(depth.texture) else {
+            return Err(BackendError::InvalidHandle);
+        };
         let resource = textures.get(handle).ok_or(BackendError::InvalidHandle)?;
         desc.depth = Some(chassis::DepthAttachmentDesc {
             texture: handle,
@@ -457,7 +379,9 @@ fn record_post_barriers(
         if barrier.is_empty() {
             continue;
         }
-        let handle = slots.texture(barrier.texture)?;
+        let Some(handle) = slots.texture(barrier.texture) else {
+            return Err(BackendError::InvalidHandle);
+        };
         let resource = textures.get(handle).ok_or(BackendError::InvalidHandle)?;
         encoder.encode(
             buffer,
@@ -489,7 +413,9 @@ fn record_barriers(
         if barrier.is_empty() {
             continue; // the encoder would drop it; do not count it either
         }
-        let handle = slots.texture(barrier.texture)?;
+        let Some(handle) = slots.texture(barrier.texture) else {
+            return Err(BackendError::InvalidHandle);
+        };
         let resource = textures.get(handle).ok_or(BackendError::InvalidHandle)?;
         encoder.encode(
             buffer,
@@ -504,7 +430,9 @@ fn record_barriers(
     // because a buffer has no subresource range and no format -- the encoder's
     // `Target` is an image concept and would be a lie here.
     for barrier in &pass.pre_buffer_barriers {
-        let handle = slots.buffer(barrier.buffer)?;
+        let Some(handle) = slots.buffer(barrier.buffer) else {
+            return Err(BackendError::InvalidHandle);
+        };
         let resource = buffers.get(handle).ok_or(BackendError::InvalidHandle)?;
         let (offset, size) = match (barrier.offset, barrier.size) {
             // The graph says "the rest of it" because it knows a buffer exists,

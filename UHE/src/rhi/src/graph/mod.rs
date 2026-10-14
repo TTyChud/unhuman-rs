@@ -59,6 +59,7 @@ use std::sync::Mutex;
 
 pub mod builder;
 pub mod compiler;
+pub mod pass;
 pub mod resources;
 pub mod types;
 
@@ -69,6 +70,7 @@ use types::ValidationError;
 
 pub use builder::{PassBuilder, RenderGraph};
 pub use compiler::{compile, validate, CompiledGraph, CompiledPass};
+pub use pass::{NoRecording, PassRecorder, PassScope, SlotTable};
 pub use resources::{BufferSlot, TextureSlot, VersionEntry};
 pub use types::{
     access_for_state, stage_for_state, transition, Access, BufferBarrier, BufferId,
