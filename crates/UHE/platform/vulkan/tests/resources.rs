@@ -7,7 +7,9 @@
 //! because every pass shares one primary command buffer.
 
 use ash::vk;
-use chassis::{BufferDesc, BufferUsage, Extent, SampleCount, TextureDesc, TextureFormat, TextureUsage};
+use chassis::{
+    BufferDesc, BufferUsage, Extent, SampleCount, TextureDesc, TextureFormat, TextureUsage,
+};
 use stormbreaker::{content_hash, Buffers, Context, Recorder, Shaders, Textures, UploadRing};
 
 fn open() -> Option<Context> {
@@ -15,7 +17,8 @@ fn open() -> Option<Context> {
         eprintln!("skipping: no Vulkan loader");
         return None;
     }
-    match stormbreaker::create_device(stormbreaker::DeviceOptions::from_env(c"stormbreaker-tests")) {
+    match stormbreaker::create_device(stormbreaker::DeviceOptions::from_env(c"stormbreaker-tests"))
+    {
         Ok(context) => Some(context),
         Err(other) => panic!("device creation failed: {other}"),
     }
@@ -54,7 +57,11 @@ fn a_freed_buffer_handle_stops_resolving() {
     let mut buffers = Buffers::new(&context.device, context.memory_properties());
 
     let handle = buffers
-        .create(&context.device, &BufferDesc::new(64, BufferUsage::TRANSFER_DST), None)
+        .create(
+            &context.device,
+            &BufferDesc::new(64, BufferUsage::TRANSFER_DST),
+            None,
+        )
         .expect("buffer");
     assert!(buffers.get(handle).is_some());
 
@@ -63,7 +70,10 @@ fn a_freed_buffer_handle_stops_resolving() {
         buffers.get(handle).is_none(),
         "a destroyed buffer handle still resolved"
     );
-    assert!(!buffers.destroy(&context.device, handle), "double destroy succeeded");
+    assert!(
+        !buffers.destroy(&context.device, handle),
+        "double destroy succeeded"
+    );
 }
 
 #[test]
@@ -91,7 +101,9 @@ fn a_device_local_texture_comes_with_a_view() {
     )
     .with_mips(3);
 
-    let handle = textures.create(&context.device, &desc, "test").expect("texture");
+    let handle = textures
+        .create(&context.device, &desc, "test")
+        .expect("texture");
     let resource = textures.get(handle).expect("handle resolves");
 
     assert_ne!(resource.image(), vk::Image::null());
@@ -128,7 +140,10 @@ fn shader_lookups_deduplicate_by_content() {
     let bytes = not_spirv(64);
     let stage = vk::ShaderStageFlags::VERTEX;
 
-    assert!(shaders.lookup(&bytes, stage).is_none(), "cache returned a miss as a hit");
+    assert!(
+        shaders.lookup(&bytes, stage).is_none(),
+        "cache returned a miss as a hit"
+    );
 
     let other = not_spirv(64);
     assert_eq!(content_hash(&bytes), content_hash(&other));
@@ -148,13 +163,17 @@ fn malformed_spirv_is_rejected_before_the_driver_sees_it() {
     let stage = vk::ShaderStageFlags::VERTEX;
 
     // No magic word.
-    assert!(shaders.create(&context.device, &not_spirv(64), stage).is_err());
+    assert!(shaders
+        .create(&context.device, &not_spirv(64), stage)
+        .is_err());
     // Right magic, not a multiple of four.
     let mut odd = vec![0x03u8, 0x02, 0x23, 0x07, 0x00];
     odd.push(0x00);
     assert!(shaders.create(&context.device, &odd, stage).is_err());
     // Shorter than the magic word itself.
-    assert!(shaders.create(&context.device, &[0x03, 0x02], stage).is_err());
+    assert!(shaders
+        .create(&context.device, &[0x03, 0x02], stage)
+        .is_err());
 }
 
 #[test]
@@ -182,19 +201,19 @@ fn the_upload_ring_copies_data() {
     .expect("upload ring");
 
     let payload: Vec<u8> = (0..512).map(|i| i as u8).collect();
-    ring.copy_to_buffer(
-        buffers.get(destination).unwrap().handle(),
-        0,
-        &payload,
-    )
-    .unwrap();
+    ring.copy_to_buffer(buffers.get(destination).unwrap().handle(), 0, &payload)
+        .unwrap();
     assert!(ring.has_pending());
     assert_eq!(ring.outstanding(), 512);
 
     ring.wait().unwrap();
     assert!(!ring.has_pending());
 
-    let read = buffers.get(destination).unwrap().read(&context.device).unwrap();
+    let read = buffers
+        .get(destination)
+        .unwrap()
+        .read(&context.device)
+        .unwrap();
     assert_eq!(&read[..payload.len()], &payload[..]);
 }
 
@@ -206,7 +225,11 @@ fn the_upload_ring_refuses_an_oversized_upload() {
 
     let mut buffers = Buffers::new(&context.device, memory_properties);
     let destination = buffers
-        .create(&context.device, &BufferDesc::new(64, BufferUsage::TRANSFER_DST), None)
+        .create(
+            &context.device,
+            &BufferDesc::new(64, BufferUsage::TRANSFER_DST),
+            None,
+        )
         .unwrap();
 
     let mut ring = UploadRing::new(
@@ -265,7 +288,11 @@ fn parallel_recordings_submit_in_order() {
         .unwrap();
 
     let payload: Vec<u8> = (0..256).map(|i| i as u8).collect();
-    buffers.get(source).unwrap().write(&context.device, &payload).unwrap();
+    buffers
+        .get(source)
+        .unwrap()
+        .write(&context.device, &payload)
+        .unwrap();
 
     let mut recorder = Recorder::new(
         &context.device,
@@ -295,7 +322,11 @@ fn parallel_recordings_submit_in_order() {
         lists.iter().map(|l| l.slot()).collect::<Vec<_>>()
     );
 
-    let region = vk::BufferCopy { src_offset: 0, dst_offset: 0, size: 256 };
+    let region = vk::BufferCopy {
+        src_offset: 0,
+        dst_offset: 0,
+        size: 256,
+    };
     let (mut first, mut second) = (lists.remove(0), lists.remove(0));
 
     // Each list is *moved* into its own thread. There is no shared command
@@ -318,7 +349,11 @@ fn parallel_recordings_submit_in_order() {
 
     recorder.submit(finished, 0).expect("submit");
 
-    let read = buffers.get(readback).unwrap().read(&context.device).unwrap();
+    let read = buffers
+        .get(readback)
+        .unwrap()
+        .read(&context.device)
+        .unwrap();
     assert_eq!(
         &read[..],
         &payload[..],
@@ -349,7 +384,11 @@ fn the_recorder_refuses_more_lists_than_its_arena_holds() {
     let lists = recorder.take(2).unwrap();
     let finished: Vec<_> = lists.into_iter().map(|l| l.end().unwrap()).collect();
     recorder.submit(finished, 0).unwrap();
-    assert_eq!(recorder.capacity(), 2, "lists were not returned to the arena");
+    assert_eq!(
+        recorder.capacity(),
+        2,
+        "lists were not returned to the arena"
+    );
 }
 
 #[test]
@@ -379,9 +418,14 @@ fn the_submit_chain_rides_a_timeline_when_the_tier_has_one() {
 fn a_zero_sized_recorder_is_refused() {
     let Some(context) = open() else { return };
     let family = context.graphics_queue_family().unwrap();
-    assert!(
-        Recorder::new(&context.device, context.graphics_queue, family, context.tier(), 0).is_err()
-    );
+    assert!(Recorder::new(
+        &context.device,
+        context.graphics_queue,
+        family,
+        context.tier(),
+        0
+    )
+    .is_err());
 }
 
 #[test]
@@ -438,5 +482,8 @@ fn buffer_usage_maps_to_every_declared_bit() {
     ] {
         assert!(mapped.contains(expected), "missing {expected:?}");
     }
-    assert_eq!(to_vk_usage(chassis::BufferUsage::NONE), vk::BufferUsageFlags::empty());
+    assert_eq!(
+        to_vk_usage(chassis::BufferUsage::NONE),
+        vk::BufferUsageFlags::empty()
+    );
 }

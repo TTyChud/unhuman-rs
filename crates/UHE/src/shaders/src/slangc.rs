@@ -12,9 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::request::{
-    CompileRequest, CompiledModule, Diagnostic, Optimization, Severity,
-};
+use crate::request::{CompileRequest, CompiledModule, Diagnostic, Optimization, Severity};
 use crate::ForgeError;
 
 /// Where the vendored `slangc` lives, as a path relative to the *workspace* root.
@@ -151,10 +149,7 @@ impl SlangcCompiler {
         // failure is a wrong shader rather than an error.
         static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let temporary = output.with_extension(format!(
-            "tmp{}-{sequence}",
-            std::process::id()
-        ));
+        let temporary = output.with_extension(format!("tmp{}-{sequence}", std::process::id()));
 
         // Create the output directory rather than reporting a missing one. The
         // compiler's own error for this is `E00004 cannot write output file`,
@@ -209,9 +204,10 @@ pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
         if let Some((severity, rest)) = split_severity(trimmed) {
             let (code, head) = match rest.split_once(']') {
                 Some((code, message)) => match code.trim_start_matches('[') {
-                    code if code.starts_with('E') || code.starts_with('W') => {
-                        (Some(code.to_owned()), message.trim_start_matches(':').trim())
-                    }
+                    code if code.starts_with('E') || code.starts_with('W') => (
+                        Some(code.to_owned()),
+                        message.trim_start_matches(':').trim(),
+                    ),
                     _ => (None, rest),
                 },
                 None => (None, rest),

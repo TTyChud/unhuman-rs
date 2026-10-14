@@ -31,10 +31,17 @@ impl PoolSizes {
                 ty: crate::vulkan_descriptor_set::descriptor_type_of(binding.kind),
                 descriptor_count: binding.count,
             };
-            match self.sizes.get_mut(&crate::vulkan_descriptor_set::descriptor_type_of(binding.kind)) {
+            match self
+                .sizes
+                .get_mut(&crate::vulkan_descriptor_set::descriptor_type_of(
+                    binding.kind,
+                )) {
                 Some(existing) => existing.descriptor_count += binding.count,
                 None => {
-                    self.sizes.insert(crate::vulkan_descriptor_set::descriptor_type_of(binding.kind), size);
+                    self.sizes.insert(
+                        crate::vulkan_descriptor_set::descriptor_type_of(binding.kind),
+                        size,
+                    );
                 }
             }
         }
@@ -113,10 +120,9 @@ impl DescriptorPool {
         unsafe {
             // A reset that fails means the device is lost, and there is nothing
             // useful to do with a half-reset pool.
-            let _ = self.device.reset_descriptor_pool(
-                self.pool,
-                vk::DescriptorPoolResetFlags::empty(),
-            );
+            let _ = self
+                .device
+                .reset_descriptor_pool(self.pool, vk::DescriptorPoolResetFlags::empty());
         }
         self.allocated = 0;
     }

@@ -34,7 +34,10 @@ pub use stage::Stage;
 pub enum ForgeError {
     /// The compiler could not be started at all: not vendored, not on `PATH`,
     /// not executable.
-    Spawn { program: std::path::PathBuf, error: std::io::Error },
+    Spawn {
+        program: std::path::PathBuf,
+        error: std::io::Error,
+    },
     /// The compiler ran and rejected the shader.
     ///
     /// Carries the diagnostics rather than a string, because the whole value of
@@ -50,7 +53,9 @@ pub enum ForgeError {
     /// Reached only on a corrupt cache entry or a compiler bug, and it has to be
     /// its own error because the alternative is a `vkCreateShaderModule` error
     /// that blames the driver for a file that was never valid.
-    NotSpirv { path: std::path::PathBuf },
+    NotSpirv {
+        path: std::path::PathBuf,
+    },
     Io(std::io::Error),
 }
 
@@ -60,7 +65,10 @@ impl std::fmt::Display for ForgeError {
             ForgeError::Spawn { program, error } => {
                 write!(f, "cannot run the Slang compiler at {program:?}: {error}")
             }
-            ForgeError::Compile { request, diagnostics } => {
+            ForgeError::Compile {
+                request,
+                diagnostics,
+            } => {
                 writeln!(
                     f,
                     "Slang rejected {} ({}, entry {}):",

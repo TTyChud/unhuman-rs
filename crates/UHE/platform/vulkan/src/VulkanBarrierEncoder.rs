@@ -11,9 +11,9 @@
 //! the two are reconciled by a boolean handshake
 //! (`MarkSwapchainRenderedByLegacy`, `VulkanDevice.h:82`).
 
+use crate::vulkan_render_graph_types::{BufferBarrier, ImageBarrier};
 use ash::vk;
 use chassis::TextureFormat;
-use crate::vulkan_render_graph_types::{BufferBarrier, ImageBarrier};
 
 use crate::vulkan_extension_check::SyncTier;
 use crate::vulkan_types;
@@ -211,7 +211,8 @@ impl<'a> BarrierEncoder<'a> {
                 let dependency = vk::DependencyInfo::default()
                     .dependency_flags(vk::DependencyFlags::empty())
                     .image_memory_barriers(&barriers);
-                self.device.cmd_pipeline_barrier2(command_buffer, &dependency);
+                self.device
+                    .cmd_pipeline_barrier2(command_buffer, &dependency);
             },
         }
     }

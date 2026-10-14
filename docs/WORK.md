@@ -5,35 +5,45 @@ committed. Nothing is marked done because a document says so.
 
 ## The gate
 
-Every item must leave this true, checked in this order:
+One script, so a green run locally means a green run in CI:
 
 ```bash
-cargo build --workspace
-UHE_VALIDATION=1 cargo test --workspace -- --test-threads=1
-UHE_VALIDATION=1 cargo test --workspace -- --test-threads=1 2>&1 | grep -c "Validation Error"  # must be 0
-cargo clippy --workspace --all-targets                                            # must be clean
-git commit
+./scripts/gate.sh              # everything
+./scripts/gate.sh --no-vulkan  # no driver present
+./scripts/gate.sh --serial     # one test at a time
 ```
 
-**Two traps in that gate, both of which have already cost time here.**
+It runs, in order: build, `clippy -D warnings`, the full test suite under
+validation, then a second pass that greps for `Validation Error` and fails if the
+count is not zero.
 
-`DeviceOptions::from_env` reads `UHE_VALIDATION`. `DeviceOptions::new` does not, and
-defaults validation to *off*. A test suite that calls `new` reports zero validation
-errors while the layer never loaded — which is exactly what happened here for most
-of the project's life, and for `forge`'s own end-to-end tests.
+Two rules it encodes, both of which have already cost time here.
 
-`--test-threads=1`. Several tests share one Vulkan device and the scratch
-directory. In parallel they collide; serially they do not.
+`UHE_VALIDATION=1` enables validation only through `DeviceOptions::from_env`.
+`DeviceOptions::new` defaults it **off**, so a suite calling `new` reports zero
+validation errors while having checked nothing. That was true for this project's
+entire life.
 
-`UHE_VALIDATION=1` is not optional. It found five real bugs in this backend that
-`cargo test` alone could not see — including a command pool shared across worker
-threads, a missing `RESET_COMMAND_BUFFER` flag, and a timeline value that did not
-strictly increase. Without it, invalid Vulkan usage shows up as a segfault or
-`ERROR_DEVICE_LOST` in an unrelated test rather than as the error it is.
+`--test-threads=1`. Several suites share one Vulkan device and one scratch
+directory; in parallel they collide.
+
+Plus `cargo fmt --check`, which found real drift the moment CI was written down.
+
+## CI
+
+`.github/workflows/ci.yml`, three jobs:
+
+- **logic** — no GPU needed. fmt, clippy, and the suites that never touch a
+  driver: `grind`, `chassis`, `adam`, `forge`.
+- **vulkan** — the backend against Mesa's **lavapipe** with the validation layer
+  loaded. Same driver interface, same validation rules, on a CPU. Without this
+  the backend suite would only ever run on one machine, which is how nine real
+  bugs survived here for the length of the project.
+- **shaders** — regenerates the checked-in SPIR-V and fails if it differs from
+  the `.slang` source. A shader edit that forgets to regenerate leaves the suite
+  testing the old bytes and still green.
 
 Never push. Commit only; the owner pushes.
-
----
 
 ## Layout
 

@@ -100,10 +100,11 @@ impl Semaphore {
         if !self.timeline {
             return Err(BackendError::NotTimeline);
         }
-        self.wait_for_value(value, Duration::from_nanos(u64::MAX)).map(|reached| {
-            let _ = reached;
-            true
-        })
+        self.wait_for_value(value, Duration::from_nanos(u64::MAX))
+            .map(|reached| {
+                let _ = reached;
+                true
+            })
     }
 
     pub fn destroy(&self, device: &ash::Device) {

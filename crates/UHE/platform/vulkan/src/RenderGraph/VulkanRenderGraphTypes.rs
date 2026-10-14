@@ -304,11 +304,7 @@ pub fn src_stage_for_state(state: ImageState) -> Stage {
 }
 
 /// A resource's transition between two states, or `None` when nothing is needed.
-pub fn transition(
-    texture: TextureId,
-    src: ImageState,
-    dst: ImageState,
-) -> Option<ImageBarrier> {
+pub fn transition(texture: TextureId, src: ImageState, dst: ImageState) -> Option<ImageBarrier> {
     // Leaving Undefined never needs a real source scope: there is nothing to
     // wait for, and content is undefined by definition.
     let (src_access, src_stage) = if src.is_defined() {

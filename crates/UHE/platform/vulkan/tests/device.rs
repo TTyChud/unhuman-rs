@@ -5,8 +5,8 @@
 //! `default-members`: the pure logic is covered everywhere, and the hardware is
 //! covered wherever it exists.
 
-use stormbreaker::{create_device, device_available, BackendError, DeviceOptions, SyncTier};
 use stormbreaker::vulkan_extension_check::{version_major, version_minor};
+use stormbreaker::{create_device, device_available, BackendError, DeviceOptions, SyncTier};
 
 /// Returns a device, or `None` when this machine cannot run the test.
 fn open_device() -> Option<stormbreaker::Context> {
@@ -31,7 +31,10 @@ fn a_real_device_reports_itself() {
     };
     let caps = &context.capabilities;
 
-    assert!(!caps.device_name.is_empty(), "driver reported no device name");
+    assert!(
+        !caps.device_name.is_empty(),
+        "driver reported no device name"
+    );
     assert!(
         at_least_1_1(caps.api_version),
         "device reports api {} which is below the 1.1 we requested",
@@ -109,12 +112,18 @@ fn memory_properties_are_populated() {
     };
     let memory = context.memory_properties();
 
-    assert!(memory.memory_heap_count > 0, "device reported no memory heaps");
+    assert!(
+        memory.memory_heap_count > 0,
+        "device reported no memory heaps"
+    );
     // Vulkan imposes no relationship between memory *types* and memory *heaps*:
     // a device commonly reports many types against few heaps. It also permits
     // zero-sized heap slots, so the invariant that matters for an allocator is
     // simply that at least one heap is usable.
-    assert!(!memory.memory_types.is_empty(), "device reported no memory types");
+    assert!(
+        !memory.memory_types.is_empty(),
+        "device reported no memory types"
+    );
     assert!(
         memory.memory_heaps.iter().any(|heap| heap.size > 0),
         "no memory heap has any size, so nothing can be allocated"
@@ -162,9 +171,11 @@ fn a_dropped_device_leaves_the_next_one_intact() {
 }
 
 fn at_least_1_1(api_version: u32) -> bool {
-    version_major(api_version) > 1 || (version_major(api_version) == 1 && version_minor(api_version) >= 1)
+    version_major(api_version) > 1
+        || (version_major(api_version) == 1 && version_minor(api_version) >= 1)
 }
 
 fn at_least_1_3(api_version: u32) -> bool {
-    version_major(api_version) > 1 || (version_major(api_version) == 1 && version_minor(api_version) >= 3)
+    version_major(api_version) > 1
+        || (version_major(api_version) == 1 && version_minor(api_version) >= 3)
 }

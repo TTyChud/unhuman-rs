@@ -108,7 +108,7 @@ pub struct PrimitiveState {
 impl Default for PrimitiveState {
     fn default() -> Self {
         Self {
-            topology: 4,  // triangle list
+            topology: 4,   // triangle list
             cull_mode: 1,  // back
             front_face: 0, // counter-clockwise
         }

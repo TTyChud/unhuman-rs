@@ -49,14 +49,21 @@ impl RenderGraph {
         initial_state: ImageState,
         final_state: ImageState,
     ) -> TextureId {
-        self.resources.import_texture(name, initial_state, final_state)
+        self.resources
+            .import_texture(name, initial_state, final_state)
     }
 
-    pub fn create_buffer(&mut self, name: impl Into<String>) -> crate::vulkan_render_graph_types::BufferId {
+    pub fn create_buffer(
+        &mut self,
+        name: impl Into<String>,
+    ) -> crate::vulkan_render_graph_types::BufferId {
         self.resources.create_buffer(name)
     }
 
-    pub fn import_buffer(&mut self, name: impl Into<String>) -> crate::vulkan_render_graph_types::BufferId {
+    pub fn import_buffer(
+        &mut self,
+        name: impl Into<String>,
+    ) -> crate::vulkan_render_graph_types::BufferId {
         self.resources.import_buffer(name)
     }
 
@@ -72,10 +79,7 @@ impl RenderGraph {
             reads: Vec::new(),
             writes: Vec::new(),
         });
-        PassBuilder {
-            graph: self,
-            index,
-        }
+        PassBuilder { graph: self, index }
     }
 
     pub fn validate(&self) -> Vec<ValidationError> {
@@ -85,7 +89,9 @@ impl RenderGraph {
     /// Validates, orders and barrier-synthesises. Returns the compiled frame or
     /// every error found — validation collects all of them before failing, so one
     /// run reports every mistake rather than the first.
-    pub fn compile(&self) -> Result<crate::vulkan_render_graph_compiler::CompiledGraph, Vec<ValidationError>> {
+    pub fn compile(
+        &self,
+    ) -> Result<crate::vulkan_render_graph_compiler::CompiledGraph, Vec<ValidationError>> {
         crate::vulkan_render_graph_compiler::compile(&self.passes, &self.resources)
     }
 
@@ -257,9 +263,11 @@ impl PassBuilder<'_> {
 
     pub fn write_buffer(self, buffer: crate::vulkan_render_graph_types::BufferId) -> Self {
         let previous = self.graph.resources.latest_buffer_version(buffer);
-        self.graph
-            .resources
-            .push_version(ResourceAccess::Buffer(buffer, previous), self.index as u32, ImageState::Storage);
+        self.graph.resources.push_version(
+            ResourceAccess::Buffer(buffer, previous),
+            self.index as u32,
+            ImageState::Storage,
+        );
         self.graph.passes[self.index]
             .writes
             .push(ResourceAccess::Buffer(buffer, previous + 1));

@@ -124,7 +124,12 @@ impl TaskGraph {
         // appear in a dependents list, so root dispatch is exclusive.
         for id in 0..self.nodes.len() as TaskId {
             if unsafe { ptr.get(id) }.dep_count == 0 {
-                dispatch(ptr, id, Arc::clone(&jobs), Arc::clone(&self.total_remaining));
+                dispatch(
+                    ptr,
+                    id,
+                    Arc::clone(&jobs),
+                    Arc::clone(&self.total_remaining),
+                );
             }
         }
 
@@ -171,8 +176,9 @@ fn resolve(ptr: GraphPtr, id: TaskId, jobs: Arc<Jobs>, total_remaining: Arc<Atom
     for &dependent in &node.dependents {
         // `fetch_sub` returns the value before the subtraction. Seeing 1 means
         // this was the last arrival, so we own the dispatch.
-        let previous =
-            unsafe { ptr.get(dependent) }.deps_remaining.fetch_sub(1, Ordering::AcqRel);
+        let previous = unsafe { ptr.get(dependent) }
+            .deps_remaining
+            .fetch_sub(1, Ordering::AcqRel);
         if previous == 1 {
             dispatch(
                 ptr,

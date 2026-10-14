@@ -34,8 +34,7 @@ use crate::vulkan_error::{BackendError, Result};
 /// A function rather than a const because ash's flag types do not expose a const
 /// bit-or.
 pub fn pool_flags() -> vk::CommandPoolCreateFlags {
-    vk::CommandPoolCreateFlags::TRANSIENT
-        | vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER
+    vk::CommandPoolCreateFlags::TRANSIENT | vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER
 }
 
 /// The level every list is allocated at.

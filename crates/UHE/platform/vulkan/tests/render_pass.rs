@@ -54,12 +54,9 @@ fn two_colour_attachments_create() {
         resolve: chassis::Texture::null(),
     });
 
-    let render_pass = stormbreaker::vulkan_render_pass::RenderPass::new(
-        &context.device,
-        &desc,
-        "two-colour",
-    )
-    .expect("a two-colour render pass creates");
+    let render_pass =
+        stormbreaker::vulkan_render_pass::RenderPass::new(&context.device, &desc, "two-colour")
+            .expect("a two-colour render pass creates");
     assert_eq!(render_pass.color_attachment_count(), 2);
 }
 
@@ -132,11 +129,8 @@ fn mixed_colour_formats_create() {
         });
     }
 
-    let render_pass = stormbreaker::vulkan_render_pass::RenderPass::new(
-        &context.device,
-        &desc,
-        "gbuffer-shaped",
-    )
-    .expect("a gbuffer-shaped render pass creates");
+    let render_pass =
+        stormbreaker::vulkan_render_pass::RenderPass::new(&context.device, &desc, "gbuffer-shaped")
+            .expect("a gbuffer-shaped render pass creates");
     assert_eq!(render_pass.color_attachment_count(), 5);
 }

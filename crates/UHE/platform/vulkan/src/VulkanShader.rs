@@ -66,8 +66,7 @@ fn spirv_to_words(spirv: &[u8]) -> Result<&[u32]> {
     }
     // A byte buffer that is 4-byte aligned and a multiple of 4 long can be read
     // as u32 on every target Vulkan runs on.
-    let (prefix, words, suffix) =
-        unsafe { spirv.align_to::<u32>() };
+    let (prefix, words, suffix) = unsafe { spirv.align_to::<u32>() };
     if !prefix.is_empty() || !suffix.is_empty() {
         return Err(BackendError::MalformedSpirv { len: spirv.len() });
     }
@@ -173,7 +172,9 @@ impl Shaders {
         stage: vk::ShaderStageFlags,
     ) -> Result<Shader> {
         if words.first().copied() != Some(SPIRV_MAGIC) {
-            return Err(BackendError::MalformedSpirv { len: words.len() * 4 });
+            return Err(BackendError::MalformedSpirv {
+                len: words.len() * 4,
+            });
         }
         self.upload(device, words, stage)
     }

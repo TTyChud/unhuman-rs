@@ -13,7 +13,12 @@ fn execute_and_wait_runs_the_job() {
 
     let counter = Arc::new(JobCounter::new());
     let flag = Arc::clone(&ran);
-    jobs.execute(Box::new(move || { flag.fetch_add(1, Ordering::AcqRel); }), Some(Arc::clone(&counter)));
+    jobs.execute(
+        Box::new(move || {
+            flag.fetch_add(1, Ordering::AcqRel);
+        }),
+        Some(Arc::clone(&counter)),
+    );
 
     jobs.wait(&counter);
     assert_eq!(ran.load(Ordering::Acquire), 1);
@@ -26,11 +31,7 @@ fn parallel_for_covers_every_index_exactly_once() {
     let seen = Arc::new(Mutex::new(Vec::new()));
 
     let sink = Arc::clone(&seen);
-    jobs.parallel_for(
-        1_000,
-        move |i| sink.lock().unwrap().push(i),
-        1,
-    );
+    jobs.parallel_for(1_000, move |i| sink.lock().unwrap().push(i), 1);
 
     let seen = seen.lock().unwrap().clone();
     let unique: HashSet<u32> = seen.iter().copied().collect();
@@ -53,7 +54,12 @@ fn wait_for_all_drains_everything() {
 
     for _ in 0..64 {
         let flag = Arc::clone(&done);
-        jobs.execute(Box::new(move || { flag.fetch_add(1, Ordering::AcqRel); }), None);
+        jobs.execute(
+            Box::new(move || {
+                flag.fetch_add(1, Ordering::AcqRel);
+            }),
+            None,
+        );
     }
 
     jobs.wait_for_all();
@@ -149,11 +155,15 @@ fn graph_can_be_executed_more_than_once() {
     let runs = Arc::new(AtomicUsize::new(0));
     let a = {
         let runs = Arc::clone(&runs);
-        graph.create_task(move || { runs.fetch_add(1, Ordering::AcqRel); })
+        graph.create_task(move || {
+            runs.fetch_add(1, Ordering::AcqRel);
+        })
     };
     let b = {
         let runs = Arc::clone(&runs);
-        graph.create_task(move || { runs.fetch_add(1, Ordering::AcqRel); })
+        graph.create_task(move || {
+            runs.fetch_add(1, Ordering::AcqRel);
+        })
     };
     graph.add_dependency(a, b);
 
@@ -161,7 +171,11 @@ fn graph_can_be_executed_more_than_once() {
         graph.execute(Arc::clone(&jobs));
     }
 
-    assert_eq!(runs.load(Ordering::Acquire), 10, "counters were not re-armed");
+    assert_eq!(
+        runs.load(Ordering::Acquire),
+        10,
+        "counters were not re-armed"
+    );
 }
 
 #[test]
@@ -239,5 +253,9 @@ fn wait_for_all_does_not_return_early_when_the_caller_helps() {
     }
 
     jobs.wait_for_all();
-    assert_eq!(ran.load(Ordering::Acquire), 32, "wait_for_all returned early");
+    assert_eq!(
+        ran.load(Ordering::Acquire),
+        32,
+        "wait_for_all returned early"
+    );
 }

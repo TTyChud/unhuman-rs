@@ -11,10 +11,7 @@ pub enum Error {
     /// tear down the frame.
     Rhi(chassis::Error),
     /// A plugin's `build` or `on_start` hook failed.
-    Plugin {
-        name: &'static str,
-        message: String,
-    },
+    Plugin { name: &'static str, message: String },
 }
 
 impl fmt::Display for Error {

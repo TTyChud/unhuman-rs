@@ -13,10 +13,10 @@ mod handle;
 mod rhi;
 
 pub use desc::{
-    BindingDesc, BlendState, BufferDesc, ColorAttachmentDesc, ColorTargetState, DepthAttachmentDesc,
-    DepthState, DescriptorKind, DescriptorSetLayoutDesc, Extent, IndexFormat, LoadOp, PipelineDesc,
-    PrimitiveState, RenderPassDesc, ShaderStage, ShaderStageDesc, StageMask, TextureDesc,
-    VertexAttribute, VertexLayout,
+    BindingDesc, BlendState, BufferDesc, ColorAttachmentDesc, ColorTargetState,
+    DepthAttachmentDesc, DepthState, DescriptorKind, DescriptorSetLayoutDesc, Extent, IndexFormat,
+    LoadOp, PipelineDesc, PrimitiveState, RenderPassDesc, ShaderStage, ShaderStageDesc, StageMask,
+    TextureDesc, VertexAttribute, VertexLayout,
 };
 pub use format::{BufferUsage, SampleCount, TextureFormat, TextureUsage};
 pub use handle::{

@@ -151,31 +151,52 @@ impl Recording {
 
     pub fn set_scissor(&mut self, x: u32, y: u32, width: u32, height: u32) {
         let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: x as i32, y: y as i32 },
+            offset: vk::Offset2D {
+                x: x as i32,
+                y: y as i32,
+            },
             extent: vk::Extent2D { width, height },
         };
         unsafe { self.device.cmd_set_scissor(self.buffer, 0, &[scissor]) };
     }
 
     pub fn bind_pipeline(&mut self, pipeline: vk::Pipeline, layout: vk::PipelineLayout) {
-        unsafe { self.device.cmd_bind_pipeline(self.buffer, vk::PipelineBindPoint::GRAPHICS, pipeline) };
+        unsafe {
+            self.device
+                .cmd_bind_pipeline(self.buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
+        };
         let _ = layout;
     }
 
     pub fn bind_compute_pipeline(&mut self, pipeline: vk::Pipeline) {
-        unsafe { self.device.cmd_bind_pipeline(self.buffer, vk::PipelineBindPoint::COMPUTE, pipeline) };
+        unsafe {
+            self.device
+                .cmd_bind_pipeline(self.buffer, vk::PipelineBindPoint::COMPUTE, pipeline)
+        };
     }
 
     pub fn bind_group(&mut self, set: u32, group: vk::DescriptorSet, layout: vk::PipelineLayout) {
         unsafe {
-            self.device
-                .cmd_bind_descriptor_sets(self.buffer, vk::PipelineBindPoint::GRAPHICS, layout, set, &[group], &[]);
+            self.device.cmd_bind_descriptor_sets(
+                self.buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                layout,
+                set,
+                &[group],
+                &[],
+            );
         }
     }
 
-    pub fn set_push_constants(&mut self, layout: vk::PipelineLayout, stages: vk::ShaderStageFlags, data: &[u8]) {
+    pub fn set_push_constants(
+        &mut self,
+        layout: vk::PipelineLayout,
+        stages: vk::ShaderStageFlags,
+        data: &[u8],
+    ) {
         unsafe {
-            self.device.cmd_push_constants(self.buffer, layout, stages, 0, data);
+            self.device
+                .cmd_push_constants(self.buffer, layout, stages, 0, data);
         }
     }
 
@@ -186,8 +207,16 @@ impl Recording {
         }
     }
 
-    pub fn bind_index_buffer(&mut self, buffer: vk::Buffer, offset: vk::DeviceSize, format: vk::IndexType) {
-        unsafe { self.device.cmd_bind_index_buffer(self.buffer, buffer, offset, format) };
+    pub fn bind_index_buffer(
+        &mut self,
+        buffer: vk::Buffer,
+        offset: vk::DeviceSize,
+        format: vk::IndexType,
+    ) {
+        unsafe {
+            self.device
+                .cmd_bind_index_buffer(self.buffer, buffer, offset, format)
+        };
     }
 
     // ── draws ──────────────────────────────────────────────────────────────
@@ -197,16 +226,27 @@ impl Recording {
     }
 
     pub fn draw_indexed(&mut self, indices: u32, instances: u32) {
-        unsafe { self.device.cmd_draw_indexed(self.buffer, indices, instances, 0, 0, 0) };
+        unsafe {
+            self.device
+                .cmd_draw_indexed(self.buffer, indices, instances, 0, 0, 0)
+        };
     }
 
     pub fn dispatch(&mut self, groups_x: u32, groups_y: u32, groups_z: u32) {
-        unsafe { self.device.cmd_dispatch(self.buffer, groups_x, groups_y, groups_z) };
+        unsafe {
+            self.device
+                .cmd_dispatch(self.buffer, groups_x, groups_y, groups_z)
+        };
     }
 
     // ── transfers ──────────────────────────────────────────────────────────
 
-    pub fn copy_buffer_to_buffer(&mut self, src: vk::Buffer, dst: vk::Buffer, regions: &[vk::BufferCopy]) {
+    pub fn copy_buffer_to_buffer(
+        &mut self,
+        src: vk::Buffer,
+        dst: vk::Buffer,
+        regions: &[vk::BufferCopy],
+    ) {
         unsafe { self.device.cmd_copy_buffer(self.buffer, src, dst, regions) };
     }
 
@@ -251,7 +291,10 @@ impl Recording {
     }
 
     pub fn fill_buffer(&mut self, buffer: vk::Buffer, size: vk::DeviceSize, data: u32) {
-        unsafe { self.device.cmd_fill_buffer(self.buffer, buffer, 0, size, data) };
+        unsafe {
+            self.device
+                .cmd_fill_buffer(self.buffer, buffer, 0, size, data)
+        };
     }
 
     // ── barriers, lowered ──────────────────────────────────────────────────
@@ -319,7 +362,11 @@ impl<'a> CommandList<'a> {
     }
 
     /// Tell the list what layout the graph says a texture is in.
-    pub fn declare_layout(&mut self, texture: Texture, state: crate::vulkan_render_graph::ImageState) {
+    pub fn declare_layout(
+        &mut self,
+        texture: Texture,
+        state: crate::vulkan_render_graph::ImageState,
+    ) {
         self.layouts.insert(texture, state);
     }
 
@@ -334,12 +381,10 @@ impl CommandList<'_> {
     /// referenced it. Binding a null buffer would fail later and less clearly, so
     /// this panics at the call site instead.
     fn resolve_buffer(&self, handle: chassis::Buffer) -> vk::Buffer {
-        self.buffers
-            .get(handle)
-            .map_or_else(
-                || panic!("bind on a stale buffer handle {handle:?}"),
-                crate::vulkan_buffer::BufferResource::handle,
-            )
+        self.buffers.get(handle).map_or_else(
+            || panic!("bind on a stale buffer handle {handle:?}"),
+            crate::vulkan_buffer::BufferResource::handle,
+        )
     }
 }
 
@@ -360,11 +405,13 @@ impl chassis::CommandList for CommandList<'_> {
         // to carry a colour attachment for there to be a viewport at all, which is
         // also what the Vulkan spec requires for a non-zero render area.
         let first = desc.colors.first().map(|c| c.texture);
-        let extent = first
-            .and_then(|texture| self.textures.get(texture))
-            .map_or(vk::Extent2D { width: 0, height: 0 }, |t| {
-                vulkan_types::vk_extent_2d(t.extent())
-            });
+        let extent = first.and_then(|texture| self.textures.get(texture)).map_or(
+            vk::Extent2D {
+                width: 0,
+                height: 0,
+            },
+            |t| vulkan_types::vk_extent_2d(t.extent()),
+        );
 
         self.recording.begin_rendering(&views, depth_view, extent);
     }
@@ -407,8 +454,11 @@ impl chassis::CommandList for CommandList<'_> {
     }
 
     fn set_push_constants(&mut self, data: &[u8]) {
-        self.recording
-            .set_push_constants(vk::PipelineLayout::null(), vk::ShaderStageFlags::ALL, data);
+        self.recording.set_push_constants(
+            vk::PipelineLayout::null(),
+            vk::ShaderStageFlags::ALL,
+            data,
+        );
     }
 
     fn bind_vertex_buffer(&mut self, slot: u32, buffer: &chassis::Buffer, offset: u64) {
@@ -482,11 +532,14 @@ impl chassis::CommandList for CommandList<'_> {
     fn copy_buffer(&mut self, src: &chassis::Buffer, dst: &chassis::Buffer) {
         let src = self.resolve_buffer(*src);
         let dst = self.resolve_buffer(*dst);
-        self.recording
-            .copy_buffer_to_buffer(src, dst, &[vk::BufferCopy {
+        self.recording.copy_buffer_to_buffer(
+            src,
+            dst,
+            &[vk::BufferCopy {
                 src_offset: 0,
                 dst_offset: 0,
                 size: vk::WHOLE_SIZE,
-            }]);
+            }],
+        );
     }
 }

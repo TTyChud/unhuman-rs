@@ -41,8 +41,8 @@ use crate::vulkan_descriptor_manager::Descriptors;
 use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_frame_context::Recorder;
 use crate::vulkan_pipeline_state::Pipelines;
-use crate::vulkan_texture::Textures;
 use crate::vulkan_render_graph::{CompiledGraph, VulkanRenderGraph};
+use crate::vulkan_texture::Textures;
 
 /// The registries a command list needs to resolve handles.
 ///
@@ -70,23 +70,31 @@ pub struct SlotTable {
 
 impl SlotTable {
     pub fn texture(&self, slot: u32) -> Result<chassis::Texture> {
-        self.textures.get(slot as usize).copied().ok_or(BackendError::InvalidHandle)
+        self.textures
+            .get(slot as usize)
+            .copied()
+            .ok_or(BackendError::InvalidHandle)
     }
 
     pub fn buffer(&self, slot: u32) -> Result<chassis::Buffer> {
-        self.buffers.get(slot as usize).copied().ok_or(BackendError::InvalidHandle)
+        self.buffers
+            .get(slot as usize)
+            .copied()
+            .ok_or(BackendError::InvalidHandle)
     }
 
     pub fn set_texture(&mut self, slot: u32, handle: chassis::Texture) {
         if self.textures.len() <= slot as usize {
-            self.textures.resize(slot as usize + 1, chassis::Texture::null());
+            self.textures
+                .resize(slot as usize + 1, chassis::Texture::null());
         }
         self.textures[slot as usize] = handle;
     }
 
     pub fn set_buffer(&mut self, slot: u32, handle: chassis::Buffer) {
         if self.buffers.len() <= slot as usize {
-            self.buffers.resize(slot as usize + 1, chassis::Buffer::null());
+            self.buffers
+                .resize(slot as usize + 1, chassis::Buffer::null());
         }
         self.buffers[slot as usize] = handle;
     }
@@ -251,15 +259,14 @@ impl VulkanRenderGraphExecutor {
                 scope_resources.descriptors,
             );
 
-            barrier_count +=
-                record_barriers(
-                    &encoder,
-                    pass,
-                    &self.resources,
-                    scope_resources.textures,
-                    scope_resources.buffers,
-                    &mut list,
-                )?;
+            barrier_count += record_barriers(
+                &encoder,
+                pass,
+                &self.resources,
+                scope_resources.textures,
+                scope_resources.buffers,
+                &mut list,
+            )?;
 
             // Tell the list what layouts the graph says are current, so a
             // transfer in this pass copies from the right layout instead of
@@ -451,7 +458,12 @@ fn record_post_barriers(
         }
         let handle = slots.texture(barrier.texture)?;
         let resource = textures.get(handle).ok_or(BackendError::InvalidHandle)?;
-        encoder.encode(buffer, resource.barrier_target(), barrier, resource.format());
+        encoder.encode(
+            buffer,
+            resource.barrier_target(),
+            barrier,
+            resource.format(),
+        );
         count += 1;
     }
     Ok(count)
@@ -506,20 +518,24 @@ fn record_barriers(
             // stops compiling.
             match encoder.tier().uses_sync2() {
                 true => {
-                    let barriers =
-                        [crate::vulkan_barrier_encoder::buffer_barrier2(
-                            resource.handle(), offset, size, *barrier,
-                        )];
+                    let barriers = [crate::vulkan_barrier_encoder::buffer_barrier2(
+                        resource.handle(),
+                        offset,
+                        size,
+                        *barrier,
+                    )];
                     let dependency = vk::DependencyInfo::default()
                         .dependency_flags(vk::DependencyFlags::empty())
                         .buffer_memory_barriers(&barriers);
                     encoder.device().cmd_pipeline_barrier2(buffer, &dependency);
                 }
                 false => {
-                    let barriers =
-                        [crate::vulkan_barrier_encoder::buffer_barrier_legacy(
-                            resource.handle(), offset, size, *barrier,
-                        )];
+                    let barriers = [crate::vulkan_barrier_encoder::buffer_barrier_legacy(
+                        resource.handle(),
+                        offset,
+                        size,
+                        *barrier,
+                    )];
                     encoder.device().cmd_pipeline_barrier(
                         buffer,
                         vk::PipelineStageFlags::ALL_COMMANDS,

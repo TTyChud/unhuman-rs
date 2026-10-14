@@ -52,8 +52,8 @@ impl TextureFormat {
             TextureFormat::Rgba8Unorm
             | TextureFormat::Rgba8Srgb
             | TextureFormat::Bgra8Unorm
-| TextureFormat::Bgra8Srgb
-                | TextureFormat::R11b11G11B10Float
+            | TextureFormat::Bgra8Srgb
+            | TextureFormat::R11b11G11B10Float
             | TextureFormat::Depth32Float
             | TextureFormat::Depth24Stencil8 => 4,
             TextureFormat::R32Float => 4,

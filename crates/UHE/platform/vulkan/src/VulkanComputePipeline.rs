@@ -93,11 +93,9 @@ fn build(
     };
 
     let created = unsafe {
-        pipelines.device().create_compute_pipelines(
-            pipelines.driver_cache(),
-            &[create_info],
-            None,
-        )
+        pipelines
+            .device()
+            .create_compute_pipelines(pipelines.driver_cache(), &[create_info], None)
     }
     .map_err(|(partial, error)| {
         BackendError::vk("vkCreateComputePipelines", error).with_partial(partial.len())

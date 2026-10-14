@@ -40,7 +40,11 @@ fn barriers_are_synthesised_per_pass() {
     let compiled = deferred_frame().compile().unwrap();
 
     let gbuffer_pass = compiled.find("gbuffer").unwrap();
-    let states: Vec<ImageState> = gbuffer_pass.pre_barriers.iter().map(|b| b.dst_state).collect();
+    let states: Vec<ImageState> = gbuffer_pass
+        .pre_barriers
+        .iter()
+        .map(|b| b.dst_state)
+        .collect();
     assert_eq!(
         states,
         vec![ImageState::ColorAttachment, ImageState::DepthAttachment],
@@ -81,7 +85,10 @@ fn the_swapchain_reaches_present_after_its_last_writer() {
     let lighting = compiled.find("lighting").unwrap();
     assert_eq!(lighting.post_barriers.len(), 1);
     assert_eq!(lighting.post_barriers[0].dst_state, ImageState::Present);
-    assert_eq!(lighting.post_barriers[0].src_state, ImageState::ColorAttachment);
+    assert_eq!(
+        lighting.post_barriers[0].src_state,
+        ImageState::ColorAttachment
+    );
 
     // No earlier pass carries it.
     assert!(compiled.find("gbuffer").unwrap().post_barriers.is_empty());
@@ -113,9 +120,16 @@ fn a_pass_writing_twice_produces_two_versions() {
     let swapchain = graph.import_texture("swapchain", ImageState::Undefined, ImageState::Present);
     let pingpong = graph.create_texture("pingpong", ImageState::Undefined, ImageState::Storage);
 
-    graph.pass("first").write_texture(pingpong, ImageState::Storage);
-    graph.pass("second").write_texture(pingpong, ImageState::Storage);
-    graph.pass("present").color(swapchain, BLACK).read_texture(pingpong);
+    graph
+        .pass("first")
+        .write_texture(pingpong, ImageState::Storage);
+    graph
+        .pass("second")
+        .write_texture(pingpong, ImageState::Storage);
+    graph
+        .pass("present")
+        .color(swapchain, BLACK)
+        .read_texture(pingpong);
 
     let slot = graph.resources().texture(pingpong).unwrap();
     assert_eq!(slot.version_log.len(), 3, "v0 plus two writes");
@@ -135,8 +149,12 @@ fn dead_passes_are_culled() {
     let used = graph.create_texture("used", ImageState::Undefined, ImageState::ShaderRead);
     let orphan = graph.create_texture("orphan", ImageState::Undefined, ImageState::ShaderRead);
 
-    graph.pass("orphan_producer").write_texture(orphan, ImageState::Storage);
-    graph.pass("real_producer").write_texture(used, ImageState::Storage);
+    graph
+        .pass("orphan_producer")
+        .write_texture(orphan, ImageState::Storage);
+    graph
+        .pass("real_producer")
+        .write_texture(used, ImageState::Storage);
     graph
         .pass("present")
         .color(swapchain, BLACK)
@@ -156,7 +174,9 @@ fn dead_passes_are_culled() {
 fn a_frame_with_no_imports_compiles_to_nothing() {
     let mut graph = RenderGraph::new();
     let scratch = graph.create_texture("scratch", ImageState::Undefined, ImageState::Storage);
-    graph.pass("pointless").write_texture(scratch, ImageState::Storage);
+    graph
+        .pass("pointless")
+        .write_texture(scratch, ImageState::Storage);
 
     let compiled = graph.compile().unwrap();
     assert!(compiled.is_empty(), "unobservable work should be culled");
@@ -179,7 +199,10 @@ fn lifetimes_span_first_to_last_use() {
 fn declaration_order_is_the_execution_order() {
     let compiled = deferred_frame().compile().unwrap();
     for (position, pass) in compiled.passes.iter().enumerate() {
-        assert_eq!(pass.index as usize, position, "order must match declaration");
+        assert_eq!(
+            pass.index as usize, position,
+            "order must match declaration"
+        );
     }
 }
 
@@ -196,8 +219,14 @@ fn a_cycle_cannot_be_declared() {
     let a = graph.create_texture("a", ImageState::Undefined, ImageState::Storage);
     let b = graph.create_texture("b", ImageState::Undefined, ImageState::Storage);
 
-    graph.pass("writes_a").write_texture(a, ImageState::Storage).read_texture(b);
-    graph.pass("writes_b").write_texture(b, ImageState::Storage).read_texture(a);
+    graph
+        .pass("writes_a")
+        .write_texture(a, ImageState::Storage)
+        .read_texture(b);
+    graph
+        .pass("writes_b")
+        .write_texture(b, ImageState::Storage)
+        .read_texture(a);
 
     // No cycle error, and no dependency either: both reads bind to v0.
     assert!(graph.validate().is_empty(), "{:?}", graph.validate());
@@ -213,8 +242,13 @@ fn reading_before_writing_binds_to_the_pre_frame_version() {
     // `early` reads before `late_producer` writes, so it reads v0 and the two
     // passes have no edge between them.
     graph.pass("early").read_texture(late);
-    graph.pass("late_producer").write_texture(late, ImageState::Storage);
-    graph.pass("present").color(swapchain, BLACK).read_texture(late);
+    graph
+        .pass("late_producer")
+        .write_texture(late, ImageState::Storage);
+    graph
+        .pass("present")
+        .color(swapchain, BLACK)
+        .read_texture(late);
 
     assert_eq!(graph.passes()[0].reads, &[ResourceAccess::Texture(late, 0)]);
     assert_eq!(graph.passes()[2].reads, &[ResourceAccess::Texture(late, 1)]);
@@ -240,7 +274,9 @@ fn an_undeclared_attachment_is_reported() {
 
     let errors = graph::validate(&passes, graph.resources());
     assert!(
-        errors.iter().any(|e| e.kind == ErrorKind::UndeclaredAttachment),
+        errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::UndeclaredAttachment),
         "got {errors:?}"
     );
 }
@@ -255,7 +291,10 @@ fn a_double_write_is_reported() {
         .pass("bad")
         .write_texture(target, ImageState::Storage)
         .write_texture(target, ImageState::Storage);
-    graph.pass("present").color(swapchain, BLACK).read_texture(target);
+    graph
+        .pass("present")
+        .color(swapchain, BLACK)
+        .read_texture(target);
 
     let errors = graph.validate();
     assert!(
@@ -291,7 +330,9 @@ fn reading_and_writing_one_texture_in_one_pass_is_reported() {
 
     let errors = graph.validate();
     assert!(
-        errors.iter().any(|e| e.kind == ErrorKind::PassStateConflict),
+        errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::PassStateConflict),
         "got {errors:?}"
     );
 }
@@ -333,7 +374,10 @@ fn validation_collects_every_error_at_once() {
         .iter()
         .filter(|e| e.kind == ErrorKind::UnsubmittedPass)
         .count();
-    let double = errors.iter().filter(|e| e.kind == ErrorKind::DoubleWrite).count();
+    let double = errors
+        .iter()
+        .filter(|e| e.kind == ErrorKind::DoubleWrite)
+        .count();
 
     assert!(unsubmitted >= 1, "{errors:?}");
     assert!(double >= 1, "{errors:?}");
@@ -366,8 +410,12 @@ fn declaration_binds_reads_to_the_version_current_at_that_moment() {
     let swapchain = graph.import_texture("swapchain", ImageState::Undefined, ImageState::Present);
     let pingpong = graph.create_texture("pingpong", ImageState::Undefined, ImageState::Storage);
 
-    graph.pass("write_v1").write_texture(pingpong, ImageState::Storage);
-    graph.pass("write_v2").write_texture(pingpong, ImageState::Storage);
+    graph
+        .pass("write_v1")
+        .write_texture(pingpong, ImageState::Storage);
+    graph
+        .pass("write_v2")
+        .write_texture(pingpong, ImageState::Storage);
     graph
         .pass("consume")
         .color(swapchain, BLACK)
@@ -453,11 +501,17 @@ fn a_buffer_barrier_spans_the_whole_buffer() {
     let mut graph = RenderGraph::new();
     let target = graph.import_buffer("target");
 
-    graph.pass("a").kind(PassType::Transfer).write_buffer(target);
+    graph
+        .pass("a")
+        .kind(PassType::Transfer)
+        .write_buffer(target);
     graph.pass("b").kind(PassType::Transfer).read_buffer(target);
 
     let compiled = graph.compile().expect("graph compiles");
-    let barrier = &compiled.find("b").expect("pass survives").pre_buffer_barriers[0];
+    let barrier = &compiled
+        .find("b")
+        .expect("pass survives")
+        .pre_buffer_barriers[0];
     assert_eq!(barrier.offset, 0);
     assert_eq!(barrier.size, graph::WHOLE_SIZE);
 }

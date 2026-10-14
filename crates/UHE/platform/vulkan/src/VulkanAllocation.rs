@@ -49,11 +49,15 @@ pub fn create_buffer(
     let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
 
     let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
-    let memory_type = find_memory_type(memory_properties, requirements.memory_type_bits, required_properties)
-        .inspect_err(|_| {
-            // Nothing else can succeed with this buffer, so do not leak it.
-            unsafe { device.destroy_buffer(buffer, None) };
-        })?;
+    let memory_type = find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        required_properties,
+    )
+    .inspect_err(|_| {
+        // Nothing else can succeed with this buffer, so do not leak it.
+        unsafe { device.destroy_buffer(buffer, None) };
+    })?;
 
     let allocate_info = vk::MemoryAllocateInfo {
         allocation_size: requirements.size,
@@ -89,7 +93,11 @@ pub fn create_image_memory(
     if size == 0 {
         return Err(BackendError::InvalidSize);
     }
-    let type_index = find_memory_type(memory_properties, memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)?;
+    let type_index = find_memory_type(
+        memory_properties,
+        memory_type_bits,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
     let allocate_info = vk::MemoryAllocateInfo {
         allocation_size: size,
         memory_type_index: type_index,
@@ -111,17 +119,16 @@ pub unsafe fn with_mapped_memory<T>(
     f: impl FnOnce(&mut [u8]) -> T,
 ) -> Result<T> {
     let ptr = device.map_memory(memory, 0, size, flags)?;
-    let result = f(std::slice::from_raw_parts_mut(ptr as *mut u8, size as usize));
+    let result = f(std::slice::from_raw_parts_mut(
+        ptr as *mut u8,
+        size as usize,
+    ));
     device.unmap_memory(memory);
     Ok(result)
 }
 
 /// Zero-copy read of a buffer created with `HOST_VISIBLE`.
-pub fn read_buffer(
-    device: &ash::Device,
-    memory: vk::DeviceMemory,
-    size: u64,
-) -> Result<Vec<u8>> {
+pub fn read_buffer(device: &ash::Device, memory: vk::DeviceMemory, size: u64) -> Result<Vec<u8>> {
     unsafe {
         with_mapped_memory(device, memory, size, vk::MemoryMapFlags::empty(), |slice| {
             slice.to_vec()

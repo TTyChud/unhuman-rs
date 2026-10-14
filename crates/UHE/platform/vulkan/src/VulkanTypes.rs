@@ -10,9 +10,9 @@
 //! a barrier with the wrong scope, which is the hardest class of GPU bug to
 //! reproduce, so the whole table is readable at once.
 
+use crate::vulkan_render_graph_types::{Access, ImageState, Stage};
 use ash::vk;
 use chassis::{Extent, SampleCount, TextureFormat};
-use crate::vulkan_render_graph_types::{Access, ImageState, Stage};
 
 pub fn layout(state: ImageState) -> vk::ImageLayout {
     layout_for(state, TextureFormat::Rgba8Unorm)
@@ -76,7 +76,9 @@ pub fn aspect(format: TextureFormat) -> vk::ImageAspectFlags {
         TextureFormat::Depth16 | TextureFormat::Depth24 | TextureFormat::Depth32Float => {
             vk::ImageAspectFlags::DEPTH
         }
-        TextureFormat::Depth24Stencil8 => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+        TextureFormat::Depth24Stencil8 => {
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        }
         _ => vk::ImageAspectFlags::COLOR,
     }
 }

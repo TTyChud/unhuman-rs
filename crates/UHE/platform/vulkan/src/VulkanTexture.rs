@@ -11,8 +11,8 @@
 use ash::vk;
 use chassis::{Extent, Registry, Texture, TextureDesc, TextureFormat, TextureUsage};
 
-use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_allocation;
+use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_types;
 
 pub struct TextureResource {
@@ -89,11 +89,15 @@ impl Textures {
         label: &str,
     ) -> Result<Texture> {
         if desc.format == TextureFormat::Undefined {
-            return Err(BackendError::EmptyUsage { what: "texture format" });
+            return Err(BackendError::EmptyUsage {
+                what: "texture format",
+            });
         }
         let usage = to_vk_usage(desc.usage);
         if usage.is_empty() {
-            return Err(BackendError::EmptyUsage { what: "texture usage" });
+            return Err(BackendError::EmptyUsage {
+                what: "texture usage",
+            });
         }
         let level_count = desc.mip_levels.max(1);
 

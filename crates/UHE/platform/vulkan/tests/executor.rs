@@ -10,12 +10,10 @@ use std::path::{Path, PathBuf};
 
 use ash::vk;
 use forge::cache::ShaderCache;
-use forge::{Slangc};
 use forge::slangc::SlangcCompiler;
+use forge::Slangc;
 use stormbreaker::vulkan_render_graph as graph;
-use stormbreaker::{
-    create_device, device_available, DeviceOptions,
-};
+use stormbreaker::{create_device, device_available, DeviceOptions};
 
 /// A path inside the workspace, found by walking up from this crate.
 ///
@@ -37,7 +35,6 @@ fn asset(relative: &str) -> PathBuf {
     }
     panic!("could not find {relative} above {}", manifest.display());
 }
-
 
 fn shader() -> std::path::PathBuf {
     asset("assets/shaders/Triangle.slang")
@@ -111,8 +108,8 @@ struct Fixture {
 fn fixture() -> Result<Fixture, String> {
     let context = open_device().ok_or("no Vulkan device".to_owned())?;
 
-    let compiler = SlangcCompiler::new(Slangc::default())
-        .map_err(|e| format!("slangc unavailable: {e}"))?;
+    let compiler =
+        SlangcCompiler::new(Slangc::default()).map_err(|e| format!("slangc unavailable: {e}"))?;
     let forge = forge::Forge::new(compiler, ShaderCache::disabled());
     let directory = std::env::temp_dir().join("stormbreaker-executor");
     std::fs::create_dir_all(&directory).map_err(|e| format!("scratch: {e}"))?;
@@ -120,10 +117,13 @@ fn fixture() -> Result<Fixture, String> {
         .compile_pair(&shader(), "vs_main", "fs_main", &directory)
         .map_err(|e| format!("Triangle.slang did not compile: {e}"))?;
 
-    let mut shaders =
-        stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
+    let mut shaders = stormbreaker::vulkan_shader::Shaders::with_device(Some(&context.device));
     let vertex_shader = shaders
-        .create_from_words(&context.device, &vertex_module.words, vk::ShaderStageFlags::VERTEX)
+        .create_from_words(
+            &context.device,
+            &vertex_module.words,
+            vk::ShaderStageFlags::VERTEX,
+        )
         .map_err(|e| format!("vertex module: {e}"))?;
     let fragment_shader = shaders
         .create_from_words(
@@ -205,10 +205,7 @@ fn fixture() -> Result<Fixture, String> {
     let vertex_buffer = buffers
         .create(
             &context.device,
-            &chassis::BufferDesc::new(
-                bytes.len() as u64,
-                chassis::BufferUsage::VERTEX,
-            ),
+            &chassis::BufferDesc::new(bytes.len() as u64, chassis::BufferUsage::VERTEX),
             Some(&bytes),
         )
         .map_err(|e| format!("vertex buffer: {e}"))?;
@@ -222,7 +219,11 @@ fn fixture() -> Result<Fixture, String> {
         .create(
             &context.device,
             &chassis::TextureDesc::new_2d(
-                chassis::Extent { width: WIDTH, height: HEIGHT, depth: 1 },
+                chassis::Extent {
+                    width: WIDTH,
+                    height: HEIGHT,
+                    depth: 1,
+                },
                 chassis::TextureFormat::Rgba8Unorm,
                 chassis::TextureUsage::COLOR_ATTACHMENT
                     | chassis::TextureUsage::TRANSFER_SRC
@@ -252,9 +253,7 @@ fn fixture() -> Result<Fixture, String> {
 }
 
 impl Fixture {
-    fn resources(
-        &self,
-    ) -> stormbreaker::vulkan_render_graph_executor::ExecutorResources<'_> {
+    fn resources(&self) -> stormbreaker::vulkan_render_graph_executor::ExecutorResources<'_> {
         stormbreaker::vulkan_render_graph_executor::ExecutorResources {
             pipelines: &self.pipelines,
             textures: &self.textures,
@@ -267,7 +266,10 @@ impl Fixture {
         stormbreaker::vulkan_frame_context::Recorder::new(
             &self.context.device,
             self.context.graphics_queue,
-            self.context.capabilities.graphics_queue_family.expect("a graphics family"),
+            self.context
+                .capabilities
+                .graphics_queue_family
+                .expect("a graphics family"),
             self.context.capabilities.sync_tier,
             lists,
         )
@@ -288,7 +290,11 @@ fn a_triangle_drawn_through_the_executor_reaches_the_image() {
     // A colour-only import as the graph's root, plus a transient the pass draws
     // into. The import is what keeps the pass from being culled.
     let mut builder = graph::RenderGraph::new();
-    let target = builder.import_texture("target", graph::ImageState::Undefined, graph::ImageState::TransferSrc);
+    let target = builder.import_texture(
+        "target",
+        graph::ImageState::Undefined,
+        graph::ImageState::TransferSrc,
+    );
     builder
         .pass("draw")
         .kind(graph::PassType::Graphics)
@@ -318,16 +324,14 @@ fn a_triangle_drawn_through_the_executor_reaches_the_image() {
 
     // Slot 0 of the graph is the imported target, and it has to be a real one.
     executor.slots_mut().set_texture(0, fixture.target);
-    executor
-        .slots_mut()
-        .set_buffer(0, fixture.vertex_buffer);
+    executor.slots_mut().set_buffer(0, fixture.vertex_buffer);
 
     let resources = fixture.resources();
 
     let pipeline = fixture.pipeline;
     let vertex_buffer = fixture.vertex_buffer;
     let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                        list: &mut dyn chassis::CommandList| {
+                       list: &mut dyn chassis::CommandList| {
         list.bind_pipeline(&pipeline);
         list.bind_vertex_buffer(0, &vertex_buffer, 0);
         list.draw(3, 1);
@@ -359,7 +363,10 @@ fn an_empty_frame_submits_nothing() {
 
     let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
         recorder,
-        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
     );
     let empty = graph::CompiledGraph::default();
     let resources = fixture.resources();
@@ -384,11 +391,18 @@ fn asking_for_more_lists_than_the_recorder_has_is_an_error() {
     let recorder = fixture.recorder(2);
     let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
         recorder,
-        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
     );
 
     let mut builder = graph::RenderGraph::new();
-    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    let target = builder.import_texture(
+        "t",
+        graph::ImageState::Undefined,
+        graph::ImageState::ShaderRead,
+    );
     for name in ["a", "b"] {
         builder
             .pass(name)
@@ -396,7 +410,10 @@ fn asking_for_more_lists_than_the_recorder_has_is_an_error() {
             .write_texture(target, graph::ImageState::Storage);
     }
     let compiled = builder.compile().expect("compiles");
-    assert!(compiled.passes.len() > 1, "the fixture needs several passes");
+    assert!(
+        compiled.passes.len() > 1,
+        "the fixture needs several passes"
+    );
 
     let resources = fixture.resources();
     let record = |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
@@ -416,11 +433,18 @@ fn two_frames_in_a_row_both_submit() {
     let recorder = fixture.recorder(2);
     let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
         recorder,
-        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
     );
 
     let mut builder = graph::RenderGraph::new();
-    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    let target = builder.import_texture(
+        "t",
+        graph::ImageState::Undefined,
+        graph::ImageState::ShaderRead,
+    );
     builder
         .pass("one")
         .kind(graph::PassType::Compute)
@@ -452,11 +476,18 @@ fn a_failing_pass_returns_its_error_and_leaves_the_recorder_usable() {
     let recorder = fixture.recorder(2);
     let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
         recorder,
-        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
     );
 
     let mut builder = graph::RenderGraph::new();
-    let target = builder.import_texture("t", graph::ImageState::Undefined, graph::ImageState::ShaderRead);
+    let target = builder.import_texture(
+        "t",
+        graph::ImageState::Undefined,
+        graph::ImageState::ShaderRead,
+    );
     builder
         .pass("one")
         .kind(graph::PassType::Compute)
@@ -507,19 +538,21 @@ fn a_null_slot_cannot_resolve_a_barrier_target() {
 
     // Slot 0 deliberately left null.
     let slots = stormbreaker::vulkan_render_graph_executor::SlotTable::default();
-    let encoder =
-        stormbreaker::vulkan_barrier_encoder::BarrierEncoder::new(
-            stormbreaker::SyncTier::Legacy,
-            &fixture.context.device,
-        );
+    let encoder = stormbreaker::vulkan_barrier_encoder::BarrierEncoder::new(
+        stormbreaker::SyncTier::Legacy,
+        &fixture.context.device,
+    );
     let recorder = fixture.recorder(1);
     let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
         recorder,
-        chassis::Extent2d { width: WIDTH, height: HEIGHT },
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
     );
     let pipeline = fixture.pipeline;
     let record = move |_: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                        list: &mut dyn chassis::CommandList| {
+                       list: &mut dyn chassis::CommandList| {
         list.bind_pipeline(&pipeline);
         Ok(())
     };
@@ -560,10 +593,7 @@ fn the_triangle_is_actually_in_the_image() {
         .buffers
         .create(
             &fixture.context.device,
-            &chassis::BufferDesc::new(
-                bytes,
-                chassis::BufferUsage::TRANSFER_DST,
-            ),
+            &chassis::BufferDesc::new(bytes, chassis::BufferUsage::TRANSFER_DST),
             None,
         )
         .expect("readback buffer");
@@ -592,21 +622,20 @@ fn the_triangle_is_actually_in_the_image() {
     assert_eq!(compiled.passes.len(), 2, "both passes survive culling");
 
     let recorder = fixture.recorder(compiled.passes.len());
-    let mut executor =
-        stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
-            recorder,
-            chassis::Extent2d {
-                width: WIDTH,
-                height: HEIGHT,
-            },
-        );
+    let mut executor = stormbreaker::vulkan_render_graph_executor::VulkanRenderGraphExecutor::new(
+        recorder,
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+    );
     executor.slots_mut().set_texture(0, fixture.target);
     executor.slots_mut().set_buffer(0, readback);
 
     let pipeline = fixture.pipeline;
     let vertex_buffer = fixture.vertex_buffer;
     let record = move |scope: &stormbreaker::vulkan_render_graph_executor::PassScope<'_>,
-                        list: &mut dyn chassis::CommandList| {
+                       list: &mut dyn chassis::CommandList| {
         if scope.name == "draw" {
             list.bind_pipeline(&pipeline);
             list.bind_vertex_buffer(0, &vertex_buffer, 0);
@@ -622,7 +651,6 @@ fn the_triangle_is_actually_in_the_image() {
         Ok(())
     };
 
-
     executor
         .execute(&compiled, fixture.resources(), &record)
         .expect("the frame records and submits");
@@ -636,7 +664,6 @@ fn the_triangle_is_actually_in_the_image() {
         .expect("readback handle")
         .read(&fixture.context.device)
         .expect("read back");
-
 
     let lit = lit_pixels(&pixels);
     assert!(
@@ -680,4 +707,3 @@ fn lit_pixel(pixels: &[u8]) -> [u8; 4] {
         .find(|pixel| pixel[0] > 128)
         .map_or([0; 4], |pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
 }
-

@@ -9,10 +9,10 @@
 use ash::vk;
 use ash::vk::Handle;
 use chassis::TextureFormat;
+use stormbreaker::vulkan_render_graph::{self as vulkan_render_graph, ImageBarrier, ImageState};
 use stormbreaker::{
     image_barrier2, image_barrier_legacy, select_sync_tier, vulkan_types, SyncTier,
 };
-use stormbreaker::vulkan_render_graph::{self as vulkan_render_graph, ImageBarrier, ImageState};
 
 /// A handle that was never allocated. Nothing here dispatches, so a dangling
 /// pointer is fine — the structs under test never reach a driver.
@@ -33,9 +33,9 @@ fn widen_stage(flags: vk::PipelineStageFlags) -> vk::PipelineStageFlags2 {
 
 fn target() -> stormbreaker::Target {
     let base = stormbreaker::Target::color(fake_image(), 1, 1);
-    base.with_aspect(vk::ImageAspectFlags::COLOR
-        | vk::ImageAspectFlags::DEPTH
-        | vk::ImageAspectFlags::STENCIL)
+    base.with_aspect(
+        vk::ImageAspectFlags::COLOR | vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+    )
 }
 
 fn barrier(src: ImageState, dst: ImageState) -> ImageBarrier {
@@ -52,7 +52,10 @@ fn barrier(src: ImageState, dst: ImageState) -> ImageBarrier {
 
 #[test]
 fn every_state_maps_to_a_layout() {
-    assert_eq!(vulkan_types::layout(ImageState::Undefined), vk::ImageLayout::UNDEFINED);
+    assert_eq!(
+        vulkan_types::layout(ImageState::Undefined),
+        vk::ImageLayout::UNDEFINED
+    );
     assert_eq!(
         vulkan_types::layout(ImageState::ColorAttachment),
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
@@ -95,8 +98,14 @@ fn combined_depth_stencil_uses_the_combined_layout() {
 
 #[test]
 fn aspects_come_from_the_format() {
-    assert_eq!(vulkan_types::aspect(TextureFormat::Rgba8Unorm), vk::ImageAspectFlags::COLOR);
-    assert_eq!(vulkan_types::aspect(TextureFormat::Depth24), vk::ImageAspectFlags::DEPTH);
+    assert_eq!(
+        vulkan_types::aspect(TextureFormat::Rgba8Unorm),
+        vk::ImageAspectFlags::COLOR
+    );
+    assert_eq!(
+        vulkan_types::aspect(TextureFormat::Depth24),
+        vk::ImageAspectFlags::DEPTH
+    );
     assert_eq!(
         vulkan_types::aspect(TextureFormat::Depth24Stencil8),
         vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
@@ -112,7 +121,10 @@ fn the_aspect_is_narrowed_to_what_the_format_has() {
         barrier(ImageState::Undefined, ImageState::DepthAttachment),
         TextureFormat::Depth24,
     );
-    assert_eq!(lowered.subresource_range.aspect_mask, vk::ImageAspectFlags::DEPTH);
+    assert_eq!(
+        lowered.subresource_range.aspect_mask,
+        vk::ImageAspectFlags::DEPTH
+    );
 }
 
 #[test]
@@ -124,7 +136,10 @@ fn a_color_write_lowers_to_the_color_scopes() {
     );
 
     assert_eq!(lowered.old_layout, vk::ImageLayout::UNDEFINED);
-    assert_eq!(lowered.new_layout, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    assert_eq!(
+        lowered.new_layout,
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+    );
     assert_eq!(lowered.src_access_mask, vk::AccessFlags2::empty());
     assert_eq!(lowered.src_stage_mask, vk::PipelineStageFlags2::TOP_OF_PIPE);
     assert_eq!(
@@ -165,7 +180,10 @@ fn a_real_transition_keeps_its_source_scope() {
         lowered.src_stage_mask,
         vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT
     );
-    assert_eq!(lowered.new_layout, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    assert_eq!(
+        lowered.new_layout,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+    );
 }
 
 /// The two encodings must mean the same thing. If they drift, a bug reproduces
@@ -257,13 +275,12 @@ fn a_graph_barrier_survives_the_lowering() {
 
     // The gbuffer's first use: undefined -> colour attachment.
     let first = compiled.find("gbuffer").unwrap();
-    let lowered = image_barrier2(
-        target(),
-        first.pre_barriers[0],
-        TextureFormat::Rgba8Unorm,
-    );
+    let lowered = image_barrier2(target(), first.pre_barriers[0], TextureFormat::Rgba8Unorm);
     assert_eq!(lowered.old_layout, vk::ImageLayout::UNDEFINED);
-    assert_eq!(lowered.new_layout, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    assert_eq!(
+        lowered.new_layout,
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+    );
 
     // The lighting pass samples it: colour attachment -> shader read.
     let lighting = compiled.find("lighting").unwrap();
@@ -272,17 +289,16 @@ fn a_graph_barrier_survives_the_lowering() {
         .iter()
         .find(|b| b.dst_state == ImageState::ShaderRead)
         .expect("sampling the gbuffer needs a transition");
-    let lowered = image_barrier2(
-        target(),
-        *sample,
-        TextureFormat::Rgba8Unorm,
-    );
-    assert_eq!(lowered.old_layout, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    assert_eq!(lowered.new_layout, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    let lowered = image_barrier2(target(), *sample, TextureFormat::Rgba8Unorm);
     assert_eq!(
-        lowered.dst_access_mask,
-        vk::AccessFlags2::SHADER_READ
+        lowered.old_layout,
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
     );
+    assert_eq!(
+        lowered.new_layout,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+    );
+    assert_eq!(lowered.dst_access_mask, vk::AccessFlags2::SHADER_READ);
 
     // And the swapchain leaves in Present, as the graph's post-barrier says.
     let present = lighting
@@ -334,7 +350,10 @@ fn sync2_and_timeline_encode_barriers_the_same_way() {
     assert_eq!(a.old_layout, c.old_layout);
     assert_eq!(a.new_layout, c.new_layout);
     assert_eq!(a.dst_access_mask, c.dst_access_mask);
-    assert_eq!(select_sync_tier(1 << 22 | 3 << 12, false, true), SyncTier::Sync2Timeline);
+    assert_eq!(
+        select_sync_tier(1 << 22 | 3 << 12, false, true),
+        SyncTier::Sync2Timeline
+    );
     assert!(SyncTier::Sync2Timeline.supports_sync2());
     assert!(!SyncTier::Legacy.supports_sync2());
 }

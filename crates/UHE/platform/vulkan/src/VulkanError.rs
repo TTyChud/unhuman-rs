@@ -24,7 +24,10 @@ pub enum BackendError {
     /// The instance enumerated no device with a graphics queue.
     NoGraphicsQueue,
     /// A required instance or device extension is not present.
-    ExtensionUnavailable { name: String, required_for: &'static str },
+    ExtensionUnavailable {
+        name: String,
+        required_for: &'static str,
+    },
     /// The device has no usable queue family at all.
     NoQueueFamilies,
     /// No memory type satisfies the requested property flags.
@@ -104,7 +107,10 @@ impl fmt::Display for BackendError {
             BackendError::InvalidHandle => write!(f, "handle did not resolve"),
             BackendError::NoDescriptorPool => write!(f, "no descriptor pool"),
             BackendError::TooManyBindings { count } => {
-                write!(f, "{count} descriptor bindings exceeds the guaranteed minimum")
+                write!(
+                    f,
+                    "{count} descriptor bindings exceeds the guaranteed minimum"
+                )
             }
             BackendError::Unsupported { what } => write!(f, "device does not support {what}"),
             BackendError::UploadTooLarge { size, capacity } => write!(
@@ -115,7 +121,10 @@ impl fmt::Display for BackendError {
                 f,
                 "{semaphores} semaphores cannot chain {lists} command lists"
             ),
-            BackendError::ListArenaExhausted { requested, available } => write!(
+            BackendError::ListArenaExhausted {
+                requested,
+                available,
+            } => write!(
                 f,
                 "asked for {requested} command lists but the arena holds {available}"
             ),

@@ -33,7 +33,9 @@ pub unsafe fn read_cstr_ptr(ptr: *const std::os::raw::c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+    unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// A `*const c_char` from a `&str`, for the many Vulkan structs that take one.

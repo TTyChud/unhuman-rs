@@ -4,8 +4,8 @@
 //! because `cargo test` has to work on a machine that has never cloned the C++
 //! tree -- but a missing compiler is never silent, the skip says so.
 
-use forge::slangc::{attach_locations, parse_diagnostics, SlangcCompiler};
 use forge::cache::ShaderCache;
+use forge::slangc::{attach_locations, parse_diagnostics, SlangcCompiler};
 use forge::{compile_once, CompileRequest, Forge, Slangc, Stage};
 use std::path::{Path, PathBuf};
 
@@ -29,7 +29,6 @@ fn asset(relative: &str) -> PathBuf {
     }
     panic!("could not find {relative} above {}", manifest.display());
 }
-
 
 fn compiler() -> Option<SlangcCompiler> {
     let compiler = SlangcCompiler::new(Slangc::default()).ok()?;
@@ -83,8 +82,8 @@ fn a_good_shader_compiles_to_valid_spirv() {
 
     let output = scratch("e2e.vert.spv");
     let request = CompileRequest::new(shader(), "vs_main", Stage::Vertex);
-    let module = forge::slangc::compile_once(&compiler, &request, &output)
-        .expect("Triangle.slang compiles");
+    let module =
+        forge::slangc::compile_once(&compiler, &request, &output).expect("Triangle.slang compiles");
 
     assert!(module.is_valid(), "SPIR-V magic is checked on load");
     assert!(
@@ -93,7 +92,10 @@ fn a_good_shader_compiles_to_valid_spirv() {
         module.words.len(),
     );
     assert!(
-        !module.diagnostics.iter().any(|d| d.severity == forge::Severity::Error),
+        !module
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == forge::Severity::Error),
         "no errors, got {:?}",
         module.diagnostics,
     );
@@ -186,7 +188,9 @@ fn editing_the_source_misses_the_cache() {
     let forge = Forge::new(compiler, ShaderCache::new(&root));
 
     let request = CompileRequest::new(&edited, "vs_main", Stage::Vertex);
-    let first = forge.compile(&request, &scratch("e2e-edit.vert.spv")).expect("first");
+    let first = forge
+        .compile(&request, &scratch("e2e-edit.vert.spv"))
+        .expect("first");
     assert!(!first.cached);
 
     let second_edit = original.replace(
@@ -195,8 +199,13 @@ fn editing_the_source_misses_the_cache() {
     );
     assert_ne!(first_edit, second_edit, "the edits must actually differ");
     std::fs::write(&edited, &second_edit).expect("rewrite");
-    let second = forge.compile(&request, &scratch("e2e-edit.vert.spv")).expect("second");
-    assert!(!second.cached, "an edited source must not be served from cache");
+    let second = forge
+        .compile(&request, &scratch("e2e-edit.vert.spv"))
+        .expect("second");
+    assert!(
+        !second.cached,
+        "an edited source must not be served from cache"
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }

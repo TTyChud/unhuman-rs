@@ -61,12 +61,10 @@ impl App {
     /// Builds and starts every plugin in registration order.
     pub fn start(&mut self) -> Result<()> {
         for plugin in &mut self.plugins {
-            plugin
-                .build(&mut self.engine)
-                .map_err(|e| Error::Plugin {
-                    name: plugin.name(),
-                    message: e.to_string(),
-                })?;
+            plugin.build(&mut self.engine).map_err(|e| Error::Plugin {
+                name: plugin.name(),
+                message: e.to_string(),
+            })?;
         }
         for plugin in &mut self.plugins {
             plugin

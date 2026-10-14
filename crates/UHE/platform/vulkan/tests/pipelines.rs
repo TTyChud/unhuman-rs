@@ -7,14 +7,12 @@
 
 use ash::vk;
 use ash::vk::Handle;
-use forge::cache::ShaderCache;
-use forge::{CompileRequest, Slangc, Stage};
-use forge::slangc::SlangcCompiler;
-use stormbreaker::{
-    create_device, device_available, graphic::create, BackendError, DeviceOptions,
-};
 use chassis::{DescriptorKind, ShaderStage, ShaderStageDesc, StageMask};
+use forge::cache::ShaderCache;
+use forge::slangc::SlangcCompiler;
+use forge::{CompileRequest, Slangc, Stage};
 use std::path::{Path, PathBuf};
+use stormbreaker::{create_device, device_available, graphic::create, BackendError, DeviceOptions};
 
 /// A path inside the workspace, found by walking up from this crate.
 ///
@@ -36,7 +34,6 @@ fn asset(relative: &str) -> PathBuf {
     }
     panic!("could not find {relative} above {}", manifest.display());
 }
-
 
 fn shader() -> PathBuf {
     asset("assets/shaders/Triangle.slang")
@@ -74,7 +71,11 @@ fn stages(
         .create_from_words(&context.device, &vertex.words, vk::ShaderStageFlags::VERTEX)
         .ok()?;
     let fragment = shaders
-        .create_from_words(&context.device, &fragment.words, vk::ShaderStageFlags::FRAGMENT)
+        .create_from_words(
+            &context.device,
+            &fragment.words,
+            vk::ShaderStageFlags::FRAGMENT,
+        )
         .ok()?;
     Some((vertex, fragment))
 }
@@ -264,14 +265,17 @@ fn a_different_fragment_shader_is_a_different_pipeline() {
     // The same source, a different compile: different words, different handle.
     let alternate = forge
         .compile(
-            &CompileRequest::new(shader(), "fs_main", Stage::Fragment).optimization(
-                forge::Optimization::O2,
-            ),
+            &CompileRequest::new(shader(), "fs_main", Stage::Fragment)
+                .optimization(forge::Optimization::O2),
             &directory.join("alt.frag.spv"),
         )
         .expect("alternate fragment stage");
     let other_fragment = shaders
-        .create_from_words(&context.device, &alternate.words, vk::ShaderStageFlags::FRAGMENT)
+        .create_from_words(
+            &context.device,
+            &alternate.words,
+            vk::ShaderStageFlags::FRAGMENT,
+        )
         .expect("second fragment module");
 
     let mut pipelines = stormbreaker::vulkan_pipeline_state::Pipelines::new(
@@ -336,7 +340,9 @@ fn a_pipeline_without_a_vertex_stage_is_refused() {
     };
 
     let mut description = desc_with(vertex, Some(fragment), Vec::new());
-    description.shaders.retain(|stage| stage.stage != ShaderStage::Vertex);
+    description
+        .shaders
+        .retain(|stage| stage.stage != ShaderStage::Vertex);
 
     let mut pipelines = stormbreaker::vulkan_pipeline_state::Pipelines::new(
         &context.device,

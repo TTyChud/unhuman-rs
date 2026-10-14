@@ -33,9 +33,7 @@ use std::sync::Mutex;
 use crate::vulkan_render_graph_builder::RenderGraph as Builder;
 use crate::vulkan_render_graph_compiler::ResourceLifetime;
 use crate::vulkan_render_graph_resources::Resources;
-use crate::vulkan_render_graph_types::{
-    ValidationError,
-};
+use crate::vulkan_render_graph_types::ValidationError;
 
 pub use crate::vulkan_render_graph_builder::{PassBuilder, RenderGraph};
 pub use crate::vulkan_render_graph_compiler::{compile, validate, CompiledGraph, CompiledPass};

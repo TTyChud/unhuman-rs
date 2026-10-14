@@ -28,7 +28,11 @@ fn slot_reuse_does_not_resurrect_the_old_handle() {
 
     assert_eq!(old.index(), new.index(), "slot should have been reused");
     assert_ne!(old.generation(), new.generation(), "generation must bump");
-    assert_eq!(registry.get(old), None, "stale handle aliased the new value");
+    assert_eq!(
+        registry.get(old),
+        None,
+        "stale handle aliased the new value"
+    );
     assert_eq!(registry.get(new), Some(&2));
     assert_eq!(registry.len(), 1);
 }

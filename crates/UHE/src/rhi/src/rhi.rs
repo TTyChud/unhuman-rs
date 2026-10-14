@@ -128,7 +128,8 @@ pub trait Resources {
     fn create_shader(&mut self, label: &str, spirv: &[u8]) -> Result<Shader>;
     fn create_pipeline(&mut self, desc: PipelineDesc) -> Result<Pipeline>;
     /// One entry per binding: the buffer plus the byte offset into it.
-    fn create_bind_group(&mut self, layout: &[u32], buffers: &[(Buffer, u64)]) -> Result<BindGroup>;
+    fn create_bind_group(&mut self, layout: &[u32], buffers: &[(Buffer, u64)])
+        -> Result<BindGroup>;
 
     fn destroy_buffer(&mut self, buffer: Buffer);
     fn destroy_texture(&mut self, texture: Texture);

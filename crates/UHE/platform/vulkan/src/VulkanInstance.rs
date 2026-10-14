@@ -104,7 +104,12 @@ pub fn layer_available(entry: &Entry, name: &str) -> bool {
 /// Instance extensions the loader offers, for callers that need one.
 pub fn available_instance_extensions(entry: &Entry) -> Vec<String> {
     unsafe { entry.enumerate_instance_extension_properties(None) }
-        .map(|extensions| extensions.iter().map(|e| unsafe { name_of(e.extension_name.as_ptr()) }).collect())
+        .map(|extensions| {
+            extensions
+                .iter()
+                .map(|e| unsafe { name_of(e.extension_name.as_ptr()) })
+                .collect()
+        })
         .unwrap_or_default()
 }
 

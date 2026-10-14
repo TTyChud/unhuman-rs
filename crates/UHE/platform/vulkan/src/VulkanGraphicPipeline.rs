@@ -49,7 +49,11 @@ fn build(
     // with no vertex stage is a `vkCreateGraphicsPipelines` error, and one with
     // no fragment stage creates fine and writes nothing, so both are caught here
     // with a message that says which.
-    if !desc.shaders.iter().any(|s| s.stage == chassis::ShaderStage::Vertex) {
+    if !desc
+        .shaders
+        .iter()
+        .any(|s| s.stage == chassis::ShaderStage::Vertex)
+    {
         return Err(BackendError::InvalidHandle);
     }
 
@@ -286,9 +290,7 @@ fn shader_stage_of(stage: chassis::ShaderStage) -> vk::ShaderStageFlags {
         chassis::ShaderStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
         chassis::ShaderStage::Compute => vk::ShaderStageFlags::COMPUTE,
         chassis::ShaderStage::Geometry => vk::ShaderStageFlags::GEOMETRY,
-        chassis::ShaderStage::TessellationControl => {
-            vk::ShaderStageFlags::TESSELLATION_CONTROL
-        }
+        chassis::ShaderStage::TessellationControl => vk::ShaderStageFlags::TESSELLATION_CONTROL,
         chassis::ShaderStage::TessellationEvaluation => {
             vk::ShaderStageFlags::TESSELLATION_EVALUATION
         }

@@ -7,9 +7,9 @@
 use ash::vk::Handle;
 use forge::cache::ShaderCache;
 use forge::{CompileRequest, Forge, Slangc, Stage};
+use std::path::{Path, PathBuf};
 use stormbreaker::vulkan_shader::shader_stage_flags;
 use stormbreaker::{create_device, device_available, BackendError, DeviceOptions};
-use std::path::{Path, PathBuf};
 
 /// A path inside the workspace, found by walking up from this crate.
 ///
@@ -31,7 +31,6 @@ fn asset(relative: &str) -> PathBuf {
     }
     panic!("could not find {relative} above {}", manifest.display());
 }
-
 
 fn shader() -> PathBuf {
     asset("assets/shaders/Triangle.slang")
@@ -124,7 +123,10 @@ fn one_source_yields_two_distinct_stage_modules() {
 
     assert_ne!(vertex, fragment, "two handles for two stages");
     assert_eq!(shaders.len(), 2);
-    assert_eq!(shaders.get(vertex).unwrap().stage(), ash::vk::ShaderStageFlags::VERTEX);
+    assert_eq!(
+        shaders.get(vertex).unwrap().stage(),
+        ash::vk::ShaderStageFlags::VERTEX
+    );
     assert_eq!(
         shaders.get(fragment).unwrap().stage(),
         ash::vk::ShaderStageFlags::FRAGMENT
@@ -167,7 +169,10 @@ fn a_rejected_shader_reports_the_compilers_own_diagnostic() {
 /// succeeds and draws nothing, so they map to nothing instead.
 #[test]
 fn stages_the_driver_cannot_bind_map_to_nothing() {
-    assert_eq!(shader_stage_flags(Stage::Vertex), Some(ash::vk::ShaderStageFlags::VERTEX));
+    assert_eq!(
+        shader_stage_flags(Stage::Vertex),
+        Some(ash::vk::ShaderStageFlags::VERTEX)
+    );
     assert_eq!(
         shader_stage_flags(Stage::Fragment),
         Some(ash::vk::ShaderStageFlags::FRAGMENT)

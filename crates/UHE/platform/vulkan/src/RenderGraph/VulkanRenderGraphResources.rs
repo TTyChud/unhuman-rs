@@ -198,7 +198,10 @@ impl Resources {
     }
 
     /// State a given version leaves its resource in.
-    pub fn version_state(&self, access: crate::vulkan_render_graph_types::ResourceAccess) -> Option<ImageState> {
+    pub fn version_state(
+        &self,
+        access: crate::vulkan_render_graph_types::ResourceAccess,
+    ) -> Option<ImageState> {
         match access {
             crate::vulkan_render_graph_types::ResourceAccess::Texture(id, version) => self
                 .textures
@@ -210,7 +213,10 @@ impl Resources {
     }
 
     /// Which pass produced a given version, or `None` for the pre-frame one.
-    pub fn producer(&self, access: crate::vulkan_render_graph_types::ResourceAccess) -> Option<u32> {
+    pub fn producer(
+        &self,
+        access: crate::vulkan_render_graph_types::ResourceAccess,
+    ) -> Option<u32> {
         let producer = match access {
             crate::vulkan_render_graph_types::ResourceAccess::Texture(id, version) => self
                 .textures
@@ -229,10 +235,9 @@ impl Resources {
     /// Highest version declared so far for a resource.
     pub fn latest_version(&self, access: crate::vulkan_render_graph_types::ResourceAccess) -> u32 {
         let log = match access {
-            crate::vulkan_render_graph_types::ResourceAccess::Texture(id, _) => self
-                .textures
-                .get(id as usize)
-                .map(|t| &t.version_log),
+            crate::vulkan_render_graph_types::ResourceAccess::Texture(id, _) => {
+                self.textures.get(id as usize).map(|t| &t.version_log)
+            }
             crate::vulkan_render_graph_types::ResourceAccess::Buffer(id, _) => {
                 self.buffers.get(id as usize).map(|b| &b.version_log)
             }

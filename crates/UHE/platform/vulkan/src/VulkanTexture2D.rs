@@ -85,7 +85,11 @@ pub fn create_color_target(
     create(
         textures,
         device,
-        Texture2DDesc::new(extent, format, TextureUsage::COLOR_ATTACHMENT | TextureUsage::SAMPLED),
+        Texture2DDesc::new(
+            extent,
+            format,
+            TextureUsage::COLOR_ATTACHMENT | TextureUsage::SAMPLED,
+        ),
         label,
     )
 }
@@ -119,7 +123,11 @@ pub fn create_depth_target(
     create(
         textures,
         device,
-        Texture2DDesc::new(extent, format, TextureUsage::DEPTH_ATTACHMENT | TextureUsage::SAMPLED),
+        Texture2DDesc::new(
+            extent,
+            format,
+            TextureUsage::DEPTH_ATTACHMENT | TextureUsage::SAMPLED,
+        ),
         label,
     )
 }
@@ -151,16 +159,27 @@ mod tests {
 
     #[test]
     fn defaults_are_one_mip_and_one_layer() {
-        let desc = Texture2DDesc::new(Extent::new(64, 64), TextureFormat::Rgba8Unorm, TextureUsage::SAMPLED);
+        let desc = Texture2DDesc::new(
+            Extent::new(64, 64),
+            TextureFormat::Rgba8Unorm,
+            TextureUsage::SAMPLED,
+        );
         assert_eq!(desc.mip_levels, 1);
         assert_eq!(desc.clear, None);
     }
 
     #[test]
     fn clear_bytes_become_initial_data() {
-        let desc = Texture2DDesc::new(Extent::new(4, 4), TextureFormat::Rgba8Unorm, TextureUsage::COLOR_ATTACHMENT)
-            .with_clear([1, 2, 3, 4]);
-        let data = desc.to_texture_desc().initial_data.expect("clear was dropped");
+        let desc = Texture2DDesc::new(
+            Extent::new(4, 4),
+            TextureFormat::Rgba8Unorm,
+            TextureUsage::COLOR_ATTACHMENT,
+        )
+        .with_clear([1, 2, 3, 4]);
+        let data = desc
+            .to_texture_desc()
+            .initial_data
+            .expect("clear was dropped");
         assert_eq!(data, vec![1, 2, 3, 4]);
     }
 

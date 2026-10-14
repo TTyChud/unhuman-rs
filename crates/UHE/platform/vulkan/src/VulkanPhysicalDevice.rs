@@ -17,8 +17,8 @@
 
 use ash::{vk, Instance};
 
-use crate::vulkan_extension_check::{version_major, version_minor, QueueFamily};
 use crate::vulkan_error::{BackendError, Result};
+use crate::vulkan_extension_check::{version_major, version_minor, QueueFamily};
 
 pub const TIMELINE_SEMAPHORE: &str = "VK_KHR_timeline_semaphore";
 pub const SYNC_2: &str = "VK_KHR_synchronization2";
@@ -77,7 +77,11 @@ pub fn probe_capabilities(
             synchronization2: has_device_extension(instance, physical_device, SYNC_2),
             timeline_semaphore: has_device_extension(instance, physical_device, TIMELINE_SEMAPHORE),
             dynamic_rendering: has_device_extension(instance, physical_device, DYNAMIC_RENDERING),
-            descriptor_indexing: has_device_extension(instance, physical_device, DESCRIPTOR_INDEXING),
+            descriptor_indexing: has_device_extension(
+                instance,
+                physical_device,
+                DESCRIPTOR_INDEXING,
+            ),
         };
     }
 
@@ -108,7 +112,8 @@ pub fn queue_families(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Result<Vec<QueueFamily>> {
-    let properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+    let properties =
+        unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
     if properties.is_empty() {
         return Err(BackendError::NoQueueFamilies);
     }
@@ -134,9 +139,9 @@ pub fn has_device_extension(
 ) -> bool {
     unsafe { instance.enumerate_device_extension_properties(physical_device) }
         .map(|extensions| {
-            extensions
-                .iter()
-                .any(|e| unsafe { crate::vulkan_instance::name_of(e.extension_name.as_ptr()) } == name)
+            extensions.iter().any(
+                |e| unsafe { crate::vulkan_instance::name_of(e.extension_name.as_ptr()) } == name,
+            )
         })
         .unwrap_or(false)
 }

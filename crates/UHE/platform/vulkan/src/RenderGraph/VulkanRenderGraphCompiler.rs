@@ -1,12 +1,11 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::vulkan_render_graph_types::{transition, ImageBarrier};
 use crate::vulkan_render_graph_resources::Resources;
+use crate::vulkan_render_graph_types::{transition, ImageBarrier};
 use crate::vulkan_render_graph_types::{
-    Access, BufferBarrier, BufferId, Stage, WHOLE_SIZE,
-    ColorAttachment, DepthAttachment, ErrorKind, ImageState, PassDesc, PassType, Queue,
-    ResourceAccess, TextureId, ValidationError,
+    Access, BufferBarrier, BufferId, ColorAttachment, DepthAttachment, ErrorKind, ImageState,
+    PassDesc, PassType, Queue, ResourceAccess, Stage, TextureId, ValidationError, WHOLE_SIZE,
 };
 
 /// A pass, ordered and with its barriers resolved. Pure data: no closures, no
@@ -80,9 +79,10 @@ pub fn validate(passes: &[PassDesc], resources: &Resources) -> Vec<ValidationErr
             }
         }
         if let Some(depth) = &pass.depth {
-            let declared = pass.writes.iter().any(|w| {
-                matches!(w, ResourceAccess::Texture(id, _) if *id == depth.texture)
-            });
+            let declared = pass
+                .writes
+                .iter()
+                .any(|w| matches!(w, ResourceAccess::Texture(id, _) if *id == depth.texture));
             if !declared {
                 errors.push(
                     ValidationError::new(
@@ -102,9 +102,12 @@ pub fn validate(passes: &[PassDesc], resources: &Resources) -> Vec<ValidationErr
         for (i, a) in written.iter().enumerate() {
             if written[i + 1..].iter().any(|b| b.slot() == a.slot()) {
                 errors.push(
-                    ValidationError::new(ErrorKind::DoubleWrite, "resource written twice by one pass")
-                        .in_pass(&pass.name)
-                        .on_resource(resource_name(a, resources)),
+                    ValidationError::new(
+                        ErrorKind::DoubleWrite,
+                        "resource written twice by one pass",
+                    )
+                    .in_pass(&pass.name)
+                    .on_resource(resource_name(a, resources)),
                 );
             }
         }
@@ -112,12 +115,12 @@ pub fn validate(passes: &[PassDesc], resources: &Resources) -> Vec<ValidationErr
         // Read at a version no pass ever produces.
         for read in &pass.reads {
             let known = match read {
-                ResourceAccess::Texture(id, version) => resources.texture(*id).is_some_and(|slot| {
-                    (*version as usize) < slot.version_log.len()
-                }),
-                ResourceAccess::Buffer(id, version) => resources.buffer(*id).is_some_and(|slot| {
-                    (*version as usize) < slot.version_log.len()
-                }),
+                ResourceAccess::Texture(id, version) => resources
+                    .texture(*id)
+                    .is_some_and(|slot| (*version as usize) < slot.version_log.len()),
+                ResourceAccess::Buffer(id, version) => resources
+                    .buffer(*id)
+                    .is_some_and(|slot| (*version as usize) < slot.version_log.len()),
             };
             if !known {
                 errors.push(
@@ -253,14 +256,17 @@ fn topological_order(
 fn cull(passes: &[PassDesc], resources: &Resources, order: Vec<usize>) -> Vec<usize> {
     let touches_import = |p: usize| -> bool {
         let pass = &passes[p];
-        pass.reads.iter().chain(pass.writes.iter()).any(|access| match access {
-            ResourceAccess::Texture(id, _) => {
-                resources.texture(*id).is_some_and(|slot| slot.imported)
-            }
-            ResourceAccess::Buffer(id, _) => {
-                resources.buffer(*id).is_some_and(|slot| slot.imported)
-            }
-        })
+        pass.reads
+            .iter()
+            .chain(pass.writes.iter())
+            .any(|access| match access {
+                ResourceAccess::Texture(id, _) => {
+                    resources.texture(*id).is_some_and(|slot| slot.imported)
+                }
+                ResourceAccess::Buffer(id, _) => {
+                    resources.buffer(*id).is_some_and(|slot| slot.imported)
+                }
+            })
     };
 
     let mut live = vec![false; passes.len()];
@@ -311,10 +317,18 @@ fn buffer_access_of(pass: &PassDesc, buffer: BufferId, role: AccessRole) -> (Acc
         if let ResourceAccess::Buffer(id, _) = access {
             if *id == buffer {
                 return match (pass.kind, role) {
-                    (PassType::Compute, AccessRole::Read) => (Access::ShaderRead, Stage::ComputeShader),
-                    (PassType::Compute, AccessRole::Write) => (Access::ShaderWrite, Stage::ComputeShader),
-                    (PassType::Transfer, AccessRole::Read) => (Access::TransferRead, Stage::Transfer),
-                    (PassType::Transfer, AccessRole::Write) => (Access::TransferWrite, Stage::Transfer),
+                    (PassType::Compute, AccessRole::Read) => {
+                        (Access::ShaderRead, Stage::ComputeShader)
+                    }
+                    (PassType::Compute, AccessRole::Write) => {
+                        (Access::ShaderWrite, Stage::ComputeShader)
+                    }
+                    (PassType::Transfer, AccessRole::Read) => {
+                        (Access::TransferRead, Stage::Transfer)
+                    }
+                    (PassType::Transfer, AccessRole::Write) => {
+                        (Access::TransferWrite, Stage::Transfer)
+                    }
                     (_, AccessRole::Read) => (Access::ShaderRead, Stage::VertexShader),
                     (_, AccessRole::Write) => (Access::ShaderWrite, Stage::VertexShader),
                 };
@@ -338,7 +352,11 @@ fn synthesize_barriers(
     // Current known state per texture, starting from every resource's entry
     // state. Transients start Undefined, so their first transition is free.
     let mut state: Vec<ImageState> = (0..resources.texture_count())
-        .map(|i| resources.texture(i as TextureId).map_or(ImageState::Undefined, |t| t.initial_state))
+        .map(|i| {
+            resources
+                .texture(i as TextureId)
+                .map_or(ImageState::Undefined, |t| t.initial_state)
+        })
         .collect();
 
     let mut first_use: Vec<Option<u32>> = vec![None; resources.texture_count()];

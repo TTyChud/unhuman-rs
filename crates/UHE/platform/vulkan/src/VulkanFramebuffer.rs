@@ -42,7 +42,9 @@ impl Framebuffer {
         layers: u32,
     ) -> Result<Self> {
         if attachments.is_empty() {
-            return Err(BackendError::EmptyUsage { what: "framebuffer" });
+            return Err(BackendError::EmptyUsage {
+                what: "framebuffer",
+            });
         }
         if render_pass == vk::RenderPass::null() {
             return Err(BackendError::InvalidHandle);

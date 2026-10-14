@@ -15,8 +15,14 @@ use ash::vk;
 /// A resource whose destruction has been deferred.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pending {
-    Buffer { buffer: vk::Buffer, memory: vk::DeviceMemory },
-    Texture { image: vk::Image, memory: vk::DeviceMemory },
+    Buffer {
+        buffer: vk::Buffer,
+        memory: vk::DeviceMemory,
+    },
+    Texture {
+        image: vk::Image,
+        memory: vk::DeviceMemory,
+    },
     ImageView(vk::ImageView),
     Framebuffer(vk::Framebuffer),
     Pipeline(vk::Pipeline),
@@ -164,7 +170,11 @@ mod tests {
         // A fourth push rolls the first bucket off, which is what `flush` does
         // once frames are actually in flight.
         queue.push(Pending::ImageView(vk::ImageView::from_raw(4)));
-        assert_eq!(queue.pending(), 4, "pushes accumulate, never drain on their own");
+        assert_eq!(
+            queue.pending(),
+            4,
+            "pushes accumulate, never drain on their own"
+        );
     }
 
     #[test]

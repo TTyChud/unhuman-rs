@@ -77,13 +77,8 @@ pub fn create_device(options: DeviceOptions) -> Result<crate::vulkan_context::Co
     );
     let families = vulkan_physical_device::queue_families(instance, physical_device)?;
 
-    let logical = vulkan_logical_device::create(
-        instance,
-        physical_device,
-        properties,
-        probe,
-        &families,
-    )?;
+    let logical =
+        vulkan_logical_device::create(instance, physical_device, properties, probe, &families)?;
 
     Ok(crate::vulkan_context::Context::new(
         bundle.entry.clone(),

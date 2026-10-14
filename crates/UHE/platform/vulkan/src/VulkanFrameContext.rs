@@ -216,8 +216,7 @@ impl Recorder {
         chain.submit()?;
 
         unsafe {
-            self.device
-                .wait_for_fences(&[self.fence], true, u64::MAX)?;
+            self.device.wait_for_fences(&[self.fence], true, u64::MAX)?;
         }
 
         for recording in ordered {

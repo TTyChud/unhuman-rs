@@ -61,16 +61,23 @@ impl Swapchain {
         let instance_loader = ash::khr::surface::Instance::new(entry, instance);
         let device_loader = ash::khr::swapchain::Device::new(instance, device);
 
-        let capabilities = unsafe { instance_loader.get_physical_device_surface_capabilities(physical_device, surface) }
-            .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", e))?;
-        let formats = unsafe { instance_loader.get_physical_device_surface_formats(physical_device, surface) }
-            .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfaceFormatsKHR", e))?;
-        let present_modes =
-            unsafe { instance_loader.get_physical_device_surface_present_modes(physical_device, surface) }
-                .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfacePresentModesKHR", e))?;
+        let capabilities = unsafe {
+            instance_loader.get_physical_device_surface_capabilities(physical_device, surface)
+        }
+        .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", e))?;
+        let formats = unsafe {
+            instance_loader.get_physical_device_surface_formats(physical_device, surface)
+        }
+        .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfaceFormatsKHR", e))?;
+        let present_modes = unsafe {
+            instance_loader.get_physical_device_surface_present_modes(physical_device, surface)
+        }
+        .map_err(|e| BackendError::vk("vkGetPhysicalDeviceSurfacePresentModesKHR", e))?;
 
         if formats.is_empty() {
-            return Err(BackendError::EmptyUsage { what: "surface formats" });
+            return Err(BackendError::EmptyUsage {
+                what: "surface formats",
+            });
         }
 
         // Prefer 8-bit sRGB for a swapchain unless the surface offers none.
@@ -101,7 +108,9 @@ impl Swapchain {
         // a driver error, so this is reported rather than created.
         let extent = capabilities.current_extent;
         if extent.width == 0 || extent.height == 0 {
-            return Err(BackendError::EmptyUsage { what: "surface extent" });
+            return Err(BackendError::EmptyUsage {
+                what: "surface extent",
+            });
         }
 
         let queue_family_indices = [0u32];
@@ -115,8 +124,7 @@ impl Swapchain {
                 height: extent.height,
             },
             image_array_layers: 1,
-            image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT
-                | vk::ImageUsageFlags::TRANSFER_DST,
+            image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST,
             image_sharing_mode: vk::SharingMode::EXCLUSIVE,
             queue_family_index_count: queue_family_indices.len() as u32,
             p_queue_family_indices: queue_family_indices.as_ptr(),
@@ -129,9 +137,8 @@ impl Swapchain {
             ..Default::default()
         };
 
-        let swapchain =
-            unsafe { device_loader.create_swapchain(&create_info, None) }
-                .map_err(|e| BackendError::vk("vkCreateSwapchainKHR", e))?;
+        let swapchain = unsafe { device_loader.create_swapchain(&create_info, None) }
+            .map_err(|e| BackendError::vk("vkCreateSwapchainKHR", e))?;
 
         let images = unsafe { device_loader.get_swapchain_images(swapchain) }
             .map_err(|e| BackendError::vk("vkGetSwapchainImagesKHR", e))?;
@@ -296,7 +303,6 @@ impl Drop for Swapchain {
     fn drop(&mut self) {
         // Device first, then the surface, which the swapchain references.
         unsafe {
-
             self.device_loader.destroy_swapchain(self.swapchain, None);
         }
         unsafe { self.instance_loader.destroy_surface(self.surface, None) };
@@ -328,7 +334,9 @@ fn choose_format(formats: &[vk::SurfaceFormatKHR]) -> Result<vk::Format> {
     formats
         .first()
         .map(|f| f.format)
-        .ok_or(BackendError::EmptyUsage { what: "surface formats" })
+        .ok_or(BackendError::EmptyUsage {
+            what: "surface formats",
+        })
 }
 
 /// The `chassis` format for a chosen Vulkan surface format, so a caller does not
@@ -371,7 +379,10 @@ mod tests {
             format: vk::Format::R16G16B16A16_SFLOAT,
             color_space: vk::ColorSpaceKHR::SRGB_NONLINEAR,
         };
-        assert_eq!(choose_format(&[only]).unwrap(), vk::Format::R16G16B16A16_SFLOAT);
+        assert_eq!(
+            choose_format(&[only]).unwrap(),
+            vk::Format::R16G16B16A16_SFLOAT
+        );
     }
 
     #[test]

@@ -10,8 +10,8 @@
 use ash::vk;
 use chassis::{Buffer, BufferDesc, BufferUsage, Registry};
 
-use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_allocation;
+use crate::vulkan_error::{BackendError, Result};
 
 pub struct BufferResource {
     buffer: vk::Buffer,
@@ -114,8 +114,13 @@ impl Buffers {
             vk::MemoryPropertyFlags::DEVICE_LOCAL
         };
 
-        let (buffer, device_memory, allocated) =
-            vulkan_allocation::create_buffer(device, &self.memory_properties, desc.size, usage, required)?;
+        let (buffer, device_memory, allocated) = vulkan_allocation::create_buffer(
+            device,
+            &self.memory_properties,
+            desc.size,
+            usage,
+            required,
+        )?;
 
         let host_visible = required.contains(vk::MemoryPropertyFlags::HOST_VISIBLE);
         let resource = BufferResource {
@@ -129,7 +134,12 @@ impl Buffers {
         let handle = self.registry.create(resource);
 
         if let Some(data) = initial {
-            if let Err(e) = self.registry.get(handle).expect("just created").write(device, data) {
+            if let Err(e) = self
+                .registry
+                .get(handle)
+                .expect("just created")
+                .write(device, data)
+            {
                 self.registry.remove(handle);
                 return Err(e);
             }

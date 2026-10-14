@@ -17,8 +17,8 @@
 
 use ash::vk;
 
-use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_allocation;
+use crate::vulkan_error::{BackendError, Result};
 
 /// A per-thread staging ring.
 pub struct UploadRing {
@@ -170,8 +170,7 @@ impl UploadRing {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         let command_buffer = self.command_buffer;
         unsafe {
-            self.device
-                .begin_command_buffer(command_buffer, &begin)?;
+            self.device.begin_command_buffer(command_buffer, &begin)?;
             self.device.cmd_copy_buffer(
                 command_buffer,
                 self.buffer,
@@ -208,8 +207,7 @@ impl UploadRing {
             return Ok(());
         }
         unsafe {
-            self.device
-                .wait_for_fences(&[self.fence], true, u64::MAX)?;
+            self.device.wait_for_fences(&[self.fence], true, u64::MAX)?;
         }
         self.offset = 0;
         self.pending = false;

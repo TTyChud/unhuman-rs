@@ -54,8 +54,15 @@ impl Stage {
     pub fn is_pipeline_stage(self) -> bool {
         matches!(
             self,
-            Stage::Vertex | Stage::Fragment | Stage::Compute | Stage::Geometry
-                | Stage::Hull | Stage::Domain | Stage::Task | Stage::Mesh | Stage::Amplification
+            Stage::Vertex
+                | Stage::Fragment
+                | Stage::Compute
+                | Stage::Geometry
+                | Stage::Hull
+                | Stage::Domain
+                | Stage::Task
+                | Stage::Mesh
+                | Stage::Amplification
         )
     }
 }

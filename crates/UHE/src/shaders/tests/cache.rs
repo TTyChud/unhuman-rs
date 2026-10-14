@@ -27,7 +27,6 @@ fn asset(relative: &str) -> PathBuf {
     panic!("could not find {relative} above {}", manifest.display());
 }
 
-
 fn shader() -> PathBuf {
     asset("assets/shaders/Triangle.slang")
 }
@@ -66,11 +65,8 @@ fn every_flag_reaches_the_key() {
     let base = key("2026.11");
     let version = "2026.11";
 
-    let defined = CacheKey::new(
-        &request().define(Define::value("MAX_LIGHTS", "8")),
-        version,
-    )
-    .expect("readable");
+    let defined = CacheKey::new(&request().define(Define::value("MAX_LIGHTS", "8")), version)
+        .expect("readable");
     let profiled = CacheKey::new(&request().profile("sm_6_5"), version).expect("readable");
     let optimized =
         CacheKey::new(&request().optimization(Optimization::O3), version).expect("readable");
@@ -95,7 +91,10 @@ fn every_flag_reaches_the_key() {
         (entry, "-entry"),
         (stage, "-stage"),
     ] {
-        assert_ne!(base, other, "{what} changes the output, so it must change the key");
+        assert_ne!(
+            base, other,
+            "{what} changes the output, so it must change the key"
+        );
     }
 }
 
@@ -131,7 +130,11 @@ fn arguments_are_deterministic_and_complete() {
         .matrix_layout(MatrixLayout::RowMajor);
 
     let first = request.arguments();
-    assert_eq!(first, request.arguments(), "same request, same command line");
+    assert_eq!(
+        first,
+        request.arguments(),
+        "same request, same command line"
+    );
 
     let joined = first.join(" ");
     for expected in [
@@ -145,18 +148,23 @@ fn arguments_are_deterministic_and_complete() {
         "-D MAX_LIGHTS=8",
         "-D DEBUG",
     ] {
-        assert!(joined.contains(expected), "missing {expected:?} in {joined:?}");
+        assert!(
+            joined.contains(expected),
+            "missing {expected:?} in {joined:?}"
+        );
     }
 }
 
 /// A define must never smuggle in a second flag.
 #[test]
 fn a_define_is_never_split_into_two_arguments() {
-    let request =
-        CompileRequest::new(shader(), "vs_main", Stage::Vertex).define(Define::value("NAME", "1 -D EVIL"));
+    let request = CompileRequest::new(shader(), "vs_main", Stage::Vertex)
+        .define(Define::value("NAME", "1 -D EVIL"));
     let arguments = request.arguments();
     assert!(
-        arguments.iter().any(|argument| argument == "NAME=1 -D EVIL"),
+        arguments
+            .iter()
+            .any(|argument| argument == "NAME=1 -D EVIL"),
         "the value stays in one argument, got {arguments:?}",
     );
     assert!(
@@ -262,5 +270,8 @@ fn only_graphics_and_compute_stages_are_pipeline_stages() {
 #[test]
 fn the_older_fragment_spelling_still_parses() {
     assert_eq!("pixel".parse::<Stage>().unwrap(), Stage::Fragment);
-    assert!("nonsense".parse::<Stage>().is_err(), "and nonsense still fails");
+    assert!(
+        "nonsense".parse::<Stage>().is_err(),
+        "and nonsense still fails"
+    );
 }
