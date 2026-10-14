@@ -11,8 +11,8 @@
 //! the two are reconciled by a boolean handshake
 //! (`MarkSwapchainRenderedByLegacy`, `VulkanDevice.h:82`).
 
-use crate::vulkan_render_graph_types::{BufferBarrier, ImageBarrier};
 use ash::vk;
+use chassis::graph::types::{BufferBarrier, ImageBarrier};
 use chassis::TextureFormat;
 
 use crate::vulkan_extension_check::SyncTier;
@@ -31,8 +31,8 @@ pub struct Target {
 /// The compiler emits backend-neutral `ImageState`s and this is the one place
 /// they become `vk::ImageLayout`, so a second copy of this mapping elsewhere is
 /// how a layout ends up disagreeing with the barrier that set it.
-pub fn layout_for(state: crate::vulkan_render_graph::ImageState) -> vk::ImageLayout {
-    use crate::vulkan_render_graph::ImageState;
+pub fn layout_for(state: chassis::graph::types::ImageState) -> vk::ImageLayout {
+    use chassis::graph::types::ImageState;
     match state {
         ImageState::Undefined => vk::ImageLayout::UNDEFINED,
         ImageState::ColorAttachment => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,

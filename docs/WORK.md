@@ -78,7 +78,13 @@ UHE/                        at the repository root, like the C++ tree
     rhi/                    chassis: the backend-neutral RHI, the seam
     jobs/                   grind: the job system
     shaders/                forge: Slang in, SPIR-V out
-    renderer/               the render graph and the renderer, as a Plugin. Coming.
+    renderer/               the renderer frontend, as a Plugin. Coming.
+  and chassis (UHE/src/rhi) now owns the *render graph*:
+    chassis::graph          types, resources, builder, compiler, facade
+                           -- moved out of the Vulkan backend, because a wgpu
+                              backend that needed the graph would otherwise have
+                              to depend on the Vulkan crate. Two backends
+                              depending on each other is a fork waiting to happen.
 ```
 
 Not under `crates/`. That was `crates/UHE/src`, which said `UHE` twice and

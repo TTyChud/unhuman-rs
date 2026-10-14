@@ -10,8 +10,8 @@
 //! a barrier with the wrong scope, which is the hardest class of GPU bug to
 //! reproduce, so the whole table is readable at once.
 
-use crate::vulkan_render_graph_types::{Access, ImageState, Stage};
 use ash::vk;
+use chassis::graph::types::{Access, ImageState, Stage};
 use chassis::{Extent, SampleCount, TextureFormat};
 
 pub fn layout(state: ImageState) -> vk::ImageLayout {

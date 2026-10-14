@@ -340,7 +340,7 @@ pub struct CommandList<'a> {
     /// tracked by mutating as commands are recorded. Per-pass is the right scope:
     /// lists record in parallel, so a shared running total would be a data race
     /// and a per-list total would not know what the *previous* list left behind.
-    pub layouts: HashMap<Texture, crate::vulkan_render_graph::ImageState>,
+    pub layouts: HashMap<Texture, chassis::graph::types::ImageState>,
 }
 
 impl<'a> CommandList<'a> {
@@ -362,11 +362,7 @@ impl<'a> CommandList<'a> {
     }
 
     /// Tell the list what layout the graph says a texture is in.
-    pub fn declare_layout(
-        &mut self,
-        texture: Texture,
-        state: crate::vulkan_render_graph::ImageState,
-    ) {
+    pub fn declare_layout(&mut self, texture: Texture, state: chassis::graph::types::ImageState) {
         self.layouts.insert(texture, state);
     }
 

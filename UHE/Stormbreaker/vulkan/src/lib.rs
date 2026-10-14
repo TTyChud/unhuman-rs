@@ -106,18 +106,8 @@ pub use vulkan_semaphore::Semaphore;
 pub use vulkan_shader::{content_hash, ShaderResource, Shaders};
 pub use vulkan_texture::{TextureResource, Textures};
 pub use vulkan_upload::UploadRing;
-#[path = "RenderGraph/VulkanRenderGraph.rs"]
-pub mod vulkan_render_graph;
-#[path = "RenderGraph/VulkanRenderGraphBuilder.rs"]
-pub mod vulkan_render_graph_builder;
-#[path = "RenderGraph/VulkanRenderGraphCompiler.rs"]
-pub mod vulkan_render_graph_compiler;
 #[path = "RenderGraph/VulkanRenderGraphExecutor.rs"]
 pub mod vulkan_render_graph_executor;
-#[path = "RenderGraph/VulkanRenderGraphResources.rs"]
-pub mod vulkan_render_graph_resources;
-#[path = "RenderGraph/VulkanRenderGraphTypes.rs"]
-pub mod vulkan_render_graph_types;
 #[path = "VulkanRenderPass.rs"]
 pub mod vulkan_render_pass;
 #[path = "VulkanResources.rs"]

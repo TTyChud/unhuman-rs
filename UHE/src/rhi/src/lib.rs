@@ -7,6 +7,12 @@
 //! signature outside the backend.** That is enforced here by the dependency
 //! list being empty, not by discipline.
 
+/// The render graph: declaration, versioning, compilation.
+///
+/// Backend-neutral by construction -- nothing here imports `ash` or any driver,
+/// which is what lets both `UHE/Stormbreaker/*` backends use the same one.
+pub mod graph;
+
 mod desc;
 mod format;
 mod handle;

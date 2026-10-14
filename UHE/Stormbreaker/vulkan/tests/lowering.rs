@@ -8,8 +8,8 @@
 
 use ash::vk;
 use ash::vk::Handle;
+use chassis::graph::{self as vulkan_render_graph, ImageBarrier, ImageState};
 use chassis::TextureFormat;
-use stormbreaker::vulkan_render_graph::{self as vulkan_render_graph, ImageBarrier, ImageState};
 use stormbreaker::{
     image_barrier2, image_barrier_legacy, select_sync_tier, vulkan_types, SyncTier,
 };
@@ -259,7 +259,7 @@ fn an_empty_transition_is_recognised() {
 /// The seam itself: a barrier produced by the graph, lowered to Vulkan.
 #[test]
 fn a_graph_barrier_survives_the_lowering() {
-    use stormbreaker::vulkan_render_graph::RenderGraph;
+    use chassis::graph::RenderGraph;
 
     let mut graph = RenderGraph::new();
     let swapchain = graph.import_texture("swapchain", ImageState::Undefined, ImageState::Present);

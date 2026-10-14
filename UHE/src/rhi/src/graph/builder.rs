@@ -1,5 +1,5 @@
-use crate::vulkan_render_graph_resources::Resources;
-use crate::vulkan_render_graph_types::{
+use super::resources::Resources;
+use super::types::{
     ColorAttachment, DepthAttachment, ImageState, LoadOp, PassDesc, PassType, Queue,
     ResourceAccess, TextureId, ValidationError,
 };
@@ -53,17 +53,11 @@ impl RenderGraph {
             .import_texture(name, initial_state, final_state)
     }
 
-    pub fn create_buffer(
-        &mut self,
-        name: impl Into<String>,
-    ) -> crate::vulkan_render_graph_types::BufferId {
+    pub fn create_buffer(&mut self, name: impl Into<String>) -> super::types::BufferId {
         self.resources.create_buffer(name)
     }
 
-    pub fn import_buffer(
-        &mut self,
-        name: impl Into<String>,
-    ) -> crate::vulkan_render_graph_types::BufferId {
+    pub fn import_buffer(&mut self, name: impl Into<String>) -> super::types::BufferId {
         self.resources.import_buffer(name)
     }
 
@@ -83,16 +77,14 @@ impl RenderGraph {
     }
 
     pub fn validate(&self) -> Vec<ValidationError> {
-        crate::vulkan_render_graph_compiler::validate(&self.passes, &self.resources)
+        super::compiler::validate(&self.passes, &self.resources)
     }
 
     /// Validates, orders and barrier-synthesises. Returns the compiled frame or
     /// every error found — validation collects all of them before failing, so one
     /// run reports every mistake rather than the first.
-    pub fn compile(
-        &self,
-    ) -> Result<crate::vulkan_render_graph_compiler::CompiledGraph, Vec<ValidationError>> {
-        crate::vulkan_render_graph_compiler::compile(&self.passes, &self.resources)
+    pub fn compile(&self) -> Result<super::compiler::CompiledGraph, Vec<ValidationError>> {
+        super::compiler::compile(&self.passes, &self.resources)
     }
 
     /// Human-readable dump of the raw graph: resources with version counts,
@@ -209,7 +201,7 @@ impl PassBuilder<'_> {
             texture,
             load: LoadOp::Clear,
             clear,
-            resolve: crate::vulkan_render_graph_types::NO_RESOURCE,
+            resolve: super::types::NO_RESOURCE,
         });
         self
     }
@@ -221,7 +213,7 @@ impl PassBuilder<'_> {
             texture,
             load: LoadOp::Load,
             clear: [0.0; 4],
-            resolve: crate::vulkan_render_graph_types::NO_RESOURCE,
+            resolve: super::types::NO_RESOURCE,
         });
         self
     }
@@ -253,7 +245,7 @@ impl PassBuilder<'_> {
         self
     }
 
-    pub fn read_buffer(self, buffer: crate::vulkan_render_graph_types::BufferId) -> Self {
+    pub fn read_buffer(self, buffer: super::types::BufferId) -> Self {
         let version = self.graph.resources.latest_buffer_version(buffer);
         self.graph.passes[self.index]
             .reads
@@ -261,7 +253,7 @@ impl PassBuilder<'_> {
         self
     }
 
-    pub fn write_buffer(self, buffer: crate::vulkan_render_graph_types::BufferId) -> Self {
+    pub fn write_buffer(self, buffer: super::types::BufferId) -> Self {
         let previous = self.graph.resources.latest_buffer_version(buffer);
         self.graph.resources.push_version(
             ResourceAccess::Buffer(buffer, previous),

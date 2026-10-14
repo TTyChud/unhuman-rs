@@ -41,8 +41,9 @@ use crate::vulkan_descriptor_manager::Descriptors;
 use crate::vulkan_error::{BackendError, Result};
 use crate::vulkan_frame_context::Recorder;
 use crate::vulkan_pipeline_state::Pipelines;
-use crate::vulkan_render_graph::{CompiledGraph, VulkanRenderGraph};
 use crate::vulkan_texture::Textures;
+use chassis::graph::CompiledGraph;
+use chassis::graph::RenderGraph as Graph;
 
 /// The registries a command list needs to resolve handles.
 ///
@@ -377,7 +378,7 @@ impl VulkanRenderGraphExecutor {
 /// A pass with no attachments -- a compute pass, or a transfer -- gets no scope,
 /// and `vkCmdBeginRendering` on a pass with nothing to render into is an error.
 fn open_render_scope(
-    pass: &crate::vulkan_render_graph::CompiledPass,
+    pass: &chassis::graph::CompiledPass,
     slots: &SlotTable,
     textures: &Textures,
     extent: &chassis::Extent2d,
@@ -404,9 +405,9 @@ fn open_render_scope(
             // is where it came from.
             format: textures.get(handle).expect("checked above").format(),
             load: match color.load {
-                crate::vulkan_render_graph::LoadOp::Clear => chassis::LoadOp::Clear,
-                crate::vulkan_render_graph::LoadOp::Load => chassis::LoadOp::Load,
-                crate::vulkan_render_graph::LoadOp::DontCare => chassis::LoadOp::DontCare,
+                chassis::graph::LoadOp::Clear => chassis::LoadOp::Clear,
+                chassis::graph::LoadOp::Load => chassis::LoadOp::Load,
+                chassis::graph::LoadOp::DontCare => chassis::LoadOp::DontCare,
             },
             store: true,
             resolve: chassis::Texture::null(),
@@ -445,7 +446,7 @@ fn open_render_scope(
 /// recorded before the draw it follows is worse: it is a wrong one.
 fn record_post_barriers(
     encoder: &BarrierEncoder,
-    pass: &crate::vulkan_render_graph::CompiledPass,
+    pass: &chassis::graph::CompiledPass,
     slots: &SlotTable,
     textures: &Textures,
     list: &mut VulkanCommandList<'_>,
@@ -475,7 +476,7 @@ fn record_post_barriers(
 /// after the draw it was meant to protect is not a barrier, it is a comment.
 fn record_barriers(
     encoder: &BarrierEncoder,
-    pass: &crate::vulkan_render_graph::CompiledPass,
+    pass: &chassis::graph::CompiledPass,
     slots: &SlotTable,
     textures: &Textures,
     buffers: &crate::vulkan_buffer::Buffers,
@@ -508,7 +509,7 @@ fn record_barriers(
         let (offset, size) = match (barrier.offset, barrier.size) {
             // The graph says "the rest of it" because it knows a buffer exists,
             // not how large it is. The executor is the first place that knows.
-            (_, crate::vulkan_render_graph::WHOLE_SIZE) => (0, resource.size()),
+            (_, chassis::graph::WHOLE_SIZE) => (0, resource.size()),
             (offset, size) => (offset, size),
         };
         unsafe {
@@ -557,7 +558,7 @@ fn record_barriers(
 ///
 /// The pairing is the point: the executor holds the recorder, so a frame cannot
 /// be submitted from anywhere but here.
-pub struct RenderGraph {
-    pub graph: VulkanRenderGraph,
+pub struct RenderGraphWithExecutor {
+    pub graph: Graph,
     pub executor: VulkanRenderGraphExecutor,
 }

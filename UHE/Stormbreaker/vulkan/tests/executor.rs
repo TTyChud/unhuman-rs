@@ -9,10 +9,10 @@
 use std::path::{Path, PathBuf};
 
 use ash::vk;
+use chassis::graph;
 use forge::cache::ShaderCache;
 use forge::slangc::SlangcCompiler;
 use forge::Slangc;
-use stormbreaker::vulkan_render_graph as graph;
 use stormbreaker::{create_device, device_available, DeviceOptions};
 
 /// A path inside the workspace, found by walking up from this crate.

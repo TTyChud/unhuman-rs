@@ -1,9 +1,9 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::vulkan_render_graph_resources::Resources;
-use crate::vulkan_render_graph_types::{transition, ImageBarrier};
-use crate::vulkan_render_graph_types::{
+use super::resources::Resources;
+use super::types::{transition, ImageBarrier};
+use super::types::{
     Access, BufferBarrier, BufferId, ColorAttachment, DepthAttachment, ErrorKind, ImageState,
     PassDesc, PassType, Queue, ResourceAccess, Stage, TextureId, ValidationError, WHOLE_SIZE,
 };

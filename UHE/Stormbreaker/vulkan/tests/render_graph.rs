@@ -1,7 +1,5 @@
-use stormbreaker::vulkan_render_graph as graph;
-use stormbreaker::vulkan_render_graph::{
-    ErrorKind, ImageState, PassType, Queue, RenderGraph, ResourceAccess,
-};
+use chassis::graph;
+use chassis::graph::{ErrorKind, ImageState, PassType, Queue, RenderGraph, ResourceAccess};
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 

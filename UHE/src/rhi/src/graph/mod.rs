@@ -1,9 +1,36 @@
 //! The render graph facade: declaration, versioning, compilation.
 //!
-//! Ported from `UHE/src/Platform/Vulkan/RenderGraph/`. The C++ splits this into
-//! `VulkanRenderGraph.h` (73 lines, the facade), `VulkanRenderGraphBuilder.h`,
-//! `VulkanRenderGraphResources.h`, `VulkanRenderGraphTypes.h` and
-//! `VulkanRenderGraphCompiler.cpp`. Same split here, same file names.
+//! Ported from `UHE/src/Platform/Vulkan/RenderGraph/`, and **no longer part of
+//! the Vulkan backend**.
+//!
+//! ## Why it moved
+//!
+//! It was in `UHE/Stormbreaker/vulkan/` because that is where the C++ has it --
+//! `UHE/src/Platform/Vulkan/RenderGraph/`. That was the right reason for a
+//! one-backend engine and the wrong reason for a two-backend one: a wgpu backend
+//! that needs the graph would have had to depend on the Vulkan crate, and two
+//! backends depending on each other is not an architecture, it is a fork waiting
+//! to happen.
+//!
+//! The split was already there and nobody had acted on it: only the *executor*
+//! imported `ash` or `chassis`. The types, the builder, the compiler and this
+//! facade touched nothing, and had done since the first port. They moved because
+//! the dependency arrow was already correct -- the files were just filed in the
+//! wrong place.
+//!
+//! ## What stayed behind
+//!
+//! `VulkanRenderGraphExecutor.rs`, in `UHE/Stormbreaker/vulkan/`. An executor
+//! holds a command buffer and records barriers, so it is genuinely the backend's.
+//! The wgpu backend has its own, which uses the graph's *ordering* and none of
+//! its barriers -- wgpu inserts its own transitions.
+//!
+//! ## The file names changed, and that is a real cost
+//!
+//! `VulkanRenderGraphTypes.h` is now `graph/types.rs`. Two backends cannot both
+//! own a file called `VulkanRenderGraphCompiler.rs`, and a file called that in
+//! `chassis` would be a lie. The C++ names are kept in `docs/WORK.md` so the
+//! mapping is still findable.
 //!
 //! One structural difference, and it is deliberate: **this graph emits
 //! backend-neutral barriers.** The C++ compiler writes `VkImageMemoryBarrier`
@@ -30,15 +57,20 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::vulkan_render_graph_builder::RenderGraph as Builder;
-use crate::vulkan_render_graph_compiler::ResourceLifetime;
-use crate::vulkan_render_graph_resources::Resources;
-use crate::vulkan_render_graph_types::ValidationError;
+pub mod builder;
+pub mod compiler;
+pub mod resources;
+pub mod types;
 
-pub use crate::vulkan_render_graph_builder::{PassBuilder, RenderGraph};
-pub use crate::vulkan_render_graph_compiler::{compile, validate, CompiledGraph, CompiledPass};
-pub use crate::vulkan_render_graph_resources::{BufferSlot, TextureSlot, VersionEntry};
-pub use crate::vulkan_render_graph_types::{
+use builder::RenderGraph as Builder;
+use compiler::ResourceLifetime;
+use resources::Resources;
+use types::ValidationError;
+
+pub use builder::{PassBuilder, RenderGraph};
+pub use compiler::{compile, validate, CompiledGraph, CompiledPass};
+pub use resources::{BufferSlot, TextureSlot, VersionEntry};
+pub use types::{
     access_for_state, stage_for_state, transition, Access, BufferBarrier, BufferId,
     ColorAttachment, DepthAttachment, ErrorKind, ImageBarrier, ImageState, LoadOp, PassDesc,
     PassType, Queue, ResourceAccess, Stage, TextureId, NO_RESOURCE, WHOLE_SIZE,
