@@ -119,6 +119,7 @@ pub fn create(
         ),
         descriptor_indexing: probe.descriptor_indexing,
         max_texture_dimension_2d: properties.limits.max_image_dimension2_d,
+        min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment,
     };
 
     Ok(LogicalDevice {

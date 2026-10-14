@@ -341,8 +341,8 @@ impl chassis::Resources for WgpuResources {
 
     fn create_bind_group(
         &mut self,
-        _layout: &[u32],
-        _buffers: &[(chassis::Buffer, u64)],
+        _layout: &chassis::DescriptorSetLayoutDesc,
+        _buffers: &[(u32, chassis::Buffer, u64)],
     ) -> chassis::Result<chassis::BindGroup> {
         // Same answer as the Vulkan backend, for the same reason: a bind group
         // needs a declared layout and nothing declares one yet. Returning an

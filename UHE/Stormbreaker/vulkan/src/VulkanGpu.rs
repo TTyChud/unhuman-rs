@@ -122,7 +122,8 @@ impl VulkanGpu {
         .map_err(|error| chassis::Error::Unsupported(error.to_string()))?;
 
         let memory = context.memory_properties();
-        let resources = VulkanResources::new(&context.device, memory);
+        let resources = VulkanResources::new(&context.device, memory)
+            .with_uniform_buffer_alignment(capabilities.min_uniform_buffer_offset_alignment);
         let executor = VulkanRenderGraphExecutor::new(recorder, extent);
 
         let info = GpuInfo {

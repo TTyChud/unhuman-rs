@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use ash::{vk, Device};
+use ash::{vk, vk::Handle as _, Device};
 use chassis::Texture;
 
 use crate::vulkan_barrier_encoder;
@@ -43,6 +43,12 @@ pub struct Recording {
     /// Inside `vkCmdBeginRendering` / `vkCmdEndRendering`, tracked so a
     /// mismatched pair is caught here rather than by the driver.
     rendering: bool,
+    /// The layout of the pipeline bound right now. Null until one is bound.
+    ///
+    /// Here rather than on `CommandList`, because recording state is what this
+    /// is: a bind group's validity is defined relative to the bound pipeline, so
+    /// the thing that has to remember it is the thing that records the bind.
+    layout: vk::PipelineLayout,
 }
 
 impl Recording {
@@ -53,6 +59,7 @@ impl Recording {
             buffer,
             slot,
             rendering: false,
+            layout: vk::PipelineLayout::null(),
         }
     }
 
@@ -165,7 +172,14 @@ impl Recording {
             self.device
                 .cmd_bind_pipeline(self.buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
         };
-        let _ = layout;
+        // Remembered, not discarded.
+        //
+        // `vkCmdBindDescriptorSets` takes the pipeline layout, and the only
+        // correct one is the layout of the pipeline that is currently bound. It
+        // was being dropped here and passed as `VK_NULL_HANDLE` at the bind, which
+        // is a validation error the moment anything binds a group -- and nothing
+        // bound one, so it had never been caught.
+        self.layout = layout;
     }
 
     pub fn bind_compute_pipeline(&mut self, pipeline: vk::Pipeline) {
@@ -463,13 +477,23 @@ impl chassis::CommandList for CommandList<'_> {
     }
 
     fn bind_group(&mut self, set: u32, group: &chassis::BindGroup) {
-        // The layout is the pipeline's; a descriptor set allocated against a
-        // different layout is a validation error, and passing the wrong one hides
-        // it.
-        if let Some(handle) = self.descriptors.set(*group) {
-            self.recording
-                .bind_group(set, handle.handle(), vk::PipelineLayout::null());
-        }
+        // The layout is the bound pipeline's, remembered by `bind_pipeline`. It
+        // was `VK_NULL_HANDLE` before, which is a validation error the instant
+        // anything actually binds -- and nothing bound, so nothing caught it.
+        let Some(handle) = self.descriptors.set(*group) else {
+            // A stale handle. Panicking matches `resolve_buffer`: a bind against
+            // a destroyed resource is a caller bug, and silently dropping the
+            // bind would render the frame with the previous group's contents and
+            // look like a shader bug.
+            panic!("bind on a stale bind group handle {group:?}");
+        };
+        assert!(
+            !self.recording.layout.is_null(),
+            "bind_group with no pipeline bound: a descriptor set has no meaning \
+             without the pipeline layout it was allocated against"
+        );
+        self.recording
+            .bind_group(set, handle.handle(), self.recording.layout);
     }
 
     fn set_push_constants(&mut self, data: &[u8]) {

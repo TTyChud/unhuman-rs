@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::desc::{BufferDesc, PipelineDesc, RenderPassDesc, TextureDesc};
+use crate::desc::{BufferDesc, DescriptorSetLayoutDesc, PipelineDesc, RenderPassDesc, TextureDesc};
 use crate::format::TextureFormat;
 use crate::handle::{BindGroup, Buffer, ImageView, Pipeline, Shader, Texture};
 
@@ -156,9 +156,38 @@ pub trait Resources {
     /// rebuild with identical source costs nothing.
     fn create_shader(&mut self, label: &str, spirv: &[u8]) -> Result<Shader>;
     fn create_pipeline(&mut self, desc: PipelineDesc) -> Result<Pipeline>;
-    /// One entry per binding: the buffer plus the byte offset into it.
-    fn create_bind_group(&mut self, layout: &[u32], buffers: &[(Buffer, u64)])
-        -> Result<BindGroup>;
+    /// A bind group: a set of resources a pipeline can read, written once and
+    /// bound many times.
+    ///
+    /// ## Why this takes a descriptor rather than handles
+    ///
+    /// It used to take `layout: &[u32]`, and that is why *neither backend
+    /// implemented it*. A list of opaque `u32`s carries no binding types, no
+    /// counts and no stages, so there was nothing to build a descriptor set
+    /// layout from -- the only correct implementation was to return an error, and
+    /// both did, with a comment saying a layout was needed.
+    ///
+    /// The layout is the same [`DescriptorSetLayoutDesc`] a pipeline declares for
+    /// its set, so a bind group and the pipeline that reads it are built from one
+    /// description and cannot disagree.
+    ///
+    /// ## Buffers
+    ///
+    /// One entry per *explicitly bound* binding: the binding number, the buffer,
+    /// and a byte offset into it. The range runs to the end of the buffer.
+    ///
+    /// Explicit numbers rather than positional, because a layout may declare
+    /// bindings 0 and 7 and leave the gap for another resource kind, and
+    /// "whichever index you passed" is not a rule anyone can hold in their head.
+    ///
+    /// Sampled images and samplers are not here yet; they need an `ImageView` and
+    /// a sampler, and adding half the descriptor kinds now would leave a signature
+    /// that looks complete and silently drops the other half.
+    fn create_bind_group(
+        &mut self,
+        layout: &DescriptorSetLayoutDesc,
+        buffers: &[(u32, Buffer, u64)],
+    ) -> Result<BindGroup>;
 
     fn destroy_buffer(&mut self, buffer: Buffer);
     fn destroy_texture(&mut self, texture: Texture);

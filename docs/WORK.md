@@ -333,6 +333,52 @@ Tests use `VK_EXT_headless_surface`, so the whole thing runs on a machine with n
 display -- which is most CI machines, and therefore most of the tests that should
 exist.
 
+## Bind groups
+
+`Resources::create_bind_group` used to take `layout: &[u32]`, and **that is why
+neither backend implemented it**. A list of opaque `u32`s carries no binding
+types, no counts and no stages, so there was nothing to build a descriptor set
+layout from. Both backends returned an error saying "a layout is needed" and
+both were right.
+
+The signature now takes the same `DescriptorSetLayoutDesc` a pipeline declares for
+its set, so a bind group and the pipeline that reads it are built from one
+description and cannot disagree. Buffer bindings are explicit -- `(binding,
+buffer, offset)` -- rather than positional, because a layout may declare bindings
+0 and 7 and leave the gap for another resource kind.
+
+Vulkan implements it. wgpu still refuses, honestly.
+
+**Three bugs the first working version had**, all found by running it:
+
+- **The descriptor pool was sized for one set and capped at 64.** `max_sets` is
+  only a cap on set *count*; the descriptor counts are what the driver enforces,
+  and they were the requirement of a single set. The first allocation succeeded
+  and the second was `ERROR_OUT_OF_POOL_MEMORY`. `DescriptorPool::create` now
+  multiplies by `max_sets` itself, so the two cannot be set inconsistently.
+- **A zero-length descriptor range "succeeded".** `size.saturating_sub(offset)`
+  turned an offset of 256 into a range of 0, which is
+  `VUID-VkDescriptorBufferInfo-range-00341`. The call returned `Ok` and the
+  descriptor was written pointing at nothing. An offset at or past the end is now
+  refused, naming the offset and the buffer size.
+- **Misaligned offsets were not checked at all.** A uniform buffer offset must be
+  a multiple of `minUniformBufferOffsetAlignment`, and leaving that to validation
+  produces an error naming a *limit* and a *descriptor* and neither the binding
+  nor the offset. The limit is read into `Capabilities` at device creation and
+  checked here.
+
+**`CommandList::bind_group` was passing `VK_NULL_HANDLE` as the pipeline layout.**
+That is a validation error the moment anything binds a group, and nothing bound
+one, so it had never been caught. The layout is now remembered by
+`bind_pipeline` -- it is the only correct answer, since a descriptor set is only
+meaningful relative to the pipeline that reads it.
+
+**Two tests were asserting the absence of the feature.** `bind_groups_refuse_
+rather_than_silently_binding_nothing` asserted that *every* bind group failed. It
+would have kept passing if `create_bind_group` had started returning a handle
+that binds nothing -- the exact failure it exists to prevent, and the one it can
+no longer see. Both tests now check the refusals that remain.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.

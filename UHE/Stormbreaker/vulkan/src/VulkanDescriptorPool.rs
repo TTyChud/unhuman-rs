@@ -65,14 +65,36 @@ pub struct DescriptorPool {
 }
 
 impl DescriptorPool {
+    /// `sizes` is the descriptor requirement **of one set**, and `max_sets` is
+    /// how many sets the pool may hand out.
+    ///
+    /// The two are multiplied here rather than by the caller, because getting it
+    /// wrong is silent: `max_sets` alone is only a cap on set *count*, and the
+    /// driver then refuses the second set with `ERROR_OUT_OF_POOL_MEMORY` while
+    /// the first succeeded. A pool sized for one set and capped at 64 looks right
+    /// right up until the second allocation, which is exactly as far as this was
+    /// ever tested.
+    ///
+    /// Over-counting is the cheap direction. `sizes` accumulates across every
+    /// distinct layout, so a pool holding 10 one-descriptor layouts asks for 640
+    /// descriptors rather than the 64 it could get away with -- all of them
+    /// host-visible bookkeeping, and far cheaper than the bug.
     pub fn create(
         device: &ash::Device,
         sizes: &[vk::DescriptorPoolSize],
         max_sets: u32,
     ) -> Result<Self> {
+        let max_sets = max_sets.max(1);
+        let scaled: Vec<vk::DescriptorPoolSize> = sizes
+            .iter()
+            .map(|size| vk::DescriptorPoolSize {
+                ty: size.ty,
+                descriptor_count: size.descriptor_count.saturating_mul(max_sets),
+            })
+            .collect();
         let info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(max_sets.max(1))
-            .pool_sizes(sizes);
+            .max_sets(max_sets)
+            .pool_sizes(&scaled);
         let pool = unsafe { device.create_descriptor_pool(&info, None) }
             .map_err(|e| BackendError::vk("vkCreateDescriptorPool", e))?;
         Ok(Self {

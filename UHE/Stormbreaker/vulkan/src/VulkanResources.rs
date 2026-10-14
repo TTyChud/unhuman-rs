@@ -49,6 +49,17 @@ pub struct VulkanResources {
     /// after its texture, which nothing checks -- so the registry exists at least
     /// to make the pairing explicit and to give the error a handle to name.
     image_views: Registry<vk::ImageView, chassis::ImageViewTag>,
+    /// `VkPhysicalDeviceLimits::minUniformBufferOffsetAlignment`.
+    ///
+    /// Checked in `create_bind_group` rather than left to validation, because a
+    /// misaligned offset produces
+    /// `VUID-VkWriteDescriptorSet-descriptorType-00327` naming a *limit* and a
+    /// *descriptor*, and not the binding or the offset that was wrong.
+    ///
+    /// One means "not told". A caller that never sets it gets no alignment check
+    /// rather than a wrong one -- which is the honest default, since guessing a
+    /// limit would reject offsets the device would have accepted.
+    uniform_buffer_alignment: vk::DeviceSize,
 }
 
 impl VulkanResources {
@@ -66,6 +77,7 @@ impl VulkanResources {
             pipelines: Pipelines::new(device, vk::PipelineCache::null()),
             descriptors: Descriptors::new(device),
             image_views: Registry::new(),
+            uniform_buffer_alignment: 1,
         }
     }
 
@@ -110,6 +122,25 @@ impl VulkanResources {
         self.image_views.create(view)
     }
 
+    /// Records the device's uniform buffer offset alignment.
+    ///
+    /// Required before `create_bind_group` will validate offsets. `VulkanGpu`
+    /// sets it from `Capabilities`; a caller that skips it gets no check, which
+    /// is the deliberate consequence of not knowing the limit.
+    pub fn with_uniform_buffer_alignment(mut self, alignment: vk::DeviceSize) -> Self {
+        self.uniform_buffer_alignment = alignment.max(1);
+        self
+    }
+
+    /// Distinct descriptor set layouts created so far.
+    ///
+    /// A count that climbs per frame means the layout hash is missing a field,
+    /// and every pass is making its own layout -- at which point a set allocated
+    /// against one layout cannot be bound to a pipeline built with another.
+    pub fn descriptor_layout_count(&self) -> usize {
+        self.descriptors.layout_count()
+    }
+
     pub fn live_image_views(&self) -> usize {
         self.image_views.len()
     }
@@ -123,6 +154,50 @@ impl VulkanResources {
             descriptors: &self.descriptors,
         }
     }
+}
+
+/// The RHI's binding declaration as the descriptor manager's.
+///
+/// A field-by-field copy rather than a `From` impl, because the two are separate
+/// types on purpose: the RHI's carries `stages`, which a set layout does not, and
+/// a `From` would invite someone to reach for it and lose the stage mask without
+/// being told.
+fn convert_binding(binding: &chassis::BindingDesc) -> crate::vulkan_descriptor_manager::Binding {
+    crate::vulkan_descriptor_manager::Binding {
+        binding: binding.binding,
+        count: binding.count,
+        kind: binding.kind,
+    }
+}
+
+/// The `vk::DescriptorType` a layout declares for `binding`.
+///
+/// An error rather than a default, because the two failure modes are different:
+/// a binding that is not declared at all is a caller mistake, and one that is
+/// declared as something `create_bind_group` cannot write yet is a limitation.
+/// Both name the binding.
+fn declared_type(
+    layout: &chassis::DescriptorSetLayoutDesc,
+    binding: u32,
+) -> chassis::Result<vk::DescriptorType> {
+    let declared = layout
+        .bindings
+        .iter()
+        .find(|declared| declared.binding == binding)
+        .ok_or_else(|| {
+            chassis::Error::InvalidDescriptor(format!(
+                "binding {binding} was written but the layout does not declare it"
+            ))
+        })?;
+    Ok(match declared.kind {
+        chassis::DescriptorKind::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+        chassis::DescriptorKind::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
+        other => {
+            return Err(chassis::Error::InvalidDescriptor(format!(
+                "binding {binding} is a {other:?}; create_bind_group writes buffers only"
+            )));
+        }
+    })
 }
 
 /// Map a backend error onto the RHI's.
@@ -200,12 +275,117 @@ impl chassis::Resources for VulkanResources {
 
     fn create_bind_group(
         &mut self,
-        _layout: &[u32],
-        _buffers: &[(chassis::Buffer, u64)],
+        layout: &chassis::DescriptorSetLayoutDesc,
+        buffers: &[(u32, chassis::Buffer, u64)],
     ) -> chassis::Result<chassis::BindGroup> {
-        Err(chassis::Error::Unsupported(
-            "bind groups need a declared set layout, which nothing declares yet".to_owned(),
-        ))
+        // The same descriptor the pipeline declares, so the set and the layout it
+        // was allocated against come from one description. `Descriptors` hashes it,
+        // so a pipeline and its bind group built from equal descriptors share one
+        // `vk::DescriptorSetLayout` -- which is what makes binding a set to a
+        // pipeline legal at all.
+        let set_layout = self
+            .descriptors
+            .layout(&crate::vulkan_descriptor_manager::BindGroupLayoutDesc {
+                bindings: layout.bindings.iter().map(convert_binding).collect(),
+            })
+            .map_err(chassis::Error::from)?;
+
+        let group = self
+            .descriptors
+            .allocate(set_layout)
+            .map_err(chassis::Error::from)?;
+
+        let set = self
+            .descriptors
+            .set(group)
+            .expect("just allocated, so it is in the registry")
+            .handle();
+
+        // Two passes, not one.
+        //
+        // `WriteDescriptorSet::buffer_info` *borrows* the `DescriptorBufferInfo`,
+        // so building both in a single loop keeps a borrow of `infos` live across
+        // the next iteration's `infos.push` -- which may reallocate. The borrow
+        // checker is right to refuse and there is no way to make it wrong in a
+        // way that is also correct in general, so: collect the infos, then point
+        // the writes at them.
+        let mut infos = Vec::with_capacity(buffers.len());
+        let mut types = Vec::with_capacity(buffers.len());
+        for (binding, buffer, offset) in buffers {
+            let resource = self
+                .buffers
+                .get(*buffer)
+                .ok_or(chassis::Error::InvalidHandle)?;
+            // Refused rather than clamped.
+            //
+            // `offset >= size` gives either a zero range or a range that runs off
+            // the end, and both are `vkUpdateDescriptorSets` validation errors:
+            // `VUID-VkDescriptorBufferInfo-range-00341` and
+            // `...-offset-00340`. This used to be `saturating_sub`, which turned
+            // an offset of 256 into a range of 0 -- the call returned `Ok` and the
+            // descriptor was written pointing at nothing.
+            //
+            // Clamping is worse than useless here: the message names neither the
+            // buffer nor the offset, and a descriptor that reads nothing is
+            // indistinguishable from one reading a cleared buffer.
+            let size = resource.size();
+            // Alignment first: a misaligned offset that is also past the end
+            // should name the alignment, which is the thing that is wrong about
+            // it in both cases.
+            let alignment = match declared_type(layout, *binding)? {
+                vk::DescriptorType::UNIFORM_BUFFER => self.uniform_buffer_alignment,
+                _ => 1,
+            };
+            if alignment > 1 && *offset % alignment != 0 {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding}: offset {offset} is not a multiple of this \
+                     device's minUniformBufferOffsetAlignment ({alignment})"
+                )));
+            }
+            if *offset >= size {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding}: offset {offset} is at or past the end of a \
+                     {size}-byte buffer"
+                )));
+            }
+            infos.push(
+                vk::DescriptorBufferInfo::default()
+                    .buffer(resource.handle())
+                    .offset(*offset)
+                    // The range runs to the end of the buffer. `WHOLE_SIZE` would
+                    // run past the allocation for any non-zero offset, which
+                    // validation reports as a range exceeding the buffer --
+                    // confusingly attributed to the descriptor rather than to the
+                    // offset.
+                    .range(size - *offset),
+            );
+            types.push(declared_type(layout, *binding)?);
+        }
+
+        let writes: Vec<vk::WriteDescriptorSet<'_>> = infos
+            .iter()
+            .zip(types)
+            .enumerate()
+            .map(|(slot, (info, descriptor_type))| {
+                let binding = buffers[slot].0;
+                vk::WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(binding)
+                    // Must match what the layout declares. `vkUpdateDescriptorSets`
+                    // does not check -- it writes -- and the mismatch surfaces at
+                    // draw time as "descriptor type mismatch", naming neither the
+                    // layout nor the write.
+                    .descriptor_type(descriptor_type)
+                    .buffer_info(std::slice::from_ref(info))
+            })
+            .collect();
+
+        if !writes.is_empty() {
+            self.descriptors
+                .update(group, &writes, &[])
+                .map_err(chassis::Error::from)?;
+        }
+        Ok(group)
     }
 
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {

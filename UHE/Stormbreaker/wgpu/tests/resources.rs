@@ -230,15 +230,23 @@ fn the_shared_shader_from_forge_is_accepted() {
     assert_ne!(vertex_module, fragment_module);
 }
 
-/// Bind groups are not written yet, and saying so is the point.
+/// Bind groups are still unwritten in wgpu, and saying so is the point.
+///
+/// The signature changed -- it takes a `DescriptorSetLayoutDesc` now, because the
+/// old `&[u32]` could not carry one and that was why *neither* backend could
+/// implement this. What is still true is that wgpu returns an error rather than a
+/// handle that binds nothing.
+///
+/// A bind group that silently binds nothing renders the wrong image and is close
+/// to undebuggable, so the refusal is the feature until the implementation lands.
 #[test]
-fn unwritten_paths_refuse_rather_than_pretending() {
+fn an_unwritten_path_refuses_rather_than_pretending() {
     with_backend!(|resources| {
         let resources: &mut dyn Resources = &mut resources;
-        let group = resources.create_bind_group(&[0], &[]);
+        let group = resources.create_bind_group(&chassis::DescriptorSetLayoutDesc::new("set"), &[]);
         assert!(
             matches!(group, Err(chassis::Error::Unsupported(_))),
-            "bind groups need a declared layout on either backend",
+            "a bind group that binds nothing is worse than no bind group",
         );
     });
 }

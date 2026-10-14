@@ -202,11 +202,22 @@ fn malformed_spirv_is_refused_with_a_reason() {
 /// handle that binds nothing.
 ///
 /// If this ever starts passing, the RHI grew a descriptor path and the test needs
-/// to say what a correct one looks like -- not simply accept it.
+/// Bind groups are implemented now, so this tests what they still refuse.
+///
+/// It used to assert that *every* bind group failed, because none were
+/// implemented. That test would have kept passing if `create_bind_group` had
+/// started returning a handle that binds nothing -- which is the failure mode it
+/// was written to prevent, and the one it can no longer see.
+///
+/// What it checks now is the refusal that genuinely remains: a descriptor kind
+/// `create_bind_group` does not write yet, reached through `&mut dyn Resources`
+/// rather than the concrete type, because the trait object is the only thing a
+/// renderer actually holds.
 #[test]
-fn bind_groups_refuse_rather_than_silently_binding_nothing() {
+fn bind_groups_refuse_what_they_cannot_write() {
     let Some(context) = open_device() else { return };
     let mut backend = resources(&context);
+    let backend: &mut dyn chassis::Resources = &mut backend;
 
     let buffer = backend
         .create_buffer(
@@ -215,11 +226,18 @@ fn bind_groups_refuse_rather_than_silently_binding_nothing() {
         )
         .expect("buffer");
 
+    let mut layout = chassis::DescriptorSetLayoutDesc::new("set");
+    layout.bindings.push(chassis::BindingDesc::new(
+        0,
+        chassis::DescriptorKind::SampledImage,
+        chassis::StageMask::ALL,
+    ));
+
     let error = backend
-        .create_bind_group(&[0], &[(buffer, 0)])
-        .expect_err("bind groups are not implemented yet");
+        .create_bind_group(&layout, &[(0, buffer, 0)])
+        .expect_err("sampled images are not written yet");
     assert!(
-        matches!(error, chassis::Error::Unsupported(_)),
+        matches!(error, chassis::Error::InvalidDescriptor(_)),
         "an unimplemented path must say so, got {error:?}",
     );
 }

@@ -75,6 +75,13 @@ pub struct Capabilities {
     pub memory_budget: bool,
     pub descriptor_indexing: bool,
     pub max_texture_dimension_2d: u32,
+    /// `VkPhysicalDeviceLimits::minUniformBufferOffsetAlignment`.
+    ///
+    /// Read once at device creation so anything writing a descriptor can refuse a
+    /// misaligned offset itself, naming the binding, rather than leaving
+    /// validation to report a limit that points at neither the binding nor the
+    /// offset that was wrong.
+    pub min_uniform_buffer_offset_alignment: u64,
 }
 
 impl Capabilities {
