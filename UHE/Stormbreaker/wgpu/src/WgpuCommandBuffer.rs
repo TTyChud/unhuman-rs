@@ -263,12 +263,25 @@ impl CommandList for WgpuCommandList<'_> {
         }
     }
 
-    fn bind_group(&mut self, _set: u32, _group: &chassis::BindGroup) {
-        // Bind groups are not implemented on this backend yet, and the RHI's
-        // `create_bind_group` refuses, so there is nothing valid to bind. Silently
-        // ignoring it would draw with whatever the last pass left bound, which is
-        // the exact bug a missing bind group causes everywhere.
-        unimplemented!("bind groups are not wired for wgpu yet")
+    fn bind_group(&mut self, set: u32, group: &chassis::BindGroup) {
+        let Some(bind_group) = self.resources.bind_groups.get(*group) else {
+            // Same rule as a stale buffer handle: a bind against a destroyed
+            // group is a caller bug, and dropping the bind would draw with
+            // whatever the last pass left bound -- which looks exactly like a
+            // shader bug and is not one.
+            panic!("bind on a stale bind group handle {group:?}");
+        };
+        // No pipeline layout argument: wgpu's `set_bind_group` takes the index
+        // and resolves the layout against the bound pipeline, and rejects a
+        // group whose layout was not declared there. That check is why the shared
+        // layout cache matters -- see `WgpuResources::bind_group_layout`.
+        // `Some(...)` rather than a bare reference: wgpu's dynamic-offset
+        // overload takes `Option<&BindGroup>`, where `None` means "use the
+        // fallback bind group". Passing the fallback would bind nothing and look
+        // like it worked.
+        self.recording
+            .begin()
+            .set_bind_group(set, Some(bind_group), &[]);
     }
 
     fn set_push_constants(&mut self, _data: &[u8]) {

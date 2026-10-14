@@ -379,6 +379,41 @@ would have kept passing if `create_bind_group` had started returning a handle
 that binds nothing -- the exact failure it exists to prevent, and the one it can
 no longer see. Both tests now check the refusals that remain.
 
+## The wgpu side of bind groups
+
+Vulkan implements `create_bind_group`; wgpu now does too, and the parity test
+runs one body against both through `Box<dyn Gpu>`.
+
+Three wgpu-specific things, none of which were known before running them:
+
+**`count: Some(1)` is rejected. `None` is accepted.** In wgpu 30, `count: Some(n)`
+means a *binding array* and needs the matching `*_BINDING_ARRAY` feature --
+including `Some(1)`. `Some(1)` is the natural translation of `count: 1` and it is
+wrong; the error names a *feature*, not the count. Found by probing all three
+spellings (`Some(1)`, `None`, wider visibility) on a real device, after reading
+the source and the changelog had both said it should work.
+
+**Layouts are compared by identity, not structurally.** Vulkan compares set
+layouts structurally, so two equal-but-separately-created
+`vk::DescriptorSetLayout`s are interchangeable. wgpu does not. So a shared cache
+keyed on `DescriptorSetLayoutDesc::hash` -- which excludes the label, matching
+`is_compatible` exactly -- is an optimisation on Vulkan and a correctness
+requirement on wgpu. `WgpuPipeline::create` now takes its layouts from that cache
+too; it used to build its own per pipeline, which would have made every bind
+group unusable with the pipeline it was meant for.
+
+**`create_bind_group` cannot fail.** It panics on a binding the layout does not
+declare. The RHI returns `Result`, and Vulkan returns an error for the same
+mistake, so a caller cannot defend itself -- the only way to give it an error is
+to check first. Same asymmetry as shader modules, where wgpu panics on a corrupt
+SPIR-V body. The rule: where a wgpu call is infallible, this layer checks what it
+needs and turns the panic into an error.
+
+`DescriptorSetLayoutDesc::hash` was added for the cache. It excludes the label for
+the same reason `is_compatible` does, and the two *must* agree: if the hash
+deduped and `is_compatible` did not, which one a backend believes would decide
+whether a bind group and its pipeline end up with the same object.
+
 ## Decisions made, do not relitigate without a reason
 
 - Static plugin selection by Cargo feature, one crate per alternative.

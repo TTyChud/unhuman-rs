@@ -230,23 +230,112 @@ fn the_shared_shader_from_forge_is_accepted() {
     assert_ne!(vertex_module, fragment_module);
 }
 
-/// Bind groups are still unwritten in wgpu, and saying so is the point.
+/// A bind group, built the same way the Vulkan suite builds one.
 ///
-/// The signature changed -- it takes a `DescriptorSetLayoutDesc` now, because the
-/// old `&[u32]` could not carry one and that was why *neither* backend could
-/// implement this. What is still true is that wgpu returns an error rather than a
-/// handle that binds nothing.
-///
-/// A bind group that silently binds nothing renders the wrong image and is close
-/// to undebuggable, so the refusal is the feature until the implementation lands.
+/// The test that used to sit here asserted that *every* bind group failed, since
+/// wgpu had not implemented them. That assertion could have survived `create_bind_
+/// group` starting to return a handle which binds nothing -- the failure it
+/// exists to catch, and the one it had stopped being able to see.
 #[test]
-fn an_unwritten_path_refuses_rather_than_pretending() {
+fn a_bind_group_is_built_from_its_declared_layout() {
     with_backend!(|resources| {
+        let layout =
+            chassis::DescriptorSetLayoutDesc::new("frame").with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::UniformBuffer,
+                chassis::StageMask::ALL,
+            ));
+
+        let buffer = resources
+            .create_buffer(
+                chassis::BufferDesc::new(256, chassis::BufferUsage::UNIFORM),
+                None,
+            )
+            .expect("a uniform buffer");
+
         let resources: &mut dyn Resources = &mut resources;
-        let group = resources.create_bind_group(&chassis::DescriptorSetLayoutDesc::new("set"), &[]);
+        let group = resources
+            .create_bind_group(&layout, &[(0, buffer, 0)])
+            .expect("a bind group");
+        assert!(!group.is_null(), "a real handle");
+
+        // Destroying releases the generational slot, so a stale handle cannot
+        // resolve to whatever group comes next.
+        resources.destroy_bind_group(group);
+    });
+}
+
+/// The shared layout cache, which in wgpu is load-bearing rather than an
+/// optimisation.
+///
+/// wgpu compares a bind group against the pipeline's layout by *identity*, so two
+/// equal descriptions built separately are two layouts and the group cannot be
+/// used with the pipeline. Vulkan compares structurally and does not care. One
+/// cache, keyed the same way `is_compatible` compares, absorbs the difference.
+#[test]
+fn an_equal_layout_is_one_layout() {
+    with_backend!(|resources| {
+        let mut named_one = chassis::DescriptorSetLayoutDesc::new("frame");
+        named_one.bindings.push(chassis::BindingDesc::new(
+            0,
+            chassis::DescriptorKind::UniformBuffer,
+            chassis::StageMask::ALL,
+        ));
+        let mut named_two = chassis::DescriptorSetLayoutDesc::new("totally-different-name");
+        named_two.bindings = named_one.bindings.clone();
+
+        let before = resources.bind_group_layout_count();
+        let one = resources
+            .bind_group_layout(&named_one)
+            .expect("first layout");
+        let two = resources
+            .bind_group_layout(&named_two)
+            .expect("the same layout under another name");
+        assert_eq!(
+            resources.bind_group_layout_count(),
+            before + 1,
+            "a different label is still the same layout",
+        );
+        // Equality is the available spelling of identity for a wgpu resource
+        // handle. It is a weaker claim than `Arc::ptr_eq` -- wgpu's `PartialEq`
+        // compares the underlying id, which is what "the same object" means here
+        // -- but it is the check that actually matters, and the cache count above
+        // already proves no second object was made.
+        assert_eq!(
+            one, two,
+            "the cache hands back the same layout, not a second one",
+        );
+    });
+}
+
+/// An offset at or past the end of a buffer is refused rather than turned into an
+/// empty range, on both backends and for the same reason: an empty binding reads
+/// nothing and looks like a shader bug.
+#[test]
+fn an_offset_at_or_past_the_end_is_refused() {
+    with_backend!(|resources| {
+        let layout =
+            chassis::DescriptorSetLayoutDesc::new("frame").with(chassis::BindingDesc::new(
+                0,
+                chassis::DescriptorKind::UniformBuffer,
+                chassis::StageMask::ALL,
+            ));
+        let buffer = resources
+            .create_buffer(
+                chassis::BufferDesc::new(256, chassis::BufferUsage::UNIFORM),
+                None,
+            )
+            .expect("a uniform buffer");
+
+        let resources: &mut dyn Resources = &mut resources;
+        assert!(resources
+            .create_bind_group(&layout, &[(0, buffer, 256)])
+            .is_err());
         assert!(
-            matches!(group, Err(chassis::Error::Unsupported(_))),
-            "a bind group that binds nothing is worse than no bind group",
+            resources
+                .create_bind_group(&layout, &[(0, buffer, 1 << 20)])
+                .is_err(),
+            "a wildly out-of-range offset is refused too",
         );
     });
 }

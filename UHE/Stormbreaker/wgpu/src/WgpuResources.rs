@@ -121,6 +121,19 @@ pub struct WgpuResources {
     views: Registry<wgpu::TextureView, chassis::ImageViewTag>,
     shaders: Registry<ShaderResource, chassis::ShaderTag>,
     pipelines: Registry<PipelineResource, chassis::PipelineTag>,
+    pub(crate) bind_groups: Registry<wgpu::BindGroup, chassis::BindGroupTag>,
+    /// `DescriptorSetLayoutDesc::hash` to the layout built from it.
+    ///
+    /// Shared between pipeline creation and bind group creation, and it has to
+    /// be: wgpu compares a bind group against the pipeline's layout by identity,
+    /// so two equal descriptions built separately are two layouts, and binding
+    /// one to the other is a validation error at draw time.
+    ///
+    /// This is the wgpu difference from Vulkan, where the driver compares set
+    /// layouts structurally and two separately-created but identical
+    /// `vk::DescriptorSetLayout`s are interchangeable. Here they are not, so the
+    /// cache is not an optimisation -- it is what makes bind groups work at all.
+    bind_group_layouts: std::collections::HashMap<u64, wgpu::BindGroupLayout>,
 }
 
 impl WgpuResources {
@@ -132,6 +145,8 @@ impl WgpuResources {
             views: Registry::new(),
             shaders: Registry::new(),
             pipelines: Registry::new(),
+            bind_groups: Registry::new(),
+            bind_group_layouts: std::collections::HashMap::new(),
         }
     }
 
@@ -189,6 +204,68 @@ impl WgpuResources {
 
     fn forget_shader(&mut self, handle: chassis::Shader) {
         self.shaders.remove(handle);
+    }
+}
+
+/// wgpu's `count`, from the RHI's.
+///
+/// ## `Some(1)` is rejected; `None` is accepted
+///
+/// In wgpu 30 `count: Some(n)` means a **binding array** and requires the
+/// matching `*_BINDING_ARRAY` feature -- including `Some(1)`. A plain binding
+/// must be `None`. This is not a thing one guesses: `Some(1)` reads like "one
+/// element" and is the natural translation of `count: 1`, and wgpu rejects it
+/// with a message about a *feature* rather than about the count.
+///
+/// So one becomes `None` and only a genuine count above one becomes `Some`.
+/// Proven by probing all three spellings on a real device rather than by reading
+/// the wgpu changelog, which is where the answer should have come from.
+fn binding_count(count: u32) -> Option<std::num::NonZeroU32> {
+    (count > 1)
+        .then(|| std::num::NonZeroU32::new(count))
+        .flatten()
+}
+
+impl WgpuResources {
+    /// The layout for `desc`, built once and shared.
+    ///
+    /// Load-bearing, not an optimisation: wgpu compares a bind group against the
+    /// pipeline's layout by identity, so two equal descriptions built separately
+    /// are two layouts and binding one to the other is a draw-time validation
+    /// error naming neither. Vulkan compares structurally and does not care --
+    /// that is the backend difference this cache exists to absorb.
+    pub fn bind_group_layout(
+        &mut self,
+        desc: &chassis::DescriptorSetLayoutDesc,
+    ) -> chassis::Result<wgpu::BindGroupLayout> {
+        let key = desc.hash();
+        if let Some(layout) = self.bind_group_layouts.get(&key) {
+            return Ok(layout.clone());
+        }
+        let mut entries = Vec::with_capacity(desc.bindings.len());
+        for binding in &desc.bindings {
+            entries.push(wgpu::BindGroupLayoutEntry {
+                binding: binding.binding,
+                visibility: crate::wgpu_pipeline::visibility_of(binding.stages),
+                ty: crate::wgpu_pipeline::layout_type_of(binding.kind)?,
+                count: binding_count(binding.count),
+            });
+        }
+        let layout =
+            self.device
+                .inner()
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(&desc.label),
+                    entries: &entries,
+                });
+        self.bind_group_layouts.insert(key, layout.clone());
+        Ok(layout)
+    }
+
+    /// Distinct bind group layouts built. A count that climbs per frame means
+    /// the cache key does not match `is_compatible`.
+    pub fn bind_group_layout_count(&self) -> usize {
+        self.bind_group_layouts.len()
     }
 }
 
@@ -341,16 +418,64 @@ impl chassis::Resources for WgpuResources {
 
     fn create_bind_group(
         &mut self,
-        _layout: &chassis::DescriptorSetLayoutDesc,
-        _buffers: &[(u32, chassis::Buffer, u64)],
+        layout: &chassis::DescriptorSetLayoutDesc,
+        buffers: &[(u32, chassis::Buffer, u64)],
     ) -> chassis::Result<chassis::BindGroup> {
-        // Same answer as the Vulkan backend, for the same reason: a bind group
-        // needs a declared layout and nothing declares one yet. Returning an
-        // error says so; returning a handle that binds nothing renders the
-        // wrong image.
-        Err(chassis::Error::Unsupported(
-            "bind groups need a declared set layout, which nothing declares yet".to_owned(),
-        ))
+        // The *same* layout object the pipeline was built with, from the shared
+        // cache. Building it here as well would give two equal layouts, and wgpu
+        // compares by identity -- so the bind group would be unusable with the
+        // pipeline and the failure would be at draw time, naming neither.
+        let group_layout = self.bind_group_layout(layout)?;
+
+        // Checked here because `create_bind_group` cannot report it.
+        //
+        // wgpu's `create_bind_group` is infallible: it panics on a binding the
+        // layout does not declare ("Unable to find a corresponding declaration
+        // for the given binding 9"). Vulkan returns an error for the same mistake
+        // and the RHI returns `Result`, so a caller cannot defend itself -- the
+        // only way to give it an error instead of a panic is to refuse first.
+        //
+        // This is the same asymmetry as shader module creation, where wgpu panics
+        // on a corrupt SPIR-V body and Vulkan returns `Result`. The rule that
+        // follows: where a wgpu call cannot fail, this layer checks what it needs
+        // and turns the panic into an error.
+        let mut entries = Vec::with_capacity(buffers.len());
+        for (binding, buffer, offset) in buffers {
+            if !layout.bindings.iter().any(|d| d.binding == *binding) {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding} was written but the layout does not declare it"
+                )));
+            }
+            let resource = self
+                .buffers
+                .get(*buffer)
+                .ok_or(chassis::Error::InvalidHandle)?;
+            let size = resource.size();
+            if *offset >= size {
+                return Err(chassis::Error::InvalidDescriptor(format!(
+                    "binding {binding}: offset {offset} is at or past the end of a \
+                     {size}-byte buffer"
+                )));
+            }
+            entries.push(wgpu::BindGroupEntry {
+                binding: *binding,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &resource.inner,
+                    offset: *offset,
+                    size: wgpu::BufferSize::new(size - *offset),
+                }),
+            });
+        }
+
+        let group = self
+            .device
+            .inner()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&layout.label),
+                layout: &group_layout,
+                entries: &entries,
+            });
+        Ok(self.bind_groups.create(group))
     }
 
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {
@@ -371,5 +496,12 @@ impl chassis::Resources for WgpuResources {
         self.forget_shader(shader);
     }
 
-    fn destroy_bind_group(&mut self, _group: chassis::BindGroup) {}
+    fn destroy_bind_group(&mut self, group: chassis::BindGroup) {
+        // wgpu objects are reference-counted and have no explicit destroy, so
+        // dropping the registry's reference is the whole of it. The slot is
+        // released so a stale handle cannot resolve to a later group -- a
+        // generational handle that resolved would be worse than one that does
+        // not.
+        self.bind_groups.remove(group);
+    }
 }

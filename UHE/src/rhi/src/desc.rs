@@ -201,7 +201,7 @@ impl ShaderStage {
 /// A mask rather than a single stage because a framebuffer-sized buffer is
 /// commonly written by the vertex stage and read by the fragment stage, and
 /// declaring it twice is how that turns into a layout mismatch.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub struct StageMask(pub u32);
 
 impl StageMask {
@@ -244,7 +244,7 @@ pub enum DescriptorKind {
 }
 
 /// One binding within a set.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct BindingDesc {
     pub binding: u32,
     pub kind: DescriptorKind,
@@ -295,6 +295,20 @@ impl DescriptorSetLayoutDesc {
     /// one of them is renamed.
     pub fn is_compatible(&self, other: &Self) -> bool {
         self.bindings == other.bindings
+    }
+
+    /// A cache key with the same exclusions as [`Self::is_compatible`].
+    ///
+    /// Label excluded for the same reason: it exists for diagnostics, and two
+    /// layouts that differ only by name are the same layout. Including it would
+    /// mean the hash and `is_compatible` disagree -- one dedupes, the other does
+    /// not -- and which of the two a backend believes decides whether a bind
+    /// group and a pipeline end up with the same object.
+    pub fn hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.bindings.hash(&mut hasher);
+        hasher.finish()
     }
 }
 

@@ -188,6 +188,63 @@ fn the_device_survives_going_away() {
     assert!(dropped > 0, "no backend opened, so teardown proved nothing");
 }
 
+// Both backends build a bind group from one description and destroy it again.
+//
+// The feature both backends refused to implement for the same reason -- an API
+// that could not describe a layout -- so this is the cross-backend test that
+// matters for it. Each side has its own reasons for getting it subtly wrong:
+// Vulkan compares set layouts structurally and wgpu compares them by identity,
+// so the same cache key is an optimisation on one and a correctness requirement
+// on the other.
+both_backends!(
+    a_bind_group_is_built_and_destroyed_through_the_trait,
+    |gpu: &mut dyn Gpu, context: &str| {
+        let mut layout = chassis::DescriptorSetLayoutDesc::new("frame");
+        layout.bindings.push(chassis::BindingDesc::new(
+            0,
+            chassis::DescriptorKind::UniformBuffer,
+            chassis::StageMask::ALL,
+        ));
+
+        let resources: &mut dyn Resources = gpu.resources();
+        let buffer = resources
+            .create_buffer(
+                chassis::BufferDesc::new(256, chassis::BufferUsage::UNIFORM),
+                None,
+            )
+            .unwrap_or_else(|error| panic!("{context}: uniform buffer: {error}"));
+
+        let group = resources
+            .create_bind_group(&layout, &[(0, buffer, 0)])
+            .unwrap_or_else(|error| panic!("{context}: bind group: {error}"));
+        assert!(!group.is_null(), "{context}: a real bind group handle");
+
+        // And the refusals, which must be refusals on *both* sides. A bind group
+        // that silently binds nothing is the failure mode that is hardest to
+        // debug, so both backends have to agree on what they will not do.
+        assert!(
+            resources
+                .create_bind_group(&layout, &[(0, buffer, 256)])
+                .is_err(),
+            "{context}: an offset at the end of the buffer is refused, not clamped",
+        );
+        assert!(
+            resources
+                .create_bind_group(&layout, &[(9, buffer, 0)])
+                .is_err(),
+            "{context}: writing a binding the layout does not declare is refused",
+        );
+
+        resources.destroy_bind_group(group);
+        resources.destroy_buffer(buffer);
+        // The borrow of `gpu` above ends here, which is why the frame comes
+        // after the destroys rather than before.
+        gpu.frame_begin().expect("frame_begin");
+        gpu.submit().expect("submit after a bind group");
+        gpu.wait_idle();
+    }
+);
+
 /// Both names resolve, both are compiled in, and the default is wgpu.
 #[test]
 fn the_default_is_wgpu_and_both_backends_exist() {

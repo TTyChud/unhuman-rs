@@ -96,7 +96,11 @@ pub fn create(
     resources: &mut WgpuResources,
     desc: &PipelineDesc,
 ) -> chassis::Result<chassis::Pipeline> {
-    let device = resources.device().inner();
+    // Cloned rather than borrowed: `bind_group_layout` below takes `&mut
+    // resources` to reach the shared cache, and a live `&resources.device()` would
+    // make that a conflicting borrow for no reason -- `wgpu::Device` is a
+    // reference-counted handle and cloning it bumps a refcount.
+    let device = resources.device().inner().clone();
 
     // Built here and borrowed by the descriptor, so it outlives the call.
     let attributes: Vec<wgpu::VertexAttribute> = desc
@@ -125,37 +129,18 @@ pub fn create(
     };
     let state = shader_state(resources, desc, buffers)?;
 
-    let layouts: Vec<wgpu::BindGroupLayout> = desc
-        .set_layouts
-        .iter()
-        .map(|set| {
-            let mut entries = Vec::with_capacity(set.bindings.len());
-            for binding in &set.bindings {
-                entries.push(wgpu::BindGroupLayoutEntry {
-                    binding: binding.binding,
-                    visibility: visibility_of(binding.stages),
-                    // A `Result` from a fallible mapping, so an unsupported kind
-                    // names itself rather than becoming a default binding type
-                    // that quietly binds the wrong resource.
-                    ty: layout_type_of(binding.kind)?,
-                    count: std::num::NonZeroU32::new(binding.count.max(1)),
-                });
-            }
-            Ok(
-                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some(&set.label),
-                    entries: &entries,
-                }),
-            )
-        })
-        .collect::<chassis::Result<Vec<_>>>()?;
+    // Through the shared cache, not built here.
+    //
+    // These used to be created fresh per pipeline. That is harmless in Vulkan,
+    // where the driver compares set layouts structurally, and fatal in wgpu,
+    // which compares by identity: a bind group built against the cached layout
+    // would not match a pipeline built against a duplicate of it, and the draw
+    // would fail validation naming neither object.
+    let mut layouts = Vec::with_capacity(desc.set_layouts.len());
+    for set in &desc.set_layouts {
+        layouts.push(resources.bind_group_layout(set)?);
+    }
 
-    // One `None` per declared set. wgpu indexes bind group layouts by *position*
-    // in this slice, and `None` means "not used by this pipeline" -- so a
-    // pipeline with sets 0 and 2 declared needs a three-element slice with a
-    // hole, which is exactly what a Vulkan `VkDescriptorSetLayout[]` cannot
-    // express. Sparser than Vulkan, and the reason a wgpu pipeline that binds
-    // set 3 has to spell out sets 0 to 2.
     let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> = layouts.iter().map(Some).collect();
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(&desc.label),
@@ -251,7 +236,7 @@ fn shader_state<'a>(
     })
 }
 
-fn visibility_of(mask: chassis::StageMask) -> wgpu::ShaderStages {
+pub(crate) fn visibility_of(mask: chassis::StageMask) -> wgpu::ShaderStages {
     let mut stages = wgpu::ShaderStages::empty();
     if mask.contains(ShaderStage::Vertex) {
         stages |= wgpu::ShaderStages::VERTEX;
@@ -271,7 +256,7 @@ fn visibility_of(mask: chassis::StageMask) -> wgpu::ShaderStages {
     stages
 }
 
-fn layout_type_of(kind: chassis::DescriptorKind) -> chassis::Result<wgpu::BindingType> {
+pub(crate) fn layout_type_of(kind: chassis::DescriptorKind) -> chassis::Result<wgpu::BindingType> {
     let texture = wgpu::BindingType::Texture {
         sample_type: wgpu::TextureSampleType::Float { filterable: true },
         view_dimension: wgpu::TextureViewDimension::D2,
