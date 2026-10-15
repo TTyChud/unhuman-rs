@@ -1,0 +1,162 @@
+//! The frame's passes, and the seam a backend records them through.
+//!
+//! Mirrors `UHE/Renderer3D/Renderer3D.cpp` plus the passes the graph makes
+//! possible: a depth prepass (which is also the shadow map), the sky clear, the
+//! opaque and transparent geometry, ambient occlusion, the editor's grid and
+//! gizmo lines, and the composition into the swapchain image.
+//!
+//! ## One recorder, dispatched by pass name
+//!
+//! `PassRecorder` is implemented once, here, and both backends call it
+//! (`chassis::graph::pass`). A backend knows nothing about geometry; the
+//! renderer knows nothing about command pools. The dispatch is by the pass's
+//! name because a graph pass carries no closure — that is deliberate, so a
+//! compiled frame is pure data a worker thread can own.
+
+pub mod composite;
+pub mod geometry;
+pub mod lines;
+pub mod pipeline;
+pub mod shadow;
+pub mod ssao;
+pub mod uniforms;
+
+use std::sync::Arc;
+
+use chassis::graph::{PassRecorder, PassScope, TextureId};
+use chassis::{CommandList, Error};
+
+pub use composite::CompositePass;
+pub use geometry::{GeometryPass, PreparedDraw};
+pub use lines::{GridPass, LineBatch, LinePass, LineVertex};
+pub use pipeline::{PipelineCache, PipelineKey, ShaderSet, ShaderVariant};
+pub use shadow::ShadowPass;
+pub use ssao::{SsaoPass, SsaoUniforms};
+
+/// Pass names, which are also the keys the dispatch is done on.
+pub const PASS_SHADOW: &str = "shadow";
+pub const PASS_SKY: &str = "sky";
+pub const PASS_OPAQUE: &str = "opaque";
+pub const PASS_TRANSPARENT: &str = "transparent";
+pub const PASS_SSAO: &str = "ssao";
+pub const PASS_GRID: &str = "grid";
+pub const PASS_LINES: &str = "lines";
+pub const PASS_COMPOSITE: &str = "composite";
+
+/// The graph slots this frame's passes are attached to.
+///
+/// `backbuffer` names the swapchain image, which the *executor* resolves: a
+/// swapchain image has no RHI `Texture` handle, so the only object that can turn
+/// an acquired image into a barrier target is the backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameTargets {
+    pub scene_color: TextureId,
+    pub scene_depth: TextureId,
+    pub shadow: TextureId,
+    pub ssao: TextureId,
+    pub backbuffer: TextureId,
+}
+
+/// Passes this crate does not own: the 2D batch and the text slice.
+///
+/// `batch2d` and `text` are that slice's; this is the seam, so a frame can
+/// include them without this crate knowing how they draw. `declare` is called
+/// while the frame's graph is open, `record` for each pass name it declared.
+pub trait OverlayPasses: Send + Sync {
+    fn declare(&self, graph: &mut chassis::graph::RenderGraph, targets: &FrameTargets);
+    fn record(
+        &self,
+        pass: &str,
+        scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), Error>;
+}
+
+/// Every recorder of one frame, already prepared.
+///
+/// Built after the frame's textures and uniform buffers exist, then shared with
+/// the backend as one `Arc<dyn PassRecorder>`. Nothing is mutated while
+/// recording, which is what lets a backend record passes on worker threads.
+pub struct FrameRecorder {
+    pub shadow: Option<ShadowPass>,
+    pub geometry: Option<GeometryPass>,
+    pub transparent: Option<GeometryPass>,
+    pub ssao: Option<SsaoPass>,
+    pub grid: Option<GridPass>,
+    pub lines: Option<LinePass>,
+    pub composite: Option<CompositePass>,
+    pub overlay: Option<Arc<dyn OverlayPasses>>,
+}
+
+impl FrameRecorder {
+    pub fn new() -> Self {
+        Self {
+            shadow: None,
+            geometry: None,
+            transparent: None,
+            ssao: None,
+            grid: None,
+            lines: None,
+            composite: None,
+            overlay: None,
+        }
+    }
+}
+
+impl Default for FrameRecorder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn missing(pass: &str) -> Error {
+    Error::InvalidDescriptor(format!(
+        "pass '{pass}' is in the frame's graph with no recorder behind it"
+    ))
+}
+
+impl PassRecorder for FrameRecorder {
+    fn record(&self, scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), Error> {
+        match scope.name {
+            PASS_SHADOW => match &self.shadow {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_SHADOW)),
+            },
+            // The C++ `Renderer3D::BeginScene` clears the target and draws no
+            // sky: there is no sky shader in the tree. The declaration's clear
+            // operation is the pass, so there is nothing to record.
+            PASS_SKY => Ok(()),
+            PASS_OPAQUE => match &self.geometry {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_OPAQUE)),
+            },
+            PASS_TRANSPARENT => match &self.transparent {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_TRANSPARENT)),
+            },
+            PASS_SSAO => match &self.ssao {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_SSAO)),
+            },
+            PASS_GRID => match &self.grid {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_GRID)),
+            },
+            PASS_LINES => match &self.lines {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_LINES)),
+            },
+            PASS_COMPOSITE => match &self.composite {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_COMPOSITE)),
+            },
+            other => match &self.overlay {
+                Some(overlay) => overlay.record(other, scope, list),
+                None => Err(Error::InvalidDescriptor(format!(
+                    "no recorder for pass '{other}': it is neither a bifrost pass nor one \
+                     declared by an installed overlay"
+                ))),
+            },
+        }
+    }
+}

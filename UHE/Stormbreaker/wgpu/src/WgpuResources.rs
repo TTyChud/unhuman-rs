@@ -197,6 +197,49 @@ impl WgpuResources {
         self.pipelines.get(handle)
     }
 
+    /// Mints an RHI handle for a texture this backend did not create.
+    ///
+    /// For swapchain images: the surface owns them and a new one arrives every
+    /// frame, so there is no `TextureDesc` to create one from -- but a render-graph
+    /// pass attaches its target by handle, so there has to be one. Nothing is
+    /// destroyed with the handle; `forget_texture` retires it.
+    pub fn register_texture(
+        &mut self,
+        texture: wgpu::Texture,
+        format: chassis::TextureFormat,
+        extent: chassis::Extent,
+        label: &str,
+    ) -> chassis::Texture {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.textures.create(TextureResource {
+            inner: texture,
+            view,
+            format,
+            extent,
+            label: label.to_owned(),
+        })
+    }
+
+    /// Mints an RHI handle for a view this backend did not create.
+    ///
+    /// The wgpu twin of `VulkanResources::register_image_view`, and for the same
+    /// caller: a swapchain image's view belongs to the surface, so
+    /// `create_image_view` -- which takes a `Texture` from this registry -- cannot
+    /// make one.
+    pub fn register_image_view(&mut self, view: wgpu::TextureView) -> chassis::ImageView {
+        self.views.create(view)
+    }
+
+    /// Retires a handle from [`register_texture`].
+    pub fn forget_texture(&mut self, handle: chassis::Texture) {
+        self.textures.remove(handle);
+    }
+
+    /// Retires a handle from [`register_image_view`].
+    pub fn forget_image_view(&mut self, handle: chassis::ImageView) {
+        self.views.remove(handle);
+    }
+
     /// Live objects, for a leak check in a test.
     pub fn counts(&self) -> (usize, usize, usize, usize) {
         (
@@ -214,10 +257,6 @@ impl WgpuResources {
     /// object and the next use is a use-after-free rather than a clean error.
     fn forget_buffer(&mut self, handle: chassis::Buffer) {
         self.buffers.remove(handle);
-    }
-
-    fn forget_texture(&mut self, handle: chassis::Texture) {
-        self.textures.remove(handle);
     }
 
     fn forget_shader(&mut self, handle: chassis::Shader) {

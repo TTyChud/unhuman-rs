@@ -77,8 +77,20 @@ UHE/                        at the repository root, like the C++ tree
     core/                   adam: engine, app, the Plugin base
     rhi/                    chassis: the backend-neutral RHI, the seam
     jobs/                   grind: the job system
-    shaders/                forge: Slang in, SPIR-V out
-    renderer/               the renderer frontend, as a Plugin. Coming.
+    shaders/                forge: Slang and WGSL in, SPIR-V out
+    events/                 pings: the event bus, key and mouse codes
+    platform/               eyes: window and input, winit re-exported
+    scene/                  meats: ECS, components, hierarchy, .unhuman
+    assets/                 vault: registry, VFS, loaders
+    renderer/               bifrost: the renderer frontend, as a Plugin
+    audio/                  wire: audio, as a Plugin
+    physics/                femur: rigid bodies, as a Plugin
+    editor/                 mirror: the editor model, as a Plugin
+  bins/
+    nocap/                  headless: gpu: None, fixed steps, exits
+    sandbox/                windowed: wgpu, a real swapchain
+    editor/                 gpui over mirror's model, gpui pinned by rev
+  games/aimlab/             the UHEGAME demo layer, as a Plugin
   and chassis (UHE/src/rhi) now owns the *render graph*:
     chassis::graph          types, resources, builder, compiler, facade,
                            and `pass.rs` -- SlotTable, PassScope, PassRecorder,
@@ -177,22 +189,33 @@ frontend too.
       emit different SPIR-V across releases, and a key without it serves stale
       shaders after a toolchain bump.
 
-## Game side — none of this exists yet
+## The port: the game side
 
-0% of the 21,745-line C++ engine outside the backend.
+The 21,745-line C++ engine outside the backend now has a Rust counterpart, crate per
+subsystem, written against `docs/architecture/01-crate-map.md` — that file is the
+contract: the seams, the pinned shapes, the dependency direction, and everything
+deliberately not ported with its reason.
 
-- [ ] **8. `eyes`** — window + input. Needs `ash-window` + `winit`. Unblocks a
-      real window and therefore a real swapchain. **Both platforms**, so the
-      windowing layer is the first place platform differences become real rather
-      than theoretical -- and the Windows CI job exists partly so that code gets
-      compiled early enough for that to be cheap.
-- [ ] **9. `meats`** — ECS on hecs, hierarchy, scene serialisation (2,943 C++
-      lines).
-- [ ] **10. `bifrost`** — renderer frontend: passes, camera, material, mesh.
-- [ ] **11. First triangle on screen.** Requires 8, 9, 10 and a shader.
-- [ ] **12. `vault`** — asset registry with generational handles. The C++ is
-      path-based with no registry (`IDEA.md:61`).
-- [ ] **13. `femur`, `wire`, `mirror`, `pings`** — physics, audio, UI, events.
+| crate | C++ it replaces | what it is |
+|---|---|---|
+| `pings` | `Events/*`, `Core/keyCodes.h`, `mouseButtonCodes.h` | the event bus, the key table, one `Event` enum |
+| `eyes` | `Platform/Windows/*`, `Core/Window.h` | winit 0.30 behind one `run_windowed(desc, frame)` |
+| `meats` | `Scene/*` | hecs ECS, components, hierarchy, `.unhuman` YAML |
+| `vault` | `AssestsManager/*`, `KTX2`, the CPU half of `LoadModel*` | registry with generational handles, VFS, loaders |
+| `bifrost` | `Renderer3D/*`, `Renderer/*`, `MaterialGPU`, `LightSystem`, `SSAO` | passes, cameras, mesh and material caches, text and the 2D batch, animation, IK |
+| `wire` | `Audio/*` | rodio behind `adam::AudioBackend`, voices, attenuation |
+| `femur` | `Physics/PhysicsSystem3D` | rapier3d behind `adam::PhysicsBackend` |
+| `mirror` | `UHE_EDITOR/*`, `ImGui/*` | the editor model: hierarchy, inspector, content browser, gizmos, play state, undo |
+
+`adam::Engine` grew the fields those need (`events`, `input`, `scene`, `assets`,
+`physics`, `audio`) and `App::frame` now owns the frame's shape: input is fed from the
+event bus, fixed steps run `simulate_fixed_step` before the hooks, and plugins drop
+before the engine so a renderer's GPU resources outlive nothing.
+
+Status, stated the way this file states everything else: **the port has not been
+compiled.** It was written on a machine with no compiler available, so every claim above
+is a claim about files that exist and seams that are documented, not about a green run.
+The next step is `cargo build --workspace`, then `./scripts/gate.sh`.
 
 ## Dead or skipped, deliberately
 
@@ -207,6 +230,12 @@ Do not port. Each was measured, not assumed.
 | `UI/VulkanImGui*.h` | **not skipped — relocated.** Referenced by `UHE/src/UHE/ImGui/ImGuiLayer.cpp`. They belong with the UI layer, not the backend. |
 | `UHE/Renderer2D/` | already `EXCLUDE`d from the C++ build (`UHE/CMakeLists.txt:12`) |
 | `Platform/Linux/` | vestigial; `Window::Create` always returns `WindowsWindow` |
+| `Platform/Windows/*` | winit replaces it, on both platforms, from one implementation |
+| `ImGui/*`, `UHE_EDITOR/*` | replaced, not dropped: the model is `mirror`, drawn by gpui in `UHE/bins/editor` |
+| `box2d` 2D physics | the 3D path is the product; 2D returns when a scene needs it, as a `femur` feature |
+| `vendor/basis_universal` | UASTC transcode needs a C++ toolchain at build time; the KTX2 container is parsed by hand and a supercompressed payload is refused by name |
+| msdf-atlas-gen **runtime** atlas generation | FreeType + msdfgen as a build-time C++ dependency. `vault`/`bifrost` rasterise a coverage atlas with `ab_glyph` and read a pre-baked MSDF atlas when one is present; the shader has both sampling modes |
+| `AudioEngine::s_ActiveSounds`, `WindowInput`'s second copy of input state | ambient statics; `Engine` owns audio state and input state, and nothing else does |
 | `UHE/Test/` | declarations with no bodies; `cargo test` replaces them |
 | Tracy macros | replaced by `VulkanScopes.rs` debug-utils labels |
 | global descriptor set | `VulkanCommandBuffer.cpp:370-375`, flagged at `docs/framegraph-and-rendergraph.md:57`; not carried over |

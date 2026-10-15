@@ -18,6 +18,8 @@ pub enum TextureFormat {
     R16Float,
     Rgba16Float,
     R32Float,
+    R32G32Float,
+    R32G32B32Float,
     Rgba32Float,
     R11b11G11B10Float,
     Depth16,
@@ -57,6 +59,11 @@ impl TextureFormat {
             | TextureFormat::Depth32Float
             | TextureFormat::Depth24Stencil8 => 4,
             TextureFormat::R32Float => 4,
+            // Vertex formats, and they are here rather than in a second enum
+            // because Vulkan uses one format table for both. `Rg32Float` and
+            // `Rgb32Float` are the same names wgpu uses.
+            TextureFormat::R32G32Float => 8,
+            TextureFormat::R32G32B32Float => 12,
             TextureFormat::Rgba16Float => 8,
             TextureFormat::Rgba32Float => 16,
         })

@@ -1,0 +1,13 @@
+[package]
+name = "eyes"
+description = "Window and input. winit, re-exported, and nothing else"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pings = { workspace = true }
+log = { workspace = true }
+winit = { workspace = true }
+raw-window-handle = { workspace = true }

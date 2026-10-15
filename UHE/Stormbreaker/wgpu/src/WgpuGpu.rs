@@ -35,8 +35,10 @@ use chassis::{
 };
 
 use crate::wgpu_device::{Adapter, Device, Queue};
+use crate::wgpu_error::WgpuError;
 use crate::wgpu_render_graph_executor::WgpuRenderGraphExecutor as WgpuExecutor;
 use crate::wgpu_resources::WgpuResources;
+use crate::wgpu_surface::WgpuSurface;
 
 /// The wgpu backend, as the RHI sees it.
 pub struct WgpuGpu {
@@ -47,6 +49,11 @@ pub struct WgpuGpu {
     graph: GraphAdapter,
     info: GpuInfo,
     extent: chassis::Extent2d,
+    /// The windowed path. `Some` once [`WgpuGpu::with_surface`] has run, and the
+    /// same field [`chassis::Gpu::swapchain`] reports -- a stored swapchain that
+    /// `swapchain()` did not report was a real bug in the Vulkan backend
+    /// (`docs/WORK.md`), and one field is what stops it happening twice.
+    surface: Option<WgpuSurface>,
     /// The pass recorder a frame is driven by. `None` until one is installed,
     /// which is not an error: a frame with no frontend attached still submits.
     recorder: Option<Arc<dyn PassRecorder>>,
@@ -75,6 +82,55 @@ impl WgpuGpu {
                 "wgpu could not create a device on adapter {adapter_index}"
             )));
         };
+        Ok(Self::from_device(device, queue, adapter_index, extent))
+    }
+
+    /// A device with a window, which is what a windowed run wants.
+    ///
+    /// ## Why the surface is made by the caller
+    ///
+    /// It comes from a window, and the crate that owns windows (`eyes`) re-exports
+    /// `winit::Window` so that `Instance::create_surface(window)` can happen outside
+    /// this crate. Nothing here names a windowing library, and the same code serves
+    /// every platform wgpu does.
+    ///
+    /// ## Why the instance is a parameter
+    ///
+    /// The adapter is requested *with* the surface attached, because an adapter that
+    /// cannot present to the window is not one this backend can use -- and it has to
+    /// be asked on the instance that created the surface, since a surface is only
+    /// meaningful to its own instance. One value, three uses.
+    pub fn with_surface(
+        instance: &wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        extent: chassis::Extent2d,
+    ) -> Result<Self, WgpuError> {
+        let adapter = Adapter::request_for_surface(0, instance, &surface)
+            .ok_or(WgpuError::NoAdapter)?;
+        let adapter_index = adapter.index();
+        let Some((device, queue)) = adapter.create_device("stormglass") else {
+            return Err(WgpuError::NoDevice);
+        };
+        // The surface is built before the gpu so its chosen extent -- clamped, and
+        // chosen from what the surface actually offers -- is the one the frame is
+        // sized to, rather than the one the window asked for.
+        let swapchain = WgpuSurface::new(surface, adapter, device.clone(), queue.clone(), extent)?;
+        let mut gpu = Self::from_device(device, queue, adapter_index, swapchain.extent());
+        gpu.surface = Some(swapchain);
+        Ok(gpu)
+    }
+
+    /// Everything a `Gpu` is once a device exists.
+    ///
+    /// Split out because both constructors need it and neither should have a second
+    /// copy of it: the registry the executor owns, the info a caller reads, and the
+    /// extent the frame is recorded at have to be the same on both paths.
+    fn from_device(
+        device: Device,
+        queue: Queue,
+        adapter_index: u32,
+        extent: chassis::Extent2d,
+    ) -> Self {
         let name = device.adapter_name().to_owned();
         let max_texture_size = device.max_texture_size();
 
@@ -94,7 +150,7 @@ impl WgpuGpu {
             frames_in_flight: 1,
         };
 
-        Ok(Self {
+        Self {
             device,
             queue,
             adapter_index,
@@ -102,8 +158,45 @@ impl WgpuGpu {
             graph: GraphAdapter::new(),
             info,
             extent,
+            surface: None,
             recorder: None,
-        })
+        }
+    }
+
+    /// The attached surface, or `None` headless.
+    ///
+    /// The RHI reaches it through `Gpu::swapchain`; this is the concrete one, for a
+    /// caller that wants the frame's `Texture` handle or the present mode.
+    pub fn surface(&self) -> Option<&WgpuSurface> {
+        self.surface.as_ref()
+    }
+
+    /// Rebuild the swapchain for a new size.
+    ///
+    /// Headless this only records the extent: there is no swapchain to rebuild, and
+    /// the executor needs the size for its viewports.
+    pub fn resize(&mut self, extent: chassis::Extent2d) -> Result<(), WgpuError> {
+        let configured = match self.surface.as_mut() {
+            Some(surface) => {
+                surface.reconfigure(extent)?;
+                Some(surface.extent())
+            }
+            None => None,
+        };
+        self.set_extent(configured.unwrap_or(extent));
+        Ok(())
+    }
+
+    /// Present the frame's image.
+    ///
+    /// A no-op when nothing was acquired -- the acquire timed out, or the window is
+    /// not visible -- because presenting an image nobody holds is presenting an
+    /// index that means nothing.
+    pub fn present(&mut self) -> Result<(), WgpuError> {
+        let Some(surface) = self.surface.as_mut() else {
+            return Err(WgpuError::NoSwapchain);
+        };
+        surface.present(self.executor.resources_mut())
     }
 
     /// Install the code that records each pass.
@@ -156,34 +249,51 @@ impl WgpuGpu {
 
 impl Swapchain for WgpuGpu {
     fn extent(&self) -> chassis::Extent2d {
-        self.extent
+        // The swapchain's extent when there is one: it is the clamped, configured
+        // size, and the window's own is what it was chosen from.
+        match self.surface.as_ref() {
+            Some(surface) => surface.extent(),
+            None => self.extent,
+        }
     }
 
     fn format(&self) -> chassis::TextureFormat {
-        // No swapchain, so nothing chose a format. `Rgba8Unorm` is what the
-        // Vulkan backend reports without one too, and a caller that draws to a
-        // swapchain this backend does not have is already past the point where
-        // this matters.
-        chassis::TextureFormat::Rgba8Unorm
+        // `Rgba8Unorm` with no surface, which is what the Vulkan backend reports
+        // without one too: nothing chose a format, and `Gpu::swapchain` is `None`,
+        // so the answer is only ever read by a caller that ignored it.
+        match self.surface.as_ref() {
+            Some(surface) => surface.format(),
+            None => chassis::TextureFormat::Rgba8Unorm,
+        }
     }
 
     fn current_image_view(&self) -> chassis::ImageView {
-        chassis::ImageView::null()
+        match self.surface.as_ref() {
+            Some(surface) => surface.image_view(),
+            None => chassis::ImageView::null(),
+        }
     }
 
     fn frame_index(&self) -> u32 {
+        // See `WgpuSurface`: wgpu hands out a texture, not an index.
         0
     }
 
     fn image_count(&self) -> u32 {
-        // Zero, and unreachable in practice: `Gpu::swapchain` returns `None` for
-        // wgpu, so nothing can ask. Zero rather than one because one would be a
-        // claim about an image count this backend does not have.
-        0
+        // Zero headless. `Gpu::swapchain` is `None` then, so nothing can ask --
+        // and zero rather than one because one would be a claim about an image
+        // count this backend does not have.
+        match self.surface.as_ref() {
+            Some(surface) => surface.image_count(),
+            None => 0,
+        }
     }
 
     fn is_out_of_date(&self) -> bool {
-        false
+        match self.surface.as_ref() {
+            Some(surface) => surface.is_out_of_date(),
+            None => false,
+        }
     }
 }
 
@@ -241,10 +351,13 @@ impl chassis::Gpu for WgpuGpu {
     }
 
     fn swapchain(&self) -> Option<&dyn Swapchain> {
-        // None, and honestly: this backend is headless. `Gpu::swapchain` returns
-        // an `Option` precisely so that can be said rather than faked with a
-        // dummy, and this is the first implementation that takes the opportunity.
-        None
+        // `Some` once a surface is attached, `None` headless -- the honest answer
+        // the option exists for, and the one the Vulkan backend had to learn:
+        // storing a swapchain and reporting `None` meant attaching a window changed
+        // nothing observable (`docs/WORK.md`).
+        self.surface
+            .as_ref()
+            .map(|surface| surface as &dyn Swapchain)
     }
 
     fn graph(&mut self) -> &mut dyn RenderGraphTrait {
@@ -257,6 +370,16 @@ impl chassis::Gpu for WgpuGpu {
 
     fn frame_begin(&mut self) -> RhiResult<()> {
         self.graph.reset();
+        if let Some(surface) = self.surface.as_mut() {
+            let status = surface.acquire(self.executor.resources_mut())?;
+            // Acquired, skipped, or out of date: all three are ordinary, and an
+            // out-of-date one has already rebuilt the configuration once inside
+            // `acquire`. What is left -- a lost surface, a validation error -- is
+            // not something recording another frame fixes.
+            if !status.acquired() && !status.skips_frame() && !status.needs_reconfigure() {
+                return Err(chassis::Error::Unsupported(status.to_string()));
+            }
+        }
         Ok(())
     }
 

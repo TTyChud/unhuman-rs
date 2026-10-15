@@ -9,3 +9,9 @@ repository.workspace = true
 [dependencies]
 chassis = { workspace = true }
 grind = { workspace = true }
+pings = { workspace = true }
+eyes = { workspace = true }
+meats = { workspace = true }
+vault = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }

@@ -1,0 +1,27 @@
+[package]
+name = "sandbox"
+description = "Windowed binary: wgpu, a real swapchain, one frame loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adam = { workspace = true }
+engine = { workspace = true }
+eyes = { workspace = true }
+meats = { workspace = true }
+vault = { workspace = true }
+bifrost = { workspace = true }
+wire = { workspace = true }
+femur = { workspace = true }
+aimlab = { workspace = true }
+chassis = { workspace = true }
+stormglass = { workspace = true }
+wgpu = { workspace = true }
+grind = { workspace = true }
+glam = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }

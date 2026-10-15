@@ -1,0 +1,20 @@
+[package]
+name = "nocap"
+description = "Headless binary: the same frame loop with no window and no GPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adam = { workspace = true }
+meats = { workspace = true }
+vault = { workspace = true }
+wire = { workspace = true }
+femur = { workspace = true }
+aimlab = { workspace = true }
+grind = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }

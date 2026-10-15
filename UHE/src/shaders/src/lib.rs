@@ -16,6 +16,7 @@ pub mod cache;
 pub mod request;
 pub mod slangc;
 pub mod stage;
+pub mod wgsl;
 
 use std::path::Path;
 

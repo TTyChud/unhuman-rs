@@ -1,0 +1,38 @@
+[package]
+name = "editor"
+description = "The editor binary: gpui over mirror's model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adam = { workspace = true }
+engine = { workspace = true }
+eyes = { workspace = true }
+meats = { workspace = true }
+vault = { workspace = true }
+bifrost = { workspace = true }
+mirror = { workspace = true }
+aimlab = { workspace = true }
+chassis = { workspace = true }
+stormglass = { workspace = true }
+wgpu = { workspace = true }
+grind = { workspace = true }
+glam = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+[dependencies.gpui]
+git = "https://github.com/zed-industries/zed"
+rev = "28d0a354"
+
+# `gpui` alone has no platform implementation at this rev: the Win32, X11/Wayland,
+# AppKit and wasm backends all moved into sibling crates, and `Application` can only
+# be built from one. `gpui_platform::application()` is the constructor every
+# example in the checkout uses, and it is the only way to open a window.
+[dependencies.gpui_platform]
+git = "https://github.com/zed-industries/zed"
+rev = "28d0a354"

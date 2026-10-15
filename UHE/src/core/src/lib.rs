@@ -6,12 +6,14 @@
 //! plugin never reaches into another plugin's state.
 
 pub mod app;
+pub mod backend;
 pub mod engine;
 pub mod error;
 pub mod plugin;
 pub mod time;
 
 pub use app::App;
+pub use backend::{AudioBackend, Listener, PhysicsBackend, VoiceId};
 pub use engine::Engine;
 pub use error::{Error, Result};
 pub use plugin::{FrameCtx, Plugin};

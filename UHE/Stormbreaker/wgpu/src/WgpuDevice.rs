@@ -44,9 +44,30 @@ impl Adapter {
     /// is no discrete GPU and refusing to start would make every backend test
     /// skip, which is how a backend silently stops being tested.
     pub fn request(index: u32) -> Option<Self> {
-        let instance = wgpu::Instance::default();
+        Self::request_with(index, &wgpu::Instance::default(), None)
+    }
+
+    /// An adapter that can present to `surface`, from the instance that made it.
+    ///
+    /// The surface has to come from the same instance: an adapter from a second one
+    /// cannot even be asked whether it can present to it. The windowed path creates
+    /// the instance, the surface and the adapter from one value for that reason.
+    pub fn request_for_surface(
+        index: u32,
+        instance: &wgpu::Instance,
+        surface: &wgpu::Surface<'_>,
+    ) -> Option<Self> {
+        Self::request_with(index, instance, Some(surface))
+    }
+
+    fn request_with(
+        index: u32,
+        instance: &wgpu::Instance,
+        compatible_surface: Option<&wgpu::Surface<'_>>,
+    ) -> Option<Self> {
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface,
             ..Default::default()
         }));
         // A `Result`, not an `Option`: wgpu 30 reports *why* there is no
@@ -106,6 +127,15 @@ impl Adapter {
 
     pub fn features(&self) -> wgpu::Features {
         self.inner.features()
+    }
+
+    /// What the surface offers on this adapter.
+    ///
+    /// Asked again on every reconfigure rather than kept: a window moved to another
+    /// display changes the answer, and `Surface::configure` panics on a format the
+    /// surface no longer offers.
+    pub fn capabilities(&self, surface: &wgpu::Surface<'_>) -> wgpu::SurfaceCapabilities {
+        surface.get_capabilities(&self.inner)
     }
 
     pub fn create_device(&self, label: &str) -> Option<(Device, Queue)> {
@@ -264,6 +294,8 @@ pub fn to_wgpu_format(format: TextureFormat) -> Option<wgpu::TextureFormat> {
         TextureFormat::R16Float => wgpu::TextureFormat::R16Float,
         TextureFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
         TextureFormat::R32Float => wgpu::TextureFormat::R32Float,
+        TextureFormat::R32G32Float => wgpu::TextureFormat::Rg32Float,
+        TextureFormat::R32G32B32Float => wgpu::TextureFormat::Rgb32Float,
         TextureFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
         TextureFormat::R11b11G11B10Float => wgpu::TextureFormat::Rg11b10Ufloat,
         TextureFormat::Depth16 => wgpu::TextureFormat::Depth16Unorm,
@@ -289,6 +321,8 @@ pub fn from_wgpu_format(format: wgpu::TextureFormat) -> Option<TextureFormat> {
         wgpu::TextureFormat::R16Float => TextureFormat::R16Float,
         wgpu::TextureFormat::Rgba16Float => TextureFormat::Rgba16Float,
         wgpu::TextureFormat::R32Float => TextureFormat::R32Float,
+        wgpu::TextureFormat::Rg32Float => TextureFormat::R32G32Float,
+        wgpu::TextureFormat::Rgb32Float => TextureFormat::R32G32B32Float,
         wgpu::TextureFormat::Rgba32Float => TextureFormat::Rgba32Float,
         wgpu::TextureFormat::Rg11b10Ufloat => TextureFormat::R11b11G11B10Float,
         wgpu::TextureFormat::Depth16Unorm => TextureFormat::Depth16,
@@ -337,6 +371,8 @@ pub fn to_wgpu_texture_usage(usage: chassis::TextureUsage) -> wgpu::TextureUsage
 pub fn to_vertex_format(format: TextureFormat) -> Option<wgpu::VertexFormat> {
     Some(match format {
         TextureFormat::R32Float => wgpu::VertexFormat::Float32,
+        TextureFormat::R32G32Float => wgpu::VertexFormat::Float32x2,
+        TextureFormat::R32G32B32Float => wgpu::VertexFormat::Float32x3,
         TextureFormat::Rgba32Float => wgpu::VertexFormat::Float32x4,
         // The packed unorm formats, which is how a mesh format usually arrives.
         _ => return None,

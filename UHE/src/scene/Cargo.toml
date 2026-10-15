@@ -1,0 +1,16 @@
+[package]
+name = "meats"
+description = "ECS, components, hierarchy, scene serialisation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pings = { workspace = true }
+vault = { workspace = true }
+glam = { workspace = true }
+hecs = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+log = { workspace = true }

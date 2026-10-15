@@ -24,9 +24,29 @@ pub mod wgpu_render_graph_executor;
 #[path = "WgpuGpu.rs"]
 pub mod wgpu_gpu;
 
+#[path = "WgpuSurface.rs"]
+pub mod wgpu_surface;
+
+// The names a windowed binary needs, at the crate root: it builds a surface from
+// its window, hands it to the gpu, and drives present itself.
+pub use wgpu_error::WgpuError;
+pub use wgpu_gpu::WgpuGpu;
+pub use wgpu_surface::WgpuSurface;
+
+/// The instance a surface is created from.
+///
+/// One value, three uses: the surface, the adapter and the device all come from it.
+/// They have to -- a surface is only meaningful to the instance that created it, and
+/// `Instance::request_adapter` cannot even ask an adapter from a second one whether
+/// it can present to it.
+pub fn create_instance() -> wgpu::Instance {
+    wgpu::Instance::default()
+}
+
 // Modules that exist to mirror the Vulkan backend's file set. Most are a
-// split-out or a documented absence; two -- `WgpuSwapchain` and `WgpuError` --
-// are real gaps, and each says so at the top of its own file.
+// split-out or a documented absence. Two are no longer gaps: `WgpuSwapchain` is
+// the negotiation a swapchain needs when the API owns the swapchain itself, and
+// `WgpuError` is the backend's own error type.
 #[path = "WgpuAdapter.rs"]
 pub mod wgpu_adapter;
 #[path = "WgpuAllocation.rs"]
