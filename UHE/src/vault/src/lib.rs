@@ -37,6 +37,7 @@
 
 pub mod components;
 pub mod doc;
+pub mod gltf;
 pub mod header;
 pub mod scene_binary;
 pub mod scene_text;
