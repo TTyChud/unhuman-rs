@@ -804,13 +804,14 @@ fn passes_record_on_more_than_one_thread() {
     // machine is busy -- reported "6 of 8 passes ran" and looked like the
     // scheduler had dropped work. It had not: it had run all eight on two
     // threads, which is a correct and unremarkable result.
+    // `SeqCst`, not `Relaxed`. See the note where it is read.
     let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let threads = Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
     let record = {
         let runs = Arc::clone(&runs);
         let threads = Arc::clone(&threads);
         move |_scope: &chassis::graph::PassScope<'_>, _list: &mut dyn chassis::CommandList| {
-            runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             threads
                 .lock()
                 .unwrap()
@@ -824,12 +825,26 @@ fn passes_record_on_more_than_one_thread() {
         .execute(&compiled, fixture.resources(), Arc::new(record), &pool)
         .expect("every pass recorded");
 
-    let seen = threads.lock().unwrap();
+    // **`ran`, not `seen.len()`.**
+    //
+    // This assertion compared the number of *distinct threads* against the number
+    // of passes. Under CPU contention a scheduler spreads eight passes over two
+    // or three threads, so it reported "6 of 8 passes ran" and named a dropped-
+    // pass bug that did not exist. Instrumenting the executor proved all eight
+    // closures entered and all eight recordings came back.
+    //
+    // It is a real bug and it is the kind that survives: the test passed on an
+    // idle machine, where the two numbers coincide, so it looked green for as
+    // long as it was wrong.
+    let ran = runs.load(std::sync::atomic::Ordering::SeqCst);
     assert_eq!(
-        seen.len(),
+        ran,
         compiled.passes.len(),
-        "every pass ran exactly once",
+        "every pass ran exactly once -- fewer means a pass was skipped, more \
+         means one ran twice",
     );
+
+    let seen = threads.lock().unwrap();
     assert!(
         seen.len() >= 2,
         "all {} passes recorded on one thread ({:?}); the executor claims to \\

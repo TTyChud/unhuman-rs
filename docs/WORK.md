@@ -581,6 +581,39 @@ texture on wgpu, and may come from anything on Vulkan -- which checks layouts at
 barrier time instead. So "bind a render target as a texture by mistake" is a
 validation error on one backend and invisible on the other.
 
+## The flake that was not a flake, and the lie in a commit message
+
+`passes_record_on_more_than_one_thread` failed intermittently under CPU
+contention, reporting 3, 4, 5, 6 and 7 of 8 passes -- which reads as a scheduler
+dropping work under load.
+
+It was not. Instrumenting the executor showed **all eight closures entered and all
+eight recordings came back**, every time. The assertion was comparing the number
+of *distinct threads* against the number of passes, and a scheduler under
+contention spreads eight passes over two or three threads.
+
+Three things made this expensive:
+
+**The bug is invisible while it is wrong.** On an idle machine the two numbers
+coincide, so the assertion passed for as long as it was nonsense.
+
+**Commit `f5c30db` claimed the fix and did not contain it.** Its message says the
+test "now counts invocations and threads separately". It did not -- a `runs`
+counter was added and then never read, and the assert kept using the thread set.
+The fix was lost in a backup-and-restore shuffle, and the message was written from
+memory of the intent rather than from the diff.
+
+**`Relaxed` was the wrong first theory.** The obvious explanation for a stale
+count under contention is a `Relaxed` atomic, so it was changed to `SeqCst`. That
+changed nothing, which is what proved the ordering was never the problem.
+
+Reproduced on demand rather than re-run until green: four `nice`-d spinners in a
+self-contained script that kills its own load, so the load cannot outlive the
+measurement the way it did the first time -- when one survived a `kill` and
+starved the shell for twenty minutes.
+
+Three full gates green under load before committing.
+
 ## Roadmap
 
 The full plan is in `session.md` (untracked — it is machine-local). Ten phases,
