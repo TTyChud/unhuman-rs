@@ -102,7 +102,10 @@ pub fn choose_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeA
     // wgpu documents at least one entry, so the fallback is for a list that
     // contradicts its own documentation -- and it is a value rather than an index
     // that would panic on exactly that.
-    modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto)
+    modes
+        .first()
+        .copied()
+        .unwrap_or(wgpu::CompositeAlphaMode::Auto)
 }
 
 /// A size `Surface::configure` will accept.

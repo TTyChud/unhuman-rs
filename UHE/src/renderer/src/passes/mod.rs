@@ -14,8 +14,10 @@
 //! compiled frame is pure data a worker thread can own.
 
 pub mod composite;
+pub mod editor;
 pub mod geometry;
 pub mod lines;
+pub mod overlay;
 pub mod pipeline;
 pub mod shadow;
 pub mod ssao;
@@ -27,20 +29,21 @@ use chassis::graph::{PassRecorder, PassScope, TextureId};
 use chassis::{CommandList, Error};
 
 pub use composite::CompositePass;
-pub use geometry::{GeometryPass, PreparedDraw};
-pub use lines::{GridPass, LineBatch, LinePass, LineVertex};
+pub use editor::EditorPass;
+pub use geometry::{GeometryPass, MaterialPipelines, PreparedDraw};
+pub use lines::{GridPass, GridUniforms, LineBatch, LinePass, LineUniforms, LineVertex};
+pub use overlay::{SpriteTextOverlay, PASS_2D, PASS_TEXT};
 pub use pipeline::{PipelineCache, PipelineKey, ShaderSet, ShaderVariant};
 pub use shadow::ShadowPass;
 pub use ssao::{SsaoPass, SsaoUniforms};
+pub use uniforms::{BindSet, DrawArena, DrawUniforms, FrameUniforms, ImageSet, ShadowUniforms};
 
 /// Pass names, which are also the keys the dispatch is done on.
 pub const PASS_SHADOW: &str = "shadow";
-pub const PASS_SKY: &str = "sky";
 pub const PASS_OPAQUE: &str = "opaque";
-pub const PASS_TRANSPARENT: &str = "transparent";
 pub const PASS_SSAO: &str = "ssao";
-pub const PASS_GRID: &str = "grid";
-pub const PASS_LINES: &str = "lines";
+/// The grid and the gizmos, in one pass.
+pub const PASS_EDITOR: &str = "editor";
 pub const PASS_COMPOSITE: &str = "composite";
 
 /// The graph slots this frame's passes are attached to.
@@ -80,10 +83,8 @@ pub trait OverlayPasses: Send + Sync {
 pub struct FrameRecorder {
     pub shadow: Option<ShadowPass>,
     pub geometry: Option<GeometryPass>,
-    pub transparent: Option<GeometryPass>,
     pub ssao: Option<SsaoPass>,
-    pub grid: Option<GridPass>,
-    pub lines: Option<LinePass>,
+    pub editor: Option<EditorPass>,
     pub composite: Option<CompositePass>,
     pub overlay: Option<Arc<dyn OverlayPasses>>,
 }
@@ -93,10 +94,8 @@ impl FrameRecorder {
         Self {
             shadow: None,
             geometry: None,
-            transparent: None,
             ssao: None,
-            grid: None,
-            lines: None,
+            editor: None,
             composite: None,
             overlay: None,
         }
@@ -122,29 +121,17 @@ impl PassRecorder for FrameRecorder {
                 Some(pass) => pass.record(scope, list),
                 None => Err(missing(PASS_SHADOW)),
             },
-            // The C++ `Renderer3D::BeginScene` clears the target and draws no
-            // sky: there is no sky shader in the tree. The declaration's clear
-            // operation is the pass, so there is nothing to record.
-            PASS_SKY => Ok(()),
             PASS_OPAQUE => match &self.geometry {
                 Some(pass) => pass.record(scope, list),
                 None => Err(missing(PASS_OPAQUE)),
-            },
-            PASS_TRANSPARENT => match &self.transparent {
-                Some(pass) => pass.record(scope, list),
-                None => Err(missing(PASS_TRANSPARENT)),
             },
             PASS_SSAO => match &self.ssao {
                 Some(pass) => pass.record(scope, list),
                 None => Err(missing(PASS_SSAO)),
             },
-            PASS_GRID => match &self.grid {
+            PASS_EDITOR => match &self.editor {
                 Some(pass) => pass.record(scope, list),
-                None => Err(missing(PASS_GRID)),
-            },
-            PASS_LINES => match &self.lines {
-                Some(pass) => pass.record(scope, list),
-                None => Err(missing(PASS_LINES)),
+                None => Err(missing(PASS_EDITOR)),
             },
             PASS_COMPOSITE => match &self.composite {
                 Some(pass) => pass.record(scope, list),

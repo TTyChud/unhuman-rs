@@ -1,0 +1,40 @@
+//! The editor pass: the grid, then the gizmo lines, in one pass.
+//!
+//! Both draw into the scene colour with blending and no depth test, so they are
+//! one pass with one attachment list rather than two. Two passes writing the
+//! same colour target would be a write-after-write the graph does not order:
+//! edges come from declared *reads* (`compiler::topological_order`), and a
+//! `LoadOp::Load` is not a read in that model, so two loading writers of one
+//! texture have no edge between them at all. One pass has no such question.
+//!
+//! `Renderer3D::DrawGrid` is the grid half; the line half is new, because the
+//! C++ draws nothing but the grid.
+
+use chassis::{CommandList, PassScope};
+
+use super::lines::{GridPass, LinePass};
+
+pub struct EditorPass {
+    pub grid: Option<GridPass>,
+    pub lines: Option<LinePass>,
+}
+
+impl EditorPass {
+    pub fn new(grid: Option<GridPass>, lines: Option<LinePass>) -> Self {
+        Self { grid, lines }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.grid.is_none() && self.lines.is_none()
+    }
+
+    pub fn record(&self, scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+        if let Some(grid) = &self.grid {
+            grid.record(scope, list)?;
+        }
+        if let Some(lines) = &self.lines {
+            lines.record(scope, list)?;
+        }
+        Ok(())
+    }
+}

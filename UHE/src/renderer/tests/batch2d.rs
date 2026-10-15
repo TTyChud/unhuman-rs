@@ -7,8 +7,32 @@
 use std::mem::size_of;
 
 use bifrost::batch2d::{quad_transform, Batch2D, SpriteVertex};
+use bifrost::text::TEXT_WGSL;
 use chassis::{Registry, Texture, TextureTag};
 use glam::{Mat4, Vec2, Vec3, Vec4};
+
+/// The 2D shaders have to survive naga, which is the same validator wgpu runs at
+/// shader-module creation. No device: this is the one check that catches a WGSL
+/// mistake without a GPU, and both files are exercised by a pipeline this crate
+/// builds.
+#[test]
+fn the_2d_shaders_validate() {
+    forge::wgsl::check(bifrost::batch2d::SPRITE_WGSL, "sprite.wgsl")
+        .expect("sprite.wgsl validates");
+    forge::wgsl::check(TEXT_WGSL, "text.wgsl").expect("text.wgsl validates");
+
+    for entry in ["vs_main", "fs_main"] {
+        let stage = if entry.starts_with("vs") {
+            forge::Stage::Vertex
+        } else {
+            forge::Stage::Fragment
+        };
+        forge::wgsl::to_spirv_entry(bifrost::batch2d::SPRITE_WGSL, "sprite.wgsl", entry, stage)
+            .expect("sprite.wgsl compiles");
+        forge::wgsl::to_spirv_entry(TEXT_WGSL, "text.wgsl", entry, stage)
+            .expect("text.wgsl compiles");
+    }
+}
 
 /// Two distinct texture handles. Minted through `Registry` because a handle's
 /// constructor is private to `chassis` and two `Texture::null()`s compare equal.
@@ -22,33 +46,42 @@ fn identity() -> Mat4 {
 }
 
 #[test]
-fn flushes_exactly_when_a_second_texture_arrives() {
+fn a_second_texture_starts_a_second_draw() {
     let (first, second) = textures();
     let mut batch = Batch2D::new();
     batch.begin();
 
     batch.push_sprite(Some(first), identity(), Vec4::ONE, 1.0);
     batch.push_sprite(Some(first), identity(), Vec4::ONE, 1.0);
-    assert_eq!(batch.batches().len(), 0, "one texture so far is one draw");
-
-    batch.push_sprite(Some(second), identity(), Vec4::ONE, 1.0);
+    // Complete without a flush: a pass asks what to declare and draw before it
+    // has any reason to call one, and a batch it cannot see is a batch it
+    // silently does not draw.
     assert_eq!(batch.batches().len(), 1);
     assert_eq!(batch.batches()[0].texture, Some(first));
     assert_eq!(batch.batches()[0].index_offset, 0);
     assert_eq!(batch.batches()[0].index_count, 12);
 
-    batch.flush();
+    batch.push_sprite(Some(second), identity(), Vec4::ONE, 1.0);
     assert_eq!(batch.batches().len(), 2);
     assert_eq!(batch.batches()[1].texture, Some(second));
     assert_eq!(batch.batches()[1].index_offset, 12);
     assert_eq!(batch.batches()[1].index_count, 6);
     assert_eq!(batch.stats().draw_calls, 2);
 
-    // Filling again with the same texture reopens rather than adding an empty
-    // draw, and a second flush has nothing left to close.
+    // A flush closes the draw in progress, so the same texture starts another.
     batch.flush();
     assert_eq!(batch.batches().len(), 2);
-    assert_eq!(batch.stats().draw_calls, 2);
+    batch.push_sprite(Some(second), identity(), Vec4::ONE, 1.0);
+    assert_eq!(batch.batches().len(), 3);
+    assert_eq!(batch.batches()[2].texture, Some(second));
+    assert_eq!(batch.batches()[2].index_offset, 18);
+    assert_eq!(batch.batches()[2].index_count, 6);
+    assert_eq!(batch.stats().draw_calls, 3);
+
+    // Nothing left to close.
+    batch.flush();
+    assert_eq!(batch.batches().len(), 3);
+    assert_eq!(batch.stats().draw_calls, 3);
 }
 
 #[test]
@@ -145,6 +178,26 @@ fn tint_and_tiling_travel_with_the_vertex() {
     for vertex in batch.vertices() {
         assert_eq!(vertex.color, tint.to_array());
         assert_eq!(vertex.tiling_factor, 3.0);
+    }
+}
+
+#[test]
+fn a_sub_sprite_carries_its_own_atlas_corners() {
+    let (texture, _) = textures();
+    let uv = [
+        [0.25, 0.0],
+        [0.5, 0.0],
+        [0.5, 0.25],
+        [0.25, 0.25],
+    ];
+    let mut batch = Batch2D::new();
+    batch.push_sprite_uv(Some(texture), identity(), Vec4::ONE, 1.0, uv);
+    batch.flush();
+
+    assert_eq!(batch.vertex_count(), 4);
+    assert_eq!(batch.batches().len(), 1);
+    for (corner, vertex) in batch.vertices().iter().enumerate() {
+        assert_eq!(vertex.uv, uv[corner]);
     }
 }
 

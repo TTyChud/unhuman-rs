@@ -1,27 +1,26 @@
 //! The center viewport.
 //!
-//! ## What it can draw today, and why that is not the engine's image
+//! ## Why there is no engine image here
 //!
-//! The engine's frame is not reachable from here. The editor window belongs to
-//! gpui, so the engine is built headless (`engine::create_gpu_from_process` hands
-//! back `WgpuGpu::headless`, and `chassis::Gpu::swapchain()` is `None` by
-//! design). Phase one of `bifrost` then declares, compiles and validates its
-//! render graph but does not submit it, because `chassis::Gpu` has no entry point
-//! that takes a compiled frame and a recorder. And there is no readback either:
-//! `chassis::Resources` creates and destroys resources, it does not hand pixels
-//! back to the CPU.
+//! The editor window belongs to gpui, so the engine is built headless
+//! (`engine::create_gpu_from_process` hands back `WgpuGpu::headless`, and
+//! `chassis::Gpu::swapchain()` is `None` by design). The renderer records its
+//! frame through `chassis::Gpu::record_frame` — that part works — but the RHI has
+//! **no readback**: `chassis::Resources` creates and destroys resources and never
+//! hands pixels to the CPU, so the image the engine drew cannot reach this panel.
 //!
 //! So the viewport draws the theme background and says what is missing. It does
-//! **not** draw an image, because there is no image: a stored RGBA buffer here
-//! would be a claim about pixels the renderer never produced.
+//! **not** draw an image, and it has no image to overlay a gizmo on: a stored RGBA
+//! buffer here would be a claim about pixels nothing can hand over.
 //!
-//! When a producer exists, this file gains the frame it hands over — extent plus
-//! RGBA8 — and `panels::viewport` draws it instead of the overlay. Nothing else
-//! changes; the panel is already the only caller.
+//! What would change it: an `Image`/readback in `chassis`, or gpui owning the
+//! surface the frame is presented to. Either one and this file gains the frame —
+//! extent plus RGBA8 — and `panels::viewport` draws it instead of the text.
+//! Nothing else changes; the panel is already the only caller.
 
 /// Shown in the middle of the viewport, in place of an image.
 pub const MISSING_FRAME_REASON: &str =
-    "no engine image: bifrost compiles its frame but has no executor, and chassis has no readback";
+    "no engine image: chassis has no readback from the RHI to the UI";
 
 /// The renderer's name, or why there is none.
 pub fn backend_label(backend: Option<&str>) -> &str {
@@ -67,10 +66,7 @@ mod tests {
 
     #[test]
     fn status_names_the_backend_or_says_there_is_none() {
-        assert_eq!(
-            frame_status(Some("wgpu"), 60.0, 16.61),
-            "wgpu · 60.0 fps · 16.61 ms"
-        );
+        assert_eq!(frame_status(Some("wgpu"), 60.0, 16.61), "wgpu · 60.0 fps · 16.61 ms");
         assert_eq!(backend_label(None), "no backend");
         assert!(frame_status(None, 0.0, 0.0).starts_with("no backend"));
     }

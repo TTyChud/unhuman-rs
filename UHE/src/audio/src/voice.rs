@@ -109,10 +109,6 @@ impl VoicePool {
         &self.voices
     }
 
-    pub fn iter(&self) -> std::slice::Iter<'_, Voice> {
-        self.voices.iter()
-    }
-
     pub fn get(&self, id: VoiceId) -> Option<&Voice> {
         self.voices.iter().find(|voice| voice.id == id)
     }
@@ -130,12 +126,21 @@ impl VoicePool {
     ///
     /// An entity already sounding is replaced rather than shadowed, so a re-used
     /// entity never inherits a stale voice.
-    pub fn spawn(&mut self, entity: Option<Entity>, sound: SoundId, spec: VoiceSpec) -> Option<VoiceId> {
+    pub fn spawn(
+        &mut self,
+        entity: Option<Entity>,
+        sound: SoundId,
+        spec: VoiceSpec,
+    ) -> Option<VoiceId> {
         if self.capacity == 0 {
             return None;
         }
         if let Some(entity) = entity {
-            if let Some(index) = self.voices.iter().position(|voice| voice.entity == Some(entity)) {
+            if let Some(index) = self
+                .voices
+                .iter()
+                .position(|voice| voice.entity == Some(entity))
+            {
                 self.voices.remove(index);
             }
         }
@@ -165,16 +170,6 @@ impl VoicePool {
             }
             None => false,
         }
-    }
-
-    /// Keep only the voices the predicate accepts — the sweep over the voices whose
-    /// sound has played to the end.
-    pub fn retain(&mut self, mut keep: impl FnMut(&Voice) -> bool) {
-        self.voices.retain(|voice| keep(voice));
-    }
-
-    pub fn clear(&mut self) {
-        self.voices.clear();
     }
 
     /// One frame of bookkeeping against the scene's `AudioSource` components: a

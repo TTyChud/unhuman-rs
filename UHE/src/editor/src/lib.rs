@@ -15,6 +15,7 @@ pub mod content_browser;
 pub mod gizmo;
 pub mod hierarchy;
 pub mod inspector;
+pub mod picking;
 pub mod play_state;
 pub mod selection;
 pub mod theme;
@@ -24,6 +25,7 @@ pub use content_browser::{ContentBrowser, DragPayload, Entry};
 pub use gizmo::{snap_angle, snap_scale, snap_translate, Axis, GizmoMode, GizmoTransform, Snap};
 pub use hierarchy::{Hierarchy, Row};
 pub use inspector::{Inspector, Property, PropertyKind, PropertyValue};
+pub use picking::Ray;
 pub use play_state::{PlayState, PlayStatus};
 pub use selection::Selection;
 pub use theme::{Palette, Rgba, Theme, ThemeError, ThemeId};
@@ -31,6 +33,7 @@ pub use theme::{Palette, Rgba, Theme, ThemeError, ThemeId};
 use std::path::{Path, PathBuf};
 
 use adam::{Engine, FrameCtx, Plugin};
+use glam::Mat4;
 use meats::{Entity, Scene};
 
 use commands::set_tag;
@@ -106,6 +109,21 @@ impl Editor {
         self.selection.hover(entity);
     }
 
+    pub fn hovered(&self) -> Option<Entity> {
+        self.selection.hovered
+    }
+
+    /// Picks the entity under a ray: the nearest mesh whose bounds it crosses,
+    /// or nothing. A hit selects, a miss clears the selection, and the result
+    /// is the new hover either way. The C++ did this with an `EntityID` render
+    /// target and a pixel readback; see [`picking`].
+    pub fn pick(&mut self, scene: &Scene, assets: &vault::Assets, ray: Ray) -> Option<Entity> {
+        let hit = picking::pick(scene, assets, ray);
+        self.selection.hover(hit);
+        self.selection.select(hit);
+        hit
+    }
+
     pub fn rows(&self, scene: &Scene) -> Vec<Row> {
         self.hierarchy.rows(scene)
     }
@@ -156,6 +174,26 @@ impl Editor {
             before,
             after: name,
         });
+    }
+
+    /// Opens the outliner's inline rename editor on `entity`.
+    pub fn begin_rename(&mut self, scene: &Scene, entity: Entity) {
+        self.hierarchy.begin_rename(scene, entity);
+    }
+
+    pub fn cancel_rename(&mut self) {
+        self.hierarchy.cancel_rename();
+    }
+
+    /// Closes the inline rename editor. `false` when the name did not change,
+    /// which is also when no history entry is worth making.
+    pub fn commit_rename(&mut self, scene: &mut Scene) -> bool {
+        let Some(mut command) = self.hierarchy.commit_rename(scene) else {
+            return false;
+        };
+        command.apply(scene, &mut self.inspector);
+        self.history.push(command);
+        true
     }
 
     pub fn create_entity(&mut self, scene: &mut Scene, parent: Option<Entity>) -> Entity {
@@ -228,6 +266,9 @@ impl Editor {
 
     pub fn stop(&mut self, scene: &mut Scene) {
         self.play.stop(scene);
+        // A runtime-spawned entity the user had selected is not in the authored
+        // scene that just came back.
+        self.forget_dead_selection(scene);
     }
 
     /// Queues exactly one fixed step; only a paused editor honours it.
@@ -246,6 +287,62 @@ impl Editor {
             self.inspector.clear_dirty();
         }
         self.play.tick(dt)
+    }
+
+    /// Writes a drag's world transform back into the selected entity's local
+    /// `Transform`, through its parent, and records what changed.
+    ///
+    /// The gizmo works in world space so a nested entity still lines up with
+    /// what is on screen; the C++ panel undid that with the inverse of the
+    /// parent's world transform, and `Transform` stores euler degrees.
+    pub fn apply_gizmo(&mut self, scene: &mut Scene, target: &GizmoTransform) -> bool {
+        let Some(entity) = self.selection.selected else {
+            return false;
+        };
+        let local = self.local_under_parent(scene, entity, target);
+        let mut changed = false;
+        for property in self.inspector.properties(scene, entity) {
+            let value = match (property.component, property.name) {
+                ("Transform", "Translation") => PropertyValue::Vec3(local.translation.to_array()),
+                ("Transform", "Rotation") => {
+                    // The component's quaternion is the C++ `glm::quat(vec3)`,
+                    // which is `Rz*Ry*Rx`: glam's `EulerRot::XYZEx`, not the
+                    // `XYZ` anyone reaches for. The inverse is `meats`' to own.
+                    PropertyValue::Vec3(meats::euler_degrees(local.rotation).to_array())
+                }
+                ("Transform", "Scale") => PropertyValue::Vec3(local.scale.to_array()),
+                _ => continue,
+            };
+            if property.value(scene, entity) == value {
+                continue;
+            }
+            self.set_property(scene, &property, value);
+            changed = true;
+        }
+        changed
+    }
+
+    fn local_under_parent(
+        &self,
+        scene: &Scene,
+        entity: Entity,
+        target: &GizmoTransform,
+    ) -> GizmoTransform {
+        let Some(parent) = scene.parent(entity) else {
+            return *target;
+        };
+        let world = Mat4::from_scale_rotation_translation(
+            target.scale,
+            target.rotation,
+            target.translation,
+        );
+        let (scale, rotation, translation) = (scene.world_transform(parent).inverse() * world)
+            .to_scale_rotation_translation();
+        GizmoTransform {
+            translation,
+            rotation,
+            scale,
+        }
     }
 
     pub fn undo(&mut self, scene: &mut Scene) -> bool {
@@ -306,6 +403,18 @@ impl Editor {
                 self.selection.select(None);
             }
         }
+    }
+}
+
+/// The world-space transform the gizmo draws at for `entity`.
+pub fn gizmo_target(scene: &Scene, entity: Entity) -> GizmoTransform {
+    let (scale, rotation, translation) = scene
+        .world_transform(entity)
+        .to_scale_rotation_translation();
+    GizmoTransform {
+        translation,
+        rotation,
+        scale,
     }
 }
 

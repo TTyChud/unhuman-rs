@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::image::Image;
+use crate::image::{Image, MipLevel};
 
 /// How a keyframe's interpolation is meant (`glTF` sampler interpolation).
 ///
@@ -160,10 +160,12 @@ impl Default for SamplerData {
 /// material list could not exist without a device. The pixels are shared
 /// (`Arc`), because one glTF image is routinely bound by several materials and
 /// slots and the C++ decoded it once per reference until the per-load cache was
-/// added (`LoadModel.cpp:363`).
+/// added (`LoadModel.cpp:363`). `mips` is the chain the file shipped, empty when
+/// it shipped none: recomputing an authored chain would discard its filter.
 #[derive(Clone, Debug)]
 pub struct TextureData {
     pub image: Arc<Image>,
+    pub mips: Arc<[MipLevel]>,
     pub sampler: SamplerData,
 }
 
@@ -195,11 +197,11 @@ pub struct MaterialData {
     pub alpha_cutoff: f32,
     /// Selects the cull-mode pipeline variant.
     pub double_sided: bool,
-    pub albedo: Option<TextureData>,
-    pub metallic_roughness: Option<TextureData>,
-    pub normal: Option<TextureData>,
-    pub occlusion: Option<TextureData>,
-    pub emissive_texture: Option<TextureData>,
+    pub albedo: Option<Arc<TextureData>>,
+    pub metallic_roughness: Option<Arc<TextureData>>,
+    pub normal: Option<Arc<TextureData>>,
+    pub occlusion: Option<Arc<TextureData>>,
+    pub emissive_texture: Option<Arc<TextureData>>,
 }
 
 impl Default for MaterialData {

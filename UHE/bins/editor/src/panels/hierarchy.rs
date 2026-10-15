@@ -14,7 +14,7 @@ use mirror::hierarchy::Row;
 use mirror::Editor;
 
 use crate::app::EditorApp;
-use crate::panels::{body, button, placeholder, with_alpha, ROW_HEIGHT};
+use crate::panels::{body, button, dim_label, with_alpha, ROW_HEIGHT};
 use crate::theme::EditorTheme;
 
 pub fn panel(
@@ -69,7 +69,7 @@ pub fn panel(
                 .py_1()
                 .overflow_y_scroll()
                 .when(rows.is_empty(), |list| {
-                    list.child(placeholder("No entities. Use + to add one.", theme))
+                    list.child(dim_label("No entities. Use + to add one.", theme))
                 })
                 .children(list),
         )
@@ -109,8 +109,7 @@ fn row_element(
         .text_color(row_text)
         .hover(move |style| style.bg(hover_bg))
         .on_click(cx.listener(move |this, _event: &ClickEvent, _window, cx| {
-            let scene = &mut this.engine.engine_mut().scene;
-            this.editor.select(scene, Some(entity));
+            this.editor.select(Some(entity));
             cx.notify();
         }))
         .child(disclosure(index, row, theme, cx))
@@ -124,7 +123,10 @@ fn disclosure(
     cx: &mut Context<EditorApp>,
 ) -> impl IntoElement {
     if !row.has_children {
-        return div().w(px(10.0)).flex_none();
+        return div()
+            .id(("hierarchy-disclosure", index))
+            .w(px(10.0))
+            .flex_none();
     }
 
     let entity = row.entity;
@@ -139,7 +141,7 @@ fn disclosure(
         .text_color(theme.text_dim)
         .child(if expanded { "▾" } else { "▸" })
         .on_click(cx.listener(move |this, _event: &ClickEvent, _window, cx| {
-            this.editor.set_expanded(entity, !expanded);
+            this.editor.toggle_expanded(entity);
             cx.notify();
         }))
 }

@@ -15,13 +15,16 @@ use chassis::{
 };
 use vault::AssetId;
 
-/// One vertex, interleaved. Position, normal, UV and tangent, in the order the
-/// C++ `RD3d::Vertex` declares them.
+/// One vertex, interleaved. Position, normal, UV, tangent and colour, in the
+/// order the C++ `RD3d::Vertex` declares them.
 ///
-/// The C++ vertex also carries JOINTS_0/WEIGHTS_0/COLOR_0. `vault::MeshData`
-/// exposes none of the three, so they are not here; the model shader reads four
-/// attributes rather than seven until the asset side carries skinning and vertex
-/// colour.
+/// The C++ vertex also carries `JOINTS_0`/`WEIGHTS_0`, and `vault::MeshData`
+/// has them. They are not here yet because nothing skins: the palette comes from
+/// `bifrost::animation`, whose clip-to-`Animator` glue from a loaded model is
+/// not in place, so an attribute nothing reads would be stride paid for by every
+/// vertex in every mesh. Adding the two is a change to this struct, the layout
+/// below and the shader — and `MeshKey` keys on the layout, so the mesh cache
+/// re-uploads by itself when it happens.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct Vertex {
@@ -30,6 +33,11 @@ pub struct Vertex {
     pub uv: [f32; 2],
     /// `xyz` tangent, `w` handedness, as glTF's TANGENT accessor stores it.
     pub tangent: [f32; 4],
+    /// `COLOR_0`, white when the mesh has none. The shader multiplies it into
+    /// the base colour unconditionally, which is why an absent `COLOR_0` needs no
+    /// flag: the C++'s `hasVertexColor` exists to gate a gamma decode the loader
+    /// does on the CPU, and there is no decode here.
+    pub color: [f32; 4],
 }
 
 /// Attribute locations, which the shader's `@location` bindings must match.
@@ -37,6 +45,7 @@ pub const LOCATION_POSITION: u32 = 0;
 pub const LOCATION_NORMAL: u32 = 1;
 pub const LOCATION_UV: u32 = 2;
 pub const LOCATION_TANGENT: u32 = 3;
+pub const LOCATION_COLOR: u32 = 6;
 
 /// The one vertex layout every mesh is uploaded with.
 pub fn vertex_layout() -> VertexLayout {
@@ -62,6 +71,13 @@ pub fn vertex_layout() -> VertexLayout {
                 location: LOCATION_TANGENT,
                 format: TextureFormat::Rgba32Float,
                 offset: std::mem::offset_of!(Vertex, tangent) as u32,
+            },
+            // Location 6, the C++ `a_Color`, so the two vertex layouts can be
+            // read side by side.
+            VertexAttribute {
+                location: LOCATION_COLOR,
+                format: TextureFormat::Rgba32Float,
+                offset: std::mem::offset_of!(Vertex, color) as u32,
             },
         ],
     }
@@ -131,6 +147,9 @@ pub fn interleave(data: &vault::MeshData) -> Vec<Vertex> {
                 .get(i)
                 .copied()
                 .unwrap_or([1.0, 0.0, 0.0, 1.0]),
+            // White, the C++ default: a zero default would tint every mesh black
+            // and a gamma-decoded one would tint every mesh wrongly.
+            color: data.colors.get(i).copied().unwrap_or([1.0; 4]),
         })
         .collect()
 }

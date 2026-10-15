@@ -18,7 +18,7 @@ use mirror::inspector::{Property, PropertyKind, PropertyValue};
 use mirror::Editor;
 
 use crate::app::EditorApp;
-use crate::panels::{body, button, placeholder, ROW_HEIGHT};
+use crate::panels::{body, button, dim_label, ROW_HEIGHT};
 use crate::theme::EditorTheme;
 
 pub fn panel(
@@ -42,7 +42,7 @@ pub fn panel(
     );
 
     let Some(entity) = editor.selected_entity() else {
-        return panel.child(placeholder("Select an entity to view properties", theme));
+        return panel.child(dim_label("Select an entity to view properties", theme));
     };
 
     let name = editor
@@ -266,9 +266,7 @@ pub fn format_value(value: &PropertyValue) -> String {
         PropertyValue::Int(value) => value.to_string(),
         PropertyValue::Float(value) => format!("{value:.2}"),
         PropertyValue::Vec2(value) => format!("{:.2}, {:.2}", value[0], value[1]),
-        PropertyValue::Vec3(value) => {
-            format!("{:.2}, {:.2}, {:.2}", value[0], value[1], value[2])
-        }
+        PropertyValue::Vec3(value) => format!("{:.2}, {:.2}, {:.2}", value[0], value[1], value[2]),
         PropertyValue::Color(value) => format!(
             "{:.2}, {:.2}, {:.2}, {:.2}",
             value[0], value[1], value[2], value[3]
@@ -294,10 +292,7 @@ mod tests {
 
     #[test]
     fn vectors_are_comma_separated() {
-        assert_eq!(
-            format_value(&PropertyValue::Vec3([1.0, 2.5, -3.25])),
-            "1.00, 2.50, -3.25"
-        );
+        assert_eq!(format_value(&PropertyValue::Vec3([1.0, 2.5, -3.25])), "1.00, 2.50, -3.25");
         assert_eq!(format_value(&PropertyValue::Vec2([0.0, 0.0])), "0.00, 0.00");
         assert_eq!(
             format_value(&PropertyValue::Color([1.0, 1.0, 1.0, 0.5])),
@@ -307,10 +302,7 @@ mod tests {
 
     #[test]
     fn text_passes_through() {
-        assert_eq!(
-            format_value(&PropertyValue::Text("player".to_string())),
-            "player"
-        );
+        assert_eq!(format_value(&PropertyValue::Text("player".into())), "player");
     }
 
     #[test]

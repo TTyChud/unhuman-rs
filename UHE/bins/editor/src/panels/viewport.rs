@@ -7,6 +7,7 @@
 //! the viewport cannot yet show. See `crate::viewport` for what is missing.
 
 use gpui::{div, prelude::*, px, IntoElement};
+
 use crate::theme::EditorTheme;
 use crate::viewport::MISSING_FRAME_REASON;
 

@@ -24,6 +24,7 @@ crates can be written in parallel without reading each other's code.
 ```
 UHE/
   src/core/          adam      Engine, App, Plugin, FrameCtx, Time, backend traits
+  src/engine/        engine    the one crate that sees both backends: the GPU factory
   src/rhi/           chassis   RHI + render graph (existing)
   src/jobs/          grind     job system + task graph (existing)
   src/shaders/       forge     Slang/WGSL in, SPIR-V out (existing + wgsl module)
@@ -46,7 +47,9 @@ UHE/
 
 Dependency direction: `pings` ← `eyes`/`vault` ← `meats` ← `adam` ← {`bifrost`, `wire`,
 `femur`, `mirror`} ← bins. `bifrost` depends on `chassis` and never on a backend crate.
-No backend crate depends on any of the above.
+No backend crate depends on any of the above. `engine` is the single exception in the other
+direction: it sees both backends, and its job is the GPU factory and the parity test that
+proves they behave the same through `Box<dyn Gpu>`.
 
 ## Seams
 
@@ -262,7 +265,8 @@ pub struct Light { pub kind: LightKind, pub color: glam::Vec3, pub intensity: f3
 pub struct LightSample { pub entity: Entity, pub kind: LightKind, pub color: glam::Vec3,
                          pub intensity: f32, pub radius: f32, pub inner_cone_angle: f32,
                          pub outer_cone_angle: f32, pub position: glam::Vec3, pub direction: glam::Vec3 }
-pub struct MeshRenderer { pub mesh: vault::AssetId, pub material: Option<vault::AssetId>,
+pub struct MeshRenderer { pub mesh: Option<vault::AssetId>, pub mesh_path: String,
+                          pub material: Option<vault::AssetId>, pub material_path: String,
                           pub tint: glam::Vec4, pub visible: bool, pub cast_shadows: bool }
 #[derive(Clone, Copy, Debug)]
 pub struct AnimatorState { pub clip: Option<vault::AssetId>, pub time: f32, pub speed: f32,
@@ -271,12 +275,40 @@ pub struct MeshSample { pub entity: Entity, pub mesh: vault::AssetId,
                         pub material: Option<vault::AssetId>, pub tint: glam::Vec4,
                         pub transform: glam::Mat4, pub animator: Option<AnimatorState>,
                         pub visible: bool, pub cast_shadows: bool }
-pub struct Text { pub text: String, pub font: Option<vault::AssetId>, pub color: glam::Vec4,
-                  pub kerning: f32, pub line_spacing: f32 }
+pub struct Text { pub text: String, pub font: Option<vault::AssetId>, pub font_path: String,
+                  pub color: glam::Vec4, pub kerning: f32, pub line_spacing: f32 }
 impl Scene {
     pub fn lights(&self) -> Vec<LightSample>;   // enabled lights, world transform applied
     pub fn meshes(&self) -> Vec<MeshSample>;    // stable order between calls with no mutation
+    /// Fills every `Option<AssetId>` from its `*_path`. Idempotent; a missing
+    /// asset is an `AssetError` in the returned list, never a panic.
+    pub fn resolve_assets(&mut self, assets: &mut vault::Assets) -> Vec<AssetError>;
+    /// The escape hatch a physics or audio backend needs, and the only one.
+    pub fn world(&self) -> &hecs::World;
+    pub fn world_mut(&mut self) -> &mut hecs::World;
+    pub fn id_of(&self, entity: Entity) -> Option<u64>;
+    pub fn insert<T: hecs::Component>(&mut self, entity: Entity, component: T) -> bool;
+    pub fn remove<T: hecs::Component>(&mut self, entity: Entity) -> Option<T>;
+    pub fn has<T: hecs::Component>(&self, entity: Entity) -> bool;
+    pub fn update_scripts(&mut self, dt_seconds: f32);
+    pub fn set_viewport_size(&mut self, width: u32, height: u32);
+    pub fn remove<T: hecs::Component>(&mut self, entity: Entity) -> Option<T>;
 }
+pub use hecs;                       // a backend queries through `Scene::world`
+pub use hecs::{Ref, RefMut};
+```
+
+Every component that names an asset pairs the handle with the path it came from
+(`mesh`/`mesh_path`, `font`/`font_path`, …): a scene file holds paths, and a
+registry-issued `AssetId` cannot be constructed from one.
+
+Units, written down so nobody converts twice: `Transform::rotation` is **Euler
+degrees** and `Light::{inner_cone_angle, outer_cone_angle}` are **degrees** (the
+C++ and KHR both use radians; `femur` and `bifrost` both assume degrees, which is
+the decision). `meats` also ships `Collider`, `ColliderShape`, `RigidBody`,
+`RigidBodyKind`, `Script`, `NativeScript`, `Animator`, `SpriteAnimation`,
+`AssetError`, and the serializer's error type.
+
 
 // forge — WGSL, the path the renderer's own shaders take
 pub fn to_spirv_entry(source: &str, label: &str, entry_point: &str, stage: forge::Stage)

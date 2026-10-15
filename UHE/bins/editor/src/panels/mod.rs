@@ -20,14 +20,17 @@ use crate::theme::EditorTheme;
 
 pub const ROW_HEIGHT: f32 = 22.0;
 
-/// Dimmed text for a panel with nothing to show.
-pub fn placeholder(text: impl Into<SharedString>, theme: &EditorTheme) -> impl IntoElement {
+/// Dimmed text: an empty panel's message, or a passive readout such as the
+/// backend name in the toolbar.
+pub fn dim_label(text: impl Into<SharedString>, theme: &EditorTheme) -> impl IntoElement {
+    let text: SharedString = text.into();
+
     div()
         .px_2()
         .py_1()
         .text_xs()
         .text_color(theme.text_dim)
-        .child(text.into())
+        .child(text)
 }
 
 /// A panel's body: full size, a column, clipped to the panel.
@@ -46,12 +49,9 @@ pub fn button(
     let (bg, fg, hover) = if active {
         (theme.accent, theme.accent_foreground, theme.accent_hover)
     } else {
-        (
-            with_alpha(theme.panel, 0.0),
-            theme.text,
-            with_alpha(theme.accent, 0.25),
-        )
+        (with_alpha(theme.panel, 0.0), theme.text, with_alpha(theme.accent, 0.25))
     };
+    let label: SharedString = label.into();
 
     div()
         .id(id)
@@ -69,7 +69,7 @@ pub fn button(
         .text_xs()
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .child(label.into())
+        .child(label)
         .on_click(cx.listener(move |this, _event: &ClickEvent, window, cx| {
             on_click(this, window, cx)
         }))

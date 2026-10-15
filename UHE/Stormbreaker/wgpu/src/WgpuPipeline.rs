@@ -274,6 +274,15 @@ pub(crate) fn layout_type_of(kind: chassis::DescriptorKind) -> chassis::Result<w
             min_binding_size: None,
         },
         chassis::DescriptorKind::SampledImage => texture,
+        // Not `texture`: a depth view needs `TextureSampleType::Depth`, and
+        // the bind group layout is checked against the view's format at
+        // `create_bind_group`. `multisampled: false` because wgpu requires
+        // that for a depth binding.
+        chassis::DescriptorKind::SampledDepth => wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Depth,
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
         chassis::DescriptorKind::CombinedImageSampler => texture,
         chassis::DescriptorKind::StorageImage => wgpu::BindingType::StorageTexture {
             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -352,5 +361,83 @@ fn multisample_of(samples: chassis::SampleCount) -> wgpu::MultisampleState {
         },
         mask: !0,
         alpha_to_coverage_enabled: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::layout_type_of;
+    use chassis::DescriptorKind;
+    use wgpu::BindingType;
+
+    /// The whole mapping, one assertion per variant.
+    ///
+    /// `layout_type_of` is the only place a `DescriptorKind` becomes a wgpu type,
+    /// so it is the only place a new kind can be forgotten -- and a forgotten
+    /// kind is not a compile error here, it is a binding that does not work.
+    #[test]
+    fn every_descriptor_kind_maps_to_its_binding_type() {
+        assert!(matches!(
+            layout_type_of(DescriptorKind::UniformBuffer),
+            Ok(BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                ..
+            })
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::StorageBuffer),
+            Ok(BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                ..
+            })
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::SampledImage),
+            Ok(BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                ..
+            })
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::SampledDepth),
+            Ok(BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Depth,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            })
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::Sampler),
+            Ok(BindingType::Sampler(wgpu::SamplerBindingType::Filtering))
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::CombinedImageSampler),
+            Ok(BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                ..
+            })
+        ));
+        assert!(matches!(
+            layout_type_of(DescriptorKind::StorageImage),
+            Ok(BindingType::StorageTexture { .. })
+        ));
+        assert!(
+            layout_type_of(DescriptorKind::InputAttachment).is_err(),
+            "wgpu has no subpasses, so an input attachment is refused",
+        );
+    }
+
+    /// A depth texture is not a sampled image here, and the whole reason
+    /// `DescriptorKind::SampledDepth` exists.
+    ///
+    /// wgpu checks the sample type of a bind group's view against the layout at
+    /// `create_bind_group`, so a `Float` binding holding a depth view is refused
+    /// by name. Vulkan takes one `SAMPLED_IMAGE` for both.
+    #[test]
+    fn a_depth_texture_is_not_a_float_texture() {
+        let depth = layout_type_of(DescriptorKind::SampledDepth).expect("a depth texture");
+        let image = layout_type_of(DescriptorKind::SampledImage).expect("a colour texture");
+
+        assert_ne!(depth, image);
     }
 }

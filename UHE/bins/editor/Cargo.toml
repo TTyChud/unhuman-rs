@@ -10,18 +10,10 @@ publish = false
 [dependencies]
 adam = { workspace = true }
 engine = { workspace = true }
-eyes = { workspace = true }
 meats = { workspace = true }
-vault = { workspace = true }
 bifrost = { workspace = true }
 mirror = { workspace = true }
-aimlab = { workspace = true }
 chassis = { workspace = true }
-stormglass = { workspace = true }
-wgpu = { workspace = true }
-grind = { workspace = true }
-glam = { workspace = true }
-pollster = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 

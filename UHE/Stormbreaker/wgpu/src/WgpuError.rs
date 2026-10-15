@@ -43,7 +43,9 @@ impl fmt::Display for WgpuError {
         match self {
             WgpuError::NoAdapter => write!(f, "no wgpu adapter can present to this surface"),
             WgpuError::NoDevice => write!(f, "wgpu refused to create a device on this adapter"),
-            WgpuError::IncompatibleSurface => write!(f, "the surface offers no format for this adapter"),
+            WgpuError::IncompatibleSurface => {
+                write!(f, "the surface offers no format for this adapter")
+            }
             WgpuError::Unsupported { what, available } => {
                 write!(f, "the surface does not offer {what}; it offers {available}")
             }

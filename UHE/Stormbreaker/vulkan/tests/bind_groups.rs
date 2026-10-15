@@ -1,8 +1,11 @@
 //! Bind groups, through `chassis::Resources` and recorded into a command list.
 //!
-//! Both backends refused to implement `create_bind_group` with a comment saying
-//! no layout was declared. This is the layout being declared, and the group
-//! being built from it.
+//! `create_bind_group` is implemented: the layout is declared here and the set
+//! is allocated and written from it, so a group comes back as a real handle. The
+//! cases asserted are the rejections -- an undeclared binding, a descriptor kind
+//! that cannot be written, a stale buffer handle, an offset at or past the end
+//! of its buffer, and a combined image/sampler missing one of its halves -- plus
+//! an image and a sampler binding together.
 //!
 //! The interesting assertions are the *failures*: a bind group is a thing that
 //! binds nothing and looks fine until a shader reads the wrong memory, so the

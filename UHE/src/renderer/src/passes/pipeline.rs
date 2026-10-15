@@ -62,7 +62,7 @@ pub fn frame_layout() -> DescriptorSetLayoutDesc {
         // `sampler` compile to, so one layout serves both backends.
         .with(binding(
             2,
-            DescriptorKind::SampledImage,
+            DescriptorKind::SampledDepth,
             StageMask::of(ShaderStage::Fragment),
         ))
         .with(binding(
@@ -122,7 +122,7 @@ pub fn ssao_layout() -> DescriptorSetLayoutDesc {
     let fragment = StageMask::of(ShaderStage::Fragment);
     DescriptorSetLayoutDesc::new("ssao")
         .with(binding(0, DescriptorKind::UniformBuffer, fragment))
-        .with(binding(1, DescriptorKind::SampledImage, fragment))
+        .with(binding(1, DescriptorKind::SampledDepth, fragment))
         .with(binding(2, DescriptorKind::Sampler, fragment))
 }
 
@@ -383,18 +383,19 @@ impl PipelineKey {
     }
 
     /// A full-screen pass: no vertex buffer at all, the triangle comes from
-    /// `@builtin(vertex_index)`.
+    /// `@builtin(vertex_index)`. No depth attachment: a pass cannot load the
+    /// depth a previous pass wrote (see this module and `GeometryPass`), so a
+    /// full-screen pass either declares its own cleared depth or none at all.
     pub fn fullscreen(
         variant: ShaderVariant,
         color: TextureFormat,
-        depth: Option<TextureFormat>,
         samples: SampleCount,
     ) -> Self {
         Self {
             variant,
             vertex: VertexLayoutKey::of(&VertexLayout::default()),
             color_targets: vec![color],
-            depth,
+            depth: None,
             depth_write: false,
             depth_compare: 1,
             samples,
@@ -402,14 +403,20 @@ impl PipelineKey {
         }
     }
 
+    /// The C++ grid: six vertices from `@builtin(vertex_index)`, no depth test
+    /// because the pass it runs in has no depth attachment.
+    pub fn grid(color: TextureFormat, samples: SampleCount) -> Self {
+        Self::fullscreen(ShaderVariant::Grid, color, samples)
+    }
+
     /// A line list, which is what a gizmo is.
-    pub fn lines(color: TextureFormat, depth: TextureFormat, samples: SampleCount) -> Self {
+    pub fn lines(color: TextureFormat, samples: SampleCount) -> Self {
         Self {
             variant: ShaderVariant::Line,
             vertex: VertexLayoutKey::of(&line_vertex_layout()),
             color_targets: vec![color],
-            depth: Some(depth),
-            depth_write: true,
+            depth: None,
+            depth_write: false,
             depth_compare: 1,
             samples,
             index_format: Some(mesh::INDEX_FORMAT),

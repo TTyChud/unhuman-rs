@@ -102,17 +102,22 @@ impl EditorApp {
     /// One engine frame: the editor's play state decides how much simulation
     /// runs, then `adam::App` runs it.
     ///
-    /// `Time::scale` is what makes pause mean pause: `mirror::PlayState` reports
-    /// the seconds this frame should simulate (`0.0` when paused or stopped, one
-    /// fixed step after `step_once`), and a scale of zero freezes the fixed-step
-    /// accumulator while the render half of the frame keeps running.
+    /// The delta comes from the engine's own clock (`Time::delta`, the interval
+    /// the last frame was ticked with), so there is one clock and not two.
+    ///
+    /// `Time::scale` is what makes pause mean pause. `mirror::PlayState` reports
+    /// the seconds this frame should simulate — `0.0` when paused or stopped, one
+    /// fixed step after `step_once` — and a scale of zero keeps those seconds out
+    /// of the fixed-step accumulator, so pausing freezes the simulation instead of
+    /// queueing a catch-up burst, while the render half of the frame keeps
+    /// running. `mirror` emits whole fixed steps and `adam` consumes whole fixed
+    /// steps from the seconds it is handed, so the substep count stays the
+    /// engine's decision.
     fn advance_frame(&mut self) {
+        let delta = self.engine.engine().time.delta().as_secs_f32();
         let scene = &mut self.engine.engine_mut().scene;
-        let seconds = self.editor.tick(scene);
-        self.engine
-            .engine_mut()
-            .time
-            .set_scale(if seconds > 0.0 { 1.0 } else { 0.0 });
+        let seconds = self.editor.tick(scene, delta);
+        self.engine.engine_mut().time.set_scale(if seconds > 0.0 { 1.0 } else { 0.0 });
 
         if let Err(error) = self.engine.frame() {
             log::error!("engine frame failed: {error}");
@@ -188,7 +193,7 @@ impl EditorApp {
             .child(separator(&theme))
             .child(button(
                 "toolbar-move",
-                "Move",
+                GizmoMode::Translate.name(),
                 mode == GizmoMode::Translate,
                 &theme,
                 cx,
@@ -199,7 +204,7 @@ impl EditorApp {
             ))
             .child(button(
                 "toolbar-rotate",
-                "Rotate",
+                GizmoMode::Rotate.name(),
                 mode == GizmoMode::Rotate,
                 &theme,
                 cx,
@@ -210,7 +215,7 @@ impl EditorApp {
             ))
             .child(button(
                 "toolbar-scale",
-                "Scale",
+                GizmoMode::Scale.name(),
                 mode == GizmoMode::Scale,
                 &theme,
                 cx,
@@ -220,11 +225,11 @@ impl EditorApp {
                 },
             ))
             .child(div().flex_1())
-            .child(panels::placeholder(
+            .child(panels::dim_label(
                 viewport::backend_label(self.backend.as_deref()),
                 &theme,
             ))
-            .child(panels::placeholder(
+            .child(panels::dim_label(
                 viewport::fps_label(self.editor.stats.fps),
                 &theme,
             ))
@@ -247,7 +252,7 @@ impl EditorApp {
             .text_xs()
             .text_color(theme.text_dim)
             .child(play_label(self.editor.play.status))
-            .child(gizmo_label(self.editor.gizmo.mode))
+            .child(self.editor.gizmo.mode.name())
             .child(entity_label(entities))
             .child(viewport::frame_status(
                 self.backend.as_deref(),
@@ -294,8 +299,7 @@ impl EditorApp {
                                 }
                                 entity.update(cx, |this, cx| {
                                     let resized = this.layout.drag_to(
-                                        event.position.x.as_f32(),
-                                        event.position.y.as_f32(),
+                                        event.position.x.as_f32(), event.position.y.as_f32()
                                     );
                                     if resized {
                                         cx.notify();
@@ -347,12 +351,7 @@ impl Render for EditorApp {
                             .flex_none()
                             .h_full()
                             .w(px(hierarchy_width))
-                            .child(panels::hierarchy::panel(
-                                &self.editor,
-                                scene,
-                                &theme,
-                                cx,
-                            )),
+                            .child(panels::hierarchy::panel(&self.editor, scene, &theme, cx)),
                     )
                     .child(self.splitter(Splitter::Hierarchy, cx))
                     .child(
@@ -383,6 +382,12 @@ impl Render for EditorApp {
     }
 }
 
+impl Default for EditorApp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// One gpui frame is one engine frame: advance the engine, mark the view dirty,
 /// and ask for the frame after this one.
 fn next_frame(this: &mut EditorApp, window: &mut Window, cx: &mut Context<EditorApp>) {
@@ -400,14 +405,6 @@ pub fn play_label(status: PlayStatus) -> &'static str {
         PlayStatus::Stopped => "stopped",
         PlayStatus::Playing => "playing",
         PlayStatus::Paused => "paused",
-    }
-}
-
-pub fn gizmo_label(mode: GizmoMode) -> &'static str {
-    match mode {
-        GizmoMode::Translate => "move",
-        GizmoMode::Rotate => "rotate",
-        GizmoMode::Scale => "scale",
     }
 }
 
@@ -504,14 +501,10 @@ impl Layout {
 
         let (dx, dy) = (x - drag.origin.0, y - drag.origin.1);
         let moved = match drag.splitter {
-            Splitter::Hierarchy => {
-                (drag.start + dx).clamp(MIN_HIERARCHY, MAX_HIERARCHY)
-            }
+            Splitter::Hierarchy => (drag.start + dx).clamp(MIN_HIERARCHY, MAX_HIERARCHY),
             // The inspector's edge moves left as its width grows, and the content
             // browser's moves up as its height grows.
-            Splitter::Inspector => {
-                (drag.start - dx).clamp(MIN_INSPECTOR, MAX_INSPECTOR)
-            }
+            Splitter::Inspector => (drag.start - dx).clamp(MIN_INSPECTOR, MAX_INSPECTOR),
             Splitter::Content => (drag.start - dy).clamp(MIN_CONTENT, MAX_CONTENT),
         };
 
@@ -541,13 +534,6 @@ mod tests {
         assert_eq!(play_label(PlayStatus::Stopped), "stopped");
         assert_eq!(play_label(PlayStatus::Playing), "playing");
         assert_eq!(play_label(PlayStatus::Paused), "paused");
-    }
-
-    #[test]
-    fn gizmo_modes_read_as_verbs() {
-        assert_eq!(gizmo_label(GizmoMode::Translate), "move");
-        assert_eq!(gizmo_label(GizmoMode::Rotate), "rotate");
-        assert_eq!(gizmo_label(GizmoMode::Scale), "scale");
     }
 
     #[test]

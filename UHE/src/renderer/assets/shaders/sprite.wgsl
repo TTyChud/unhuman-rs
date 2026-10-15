@@ -6,10 +6,11 @@
 //
 // Set 0, binding 0 is a `SampledImage` and binding 1 is a `Sampler` -- two
 // bindings, not one `CombinedImageSampler`, because wgpu cannot express a
-// combined descriptor at all (`assets/shaders/Textured.slang` carries the same
-// note for the same reason). Binding 2 is the view-projection the C++ spelt as a
-// push constant (`Renderer2D.cpp:29-33`); the RHI has no push-constant range, so
-// it is a uniform buffer.
+// combined descriptor at all (the root `assets/shaders/Textured.slang` carries
+// the same note for the same reason). Set 1, binding 0 is the view-projection
+// the C++ spelt as a push constant (`Renderer2D.cpp:29-33`); the RHI has no
+// push-constant range, so it is a uniform buffer, and separating it from set 0
+// is what lets a pass bind it once for every batch.
 
 struct Globals {
     view_projection: mat4x4<f32>,
@@ -17,7 +18,7 @@ struct Globals {
 
 @group(0) @binding(0) var sprite_texture: texture_2d<f32>;
 @group(0) @binding(1) var sprite_sampler: sampler;
-@group(0) @binding(2) var<uniform> globals: Globals;
+@group(1) @binding(0) var<uniform> globals: Globals;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,

@@ -9,15 +9,23 @@
 //!
 //! Coordinates are `font::layout`'s, unmodified: this applies the entity's
 //! `Mat4` and nothing else.
+//!
+//! `runs` is complete after every `push`, for the reason `crate::batch2d`
+//! documents: a pass that has to be flushed before it can see what to draw is a
+//! pass that draws nothing.
 
 use glam::{Mat4, Vec4};
 
-use chassis::{Texture, TextureFormat, VertexAttribute, VertexLayout};
+use chassis::{
+    BindGroup, Buffer, BufferDesc, BufferUsage, CommandList, Pipeline, Resources, Texture,
+    TextureFormat, VertexAttribute, VertexLayout,
+};
 
-use crate::batch2d::{PipelineError, QuadPipeline};
-use crate::font::{layout, Atlas, Layout, LayoutOptions};
+use crate::batch2d::{GLOBALS_SET, INDEX_SIZE, PipelineError, QuadPipeline, TEXTURE_SET};
+use crate::font::layout::{layout, LayoutOptions};
+use crate::font::{Atlas, Layout};
 
-pub const TEXT_WGSL: &str = include_str!("../../../assets/shaders/text.wgsl");
+pub const TEXT_WGSL: &str = include_str!("../assets/shaders/text.wgsl");
 
 /// `TextVertex` (`Renderer2D.cpp:26-33`) without `TexIndex` and `EntityID`, for
 /// the reasons on [`crate::batch2d::SpriteVertex`].
@@ -42,7 +50,8 @@ pub struct TextRenderer {
     vertices: Vec<TextVertex>,
     indices: Vec<u32>,
     texture: Option<Texture>,
-    open: u32,
+    /// Whether the last entry of `runs` is still taking glyphs.
+    open: bool,
     runs: Vec<TextRun>,
 }
 
@@ -56,7 +65,7 @@ impl TextRenderer {
         self.indices.clear();
         self.runs.clear();
         self.texture = None;
-        self.open = 0;
+        self.open = false;
     }
 
     /// Lay out `component` and append it. `atlas` and `texture` are the font the
@@ -85,10 +94,10 @@ impl TextRenderer {
         texture: Texture,
         transform: Mat4,
     ) {
-        if self.texture != Some(texture) {
-            self.close();
-            self.texture = Some(texture);
+        if laid_out.placements.is_empty() {
+            return;
         }
+        self.open_run(texture);
 
         for placement in &laid_out.placements {
             let base = self.vertices.len() as u32;
@@ -107,11 +116,44 @@ impl TextRenderer {
         }
 
         let quads = laid_out.placements.len() as u32;
-        self.open += quads * 6;
+        if let Some(run) = self.runs.last_mut() {
+            run.index_count += quads * 6;
+        }
     }
 
+    /// Ends the run in progress, so the next `push` starts a new one even with
+    /// the same atlas. Never needed for `runs` to be complete.
     pub fn flush(&mut self) {
-        self.close();
+        self.open = false;
+    }
+
+    /// Bind the pipeline, the buffers and the globals, then draw every run.
+    ///
+    /// `texture_group` resolves a run's atlas to the bind group for set 0; the
+    /// pass owns the sampler and that cache for the same reason the sprite batch
+    /// documents.
+    pub fn record(
+        &self,
+        list: &mut dyn CommandList,
+        pipeline: &Pipeline,
+        vertex_buffer: &Buffer,
+        index_buffer: &Buffer,
+        globals: &BindGroup,
+        texture_group: impl Fn(Texture) -> BindGroup,
+    ) {
+        if self.runs.is_empty() {
+            return;
+        }
+
+        list.bind_pipeline(pipeline);
+        list.bind_vertex_buffer(0, vertex_buffer, 0);
+        list.bind_group(GLOBALS_SET, globals);
+        for run in &self.runs {
+            let group = texture_group(run.texture);
+            list.bind_group(TEXTURE_SET, &group);
+            list.bind_index_buffer(index_buffer, run.index_offset as u64 * INDEX_SIZE);
+            list.draw_indexed(run.index_count, 1);
+        }
     }
 
     pub fn runs(&self) -> &[TextRun] {
@@ -134,17 +176,28 @@ impl TextRenderer {
         self.indices.len() as u32
     }
 
-    fn close(&mut self) {
-        if self.open == 0 {
+    pub fn vertex_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.vertices)
+    }
+
+    pub fn index_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.indices)
+    }
+
+    /// The run a string belongs to. A different atlas starts the next one, which
+    /// is what keeps `runs` complete after every `push` — see
+    /// [`crate::batch2d::Batch2D`] for why that matters to the pass.
+    fn open_run(&mut self, texture: Texture) {
+        if self.open && self.texture == Some(texture) {
             return;
         }
-        let index_offset = self.indices.len() as u32 - self.open;
+        self.texture = Some(texture);
         self.runs.push(TextRun {
-            texture: self.texture.expect("an open run always has a texture"),
-            index_offset,
-            index_count: self.open,
+            texture,
+            index_offset: self.indices.len() as u32,
+            index_count: 0,
         });
-        self.open = 0;
+        self.open = true;
     }
 }
 
@@ -155,17 +208,17 @@ pub fn text_vertex_layout() -> VertexLayout {
             VertexAttribute {
                 location: 0,
                 format: TextureFormat::R32G32B32Float,
-                offset: 0,
+                offset: std::mem::offset_of!(TextVertex, position) as u32,
             },
             VertexAttribute {
                 location: 1,
                 format: TextureFormat::Rgba32Float,
-                offset: 12,
+                offset: std::mem::offset_of!(TextVertex, color) as u32,
             },
             VertexAttribute {
                 location: 2,
                 format: TextureFormat::R32G32Float,
-                offset: 28,
+                offset: std::mem::offset_of!(TextVertex, uv) as u32,
             },
         ],
     }
@@ -184,6 +237,24 @@ pub fn create_text_pipeline(
         color_format,
         depth_format,
     )
+}
+
+/// A vertex and index buffer sized for the runs' current contents. See
+/// [`crate::batch2d::create_buffers`] for why they are created rather than
+/// updated.
+pub fn create_buffers(
+    resources: &mut dyn Resources,
+    text: &TextRenderer,
+) -> chassis::Result<(Buffer, Buffer)> {
+    let vertex = resources.create_buffer(
+        BufferDesc::new(text.vertex_bytes().len() as u64, BufferUsage::VERTEX),
+        Some(text.vertex_bytes()),
+    )?;
+    let index = resources.create_buffer(
+        BufferDesc::new(text.index_bytes().len() as u64, BufferUsage::INDEX),
+        Some(text.index_bytes()),
+    )?;
+    Ok((vertex, index))
 }
 
 /// What the text shader's uniform buffer holds. `atlas` is

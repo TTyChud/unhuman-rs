@@ -124,6 +124,12 @@ impl App {
         // time rather than a binding held across the loop, because the hook
         // needs `&mut self.engine` as a whole and pulls the GPU out of it
         // itself.
+        //
+        // The order is the frame's contract with a backend: acquire, let every
+        // plugin record (a renderer hands its compiled frame to
+        // `Gpu::record_frame`), then `submit`, which is the one place a frame is
+        // presented. A plugin must not present, and `record_frame` must not —
+        // two present sites is a frame presented twice.
         if self.engine.gpu.is_some() {
             if let Some(gpu) = self.engine.gpu.as_mut() {
                 gpu.frame_begin()?;

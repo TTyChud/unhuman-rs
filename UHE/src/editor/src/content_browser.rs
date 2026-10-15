@@ -147,7 +147,7 @@ impl ContentBrowser {
             .iter()
             .filter(|root| self.current.starts_with(root))
             .max_by_key(|root| root.components().count())
-            .map(PathBuf::as_path)
+            .map(|root| root.as_path())
             .unwrap_or(self.current.as_path())
     }
 

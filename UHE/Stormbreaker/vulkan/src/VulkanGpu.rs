@@ -463,27 +463,38 @@ impl VulkanGpu {
 impl RenderGraphTrait for GraphAdapter {
     fn reset(&mut self) {
         self.graph.reset();
+        self.refusal = None;
     }
 
-    fn add_pass(&mut self, _desc: chassis::RenderPassDesc) -> PassId {
-        // The shared graph is fluent: passes are declared through `pass(name)`
-        // and a builder, not through a `RenderPassDesc` plus an index. Refusing
-        // beats returning an index that names nothing -- the caller would have a
-        // handle to a pass it never described.
-        unimplemented!(
-            "declare passes through chassis::graph::RenderGraph::pass, not through \
-             RenderGraph::add_pass: the shared graph takes a builder"
-        )
+    fn add_pass(&mut self, desc: chassis::RenderPassDesc) -> PassId {
+        // Refused, and named, with stormglass's own words so the two backends
+        // refuse identically. Recorded rather than returned because this
+        // signature returns an id, so an error has nowhere to go and `compile` is
+        // the next point a caller can be told.
+        let name = if desc.label.is_empty() {
+            "unnamed"
+        } else {
+            desc.label.as_str()
+        };
+        self.refusal = Some(format!(
+            "no pass '{name}': the graph is declared through \
+             `chassis::graph::RenderGraph`, where a pass names its resources by id \
+             and by state, not through `RenderGraph::add_pass`, whose \
+             `RenderPassDesc` carries no resource states"
+        ));
+        NO_PASS
     }
 
     fn add_dependency(&mut self, _producer: PassId, _consumer: PassId) {
-        unimplemented!(
-            "this backend derives ordering from declared reads and writes; \
-             an explicit edge has nowhere to go"
-        )
+        // Refused, and named. Accepting an edge the compiler ignores would be worse
+        // than an error, and a panic is worse than an error the caller can read.
+        let why = "`add_dependency` has nowhere to go: ordering comes from declared \
+                   reads and writes";
+        self.refusal = Some(why.to_owned());
     }
 
     fn compile(&mut self) -> RhiResult<Vec<PassId>> {
+        self.refused()?;
         Ok(self
             .graph
             .passes()
@@ -496,6 +507,7 @@ impl RenderGraphTrait for GraphAdapter {
     fn execute(&mut self, _jobs: &grind::Jobs) -> RhiResult<()> {
         // Recording is the executor's job and it owns its command lists, which is
         // why `RenderGraph::execute` takes none. This validates the frame.
+        self.refused()?;
         self.graph
             .compile()
             .map_err(|errors| chassis::Error::Unsupported(describe(&errors)))?;
@@ -529,12 +541,65 @@ impl chassis::Gpu for VulkanGpu {
         &mut self.resources
     }
 
+    fn record_frame(
+        &mut self,
+        frame: &chassis::graph::CompiledGraph,
+        slots: &SlotTable,
+        recorder: Arc<dyn PassRecorder>,
+    ) -> RhiResult<()> {
+        // The swapchain's extent when there is one: it is the clamped, configured
+        // size, and the frontend sized this frame's targets from the same one.
+        self.executor.set_extent(self.extent());
+
+        // The frontend's table is the frame's table. It minted the textures the
+        // graph names by slot, so it is the only side that knows which handle is
+        // which; replaced rather than merged, because slot indices move when the
+        // frontend's frame changes and a stale entry would name a texture that
+        // has been destroyed.
+        *self.executor.slots_mut() = slots.clone();
+
+        // A swapchain image has no `chassis::Texture` on this backend: the
+        // swapchain owns it and nothing registers it in `Textures`, which is what
+        // both `resolve_frame` and every barrier resolve a slot through. So the
+        // one slot no frontend can fill is also one this backend cannot fill yet,
+        // and it is refused here by name -- `resolve_frame` would otherwise fail
+        // with `InvalidHandle` against whichever pass attached it.
+        if let Some(slot) = backbuffer_slot(frame) {
+            if self.executor.slots().texture(slot).is_none() {
+                return Err(chassis::Error::Unsupported(format!(
+                    "the frame draws the swapchain image (slot {slot}) but nothing is bound to \
+                     it: a Vulkan swapchain image has no chassis::Texture to bind"
+                )));
+            }
+        }
+
+        // The recorder is moved into the executor, which owns the command lists
+        // and the submit order. Cloned out of the registries first so the mutable
+        // borrow of the executor is not live across the immutable one, as
+        // `submit` does for the same reason.
+        let resources = executor_resources(&self.resources);
+        let jobs = self.jobs();
+        self.executor
+            .execute(frame, resources, recorder, &jobs)
+            .map_err(|error| chassis::Error::Unsupported(error.to_string()))?;
+
+        // No present here. The frame loop is `frame_begin` -> this -> `submit`,
+        // and `submit` owns the present: one per frame, at the point every caller
+        // reaches through `Box<dyn Gpu>`.
+        Ok(())
+    }
+
     fn frame_begin(&mut self) -> RhiResult<()> {
         self.graph.reset();
         Ok(())
     }
 
     fn submit(&mut self) -> RhiResult<()> {
+        // A refused declaration submits nothing on purpose: the frame the caller
+        // described was never declared, so running it would record a frame from
+        // the declaration path this backend does not have and call it done.
+        self.graph.refused()?;
+
         let compiled = self
             .graph
             .graph
@@ -555,7 +620,25 @@ impl chassis::Gpu for VulkanGpu {
                 .executor
                 .execute(&compiled, resources, Arc::new(NoRecording), &jobs),
         };
-        result.map_err(|error| chassis::Error::Unsupported(error.to_string()))
+        result.map_err(|error| chassis::Error::Unsupported(error.to_string()))?;
+
+        // The trait's own sentence for `submit` is "submit every list produced this
+        // frame, then present", and this is the only place a caller gets the second
+        // half: `App::frame` runs `frame_begin` -> the plugins' `on_render` (where
+        // `record_frame` records and submits the frontend's frame) -> here, so the
+        // work this presents is this frame's. `present` is inherent on this backend
+        // and the engine holds a `Box<dyn Gpu>`.
+        //
+        // A `submit` with no frontend frame attached -- this backend's own graph,
+        // which nothing can declare into -- presents whatever the acquire handed
+        // out, and nothing wrote it. That is the caller's frame to skip, not a
+        // reason to stop presenting: a present with nothing acquired is a no-op
+        // (`present` returns before the queue call), and headless there is no
+        // swapchain to present at all.
+        if self.swapchain.is_some() {
+            self.present()?;
+        }
+        Ok(())
     }
 
     fn wait_idle(&mut self) {
@@ -565,21 +648,42 @@ impl chassis::Gpu for VulkanGpu {
     }
 }
 
-/// Adapts the fluent graph to the `RenderGraph` trait. See the file header for
-/// the two methods that refuse.
+/// Adapts the fluent graph to the `RenderGraph` trait.
+///
+/// `add_pass` and `add_dependency` are the two methods that refuse -- see the
+/// comments on them for why, and `refused` for where the refusal becomes an
+/// error.
 pub struct GraphAdapter {
     graph: chassis::graph::RenderGraph,
+    /// Why a pass or an edge was refused, if one was.
+    ///
+    /// Kept because the two methods that can refuse have no return value to put an
+    /// error in; `refused` is where it becomes one.
+    refusal: Option<String>,
 }
 
 impl GraphAdapter {
     pub fn new() -> Self {
         Self {
             graph: chassis::graph::RenderGraph::new(),
+            refusal: None,
         }
     }
 
     pub fn graph(&mut self) -> &mut chassis::graph::RenderGraph {
         &mut self.graph
+    }
+
+    /// Reports a refusal recorded by `add_pass` or `add_dependency`.
+    ///
+    /// Called by `compile`, `execute` and `submit`, which are the three points a
+    /// caller can be told. `reset` clears it, so a refused frame cannot poison the
+    /// next one.
+    fn refused(&self) -> RhiResult<()> {
+        match &self.refusal {
+            Some(why) => Err(chassis::Error::Unsupported(why.clone())),
+            None => Ok(()),
+        }
     }
 }
 
@@ -587,6 +691,34 @@ impl Default for GraphAdapter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The id `add_pass` returns when it refuses.
+///
+/// Not a declaration index: nothing was declared, and `compile` reports the same
+/// refusal, so there is no pass to look up by it. `u32::MAX` is the graph's own
+/// "no resource" sentinel (`chassis::graph::types::NO_RESOURCE`).
+const NO_PASS: PassId = u32::MAX;
+
+/// The slot a frame draws the swapchain image into, if it draws one at all.
+///
+/// The swapchain image is the one resource a frame claims is external and has to
+/// leave presentable: the renderer imports it with `Undefined` in and `Present`
+/// out, and the compiler carries that declaration into the pass list as the
+/// epilogue transition to `Present` on the last pass that touches it. So the
+/// compiled frame names the slot on its own -- which matters, because a compiled
+/// frame is all a backend is handed.
+///
+/// Nothing else in a frame reaches `Present`: every other texture ends at
+/// whatever state the pass that last touched it left it in. The wgpu backend has
+/// the same rule, in `stormglass::wgpu_render_graph_executor::backbuffer_slot`.
+fn backbuffer_slot(frame: &chassis::graph::CompiledGraph) -> Option<chassis::graph::TextureId> {
+    frame
+        .passes
+        .iter()
+        .flat_map(|pass| pass.pre_barriers.iter().chain(&pass.post_barriers))
+        .find(|barrier| barrier.dst_state == chassis::graph::ImageState::Present)
+        .map(|barrier| barrier.texture)
 }
 
 /// Formats the graph's validation errors into one message.

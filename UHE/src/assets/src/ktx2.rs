@@ -159,6 +159,20 @@ pub fn load_ktx2(data: &[u8]) -> Result<Ktx2Image> {
         )));
     }
 
+    // The data format descriptor is where a Basis payload says which encoding it
+    // carries, and where the swizzle and channel meanings of a plain one live.
+    // Every format this build accepts is fully described by `vkFormat` alone, so
+    // the descriptor is only range-checked here — a file that points it outside
+    // itself is malformed whatever the payload is.
+    let dfd_offset = header(48)?;
+    let dfd_length = header(52)?;
+    let dfd_end = dfd_offset as u64 + dfd_length as u64;
+    if dfd_length > 0 && dfd_end > data.len() as u64 {
+        return Err(Error::Decode(format!(
+            "KTX2 data format descriptor runs past the end of the file ({dfd_offset}..{dfd_end})"
+        )));
+    }
+
     let mut mips = Vec::with_capacity(level_count as usize);
     for level in 0..level_count {
         let entry = HEADER_SIZE + level as usize * LEVEL_INDEX_STRIDE;
@@ -292,7 +306,13 @@ mod tests {
     use super::*;
 
     /// Builds a one-level, uncompressed KTX2 around `texels`.
-    fn container(vk_format: u32, supercompression: u32, width: u32, height: u32, texels: &[u8]) -> Vec<u8> {
+    fn container(
+        vk_format: u32,
+        supercompression: u32,
+        width: u32,
+        height: u32,
+        texels: &[u8],
+    ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&IDENTIFIER);
         for value in [

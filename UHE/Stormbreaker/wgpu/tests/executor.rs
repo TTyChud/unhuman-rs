@@ -4,11 +4,11 @@
 //! the claim being tested: one frame description, two very different executors.
 
 use chassis::graph as rg;
-use chassis::graph::{NoRecording, PassRecorder, PassScope};
+use chassis::graph::{NoRecording, PassRecorder, PassScope, SlotTable};
 use chassis::CommandList;
 use stormglass::wgpu_device::Adapter;
 use stormglass::wgpu_render_graph_executor::{
-    ExecutorStats, WgpuRenderGraphExecutor as WgpuExecutor,
+    backbuffer_slot, resolve_backbuffer, ExecutorStats, WgpuRenderGraphExecutor as WgpuExecutor,
 };
 use stormglass::wgpu_resources::WgpuResources;
 
@@ -269,4 +269,252 @@ fn the_pass_recorder_is_send_and_sync() {
     // bound on `execute` is what actually matters and the compiler checks it.
     fn takes_recorder(_: &dyn PassRecorder) {}
     takes_recorder(&NoRecording);
+}
+
+// ── the swapchain image: the one slot the frontend cannot fill ──────────────
+//
+// No device in any of these. The decision is a function of the compiled frame and
+// the handle the acquire produced, and both are plain data -- `chassis::graph::compile`
+// needs no driver.
+
+/// Two handles that are not equal, minted the way the backend mints them.
+fn handles() -> (chassis::Texture, chassis::Texture) {
+    let mut registry = chassis::Registry::<u8, chassis::TextureTag>::new();
+    (registry.create(0), registry.create(1))
+}
+
+/// A frame as the renderer declares it: its own textures and the swapchain image
+/// it composites into, whose slot is therefore the fourth import.
+fn compiled_frame() -> rg::CompiledGraph {
+    let mut graph = rg::RenderGraph::new();
+    let scene_color = graph.import_texture(
+        "scene.color",
+        rg::ImageState::Undefined,
+        rg::ImageState::ShaderRead,
+    );
+    let scene_depth = graph.import_texture(
+        "scene.depth",
+        rg::ImageState::Undefined,
+        rg::ImageState::DepthAttachment,
+    );
+    let shadow = graph.import_texture(
+        "shadow.map",
+        rg::ImageState::Undefined,
+        rg::ImageState::ShaderRead,
+    );
+    let backbuffer = graph.import_texture(
+        "backbuffer",
+        rg::ImageState::Undefined,
+        rg::ImageState::Present,
+    );
+    assert_eq!(backbuffer, 3);
+
+    graph
+        .pass("shadow")
+        .kind(rg::PassType::Graphics)
+        .depth(shadow, 1.0);
+    graph
+        .pass("opaque")
+        .kind(rg::PassType::Graphics)
+        .color_load(scene_color)
+        .depth(scene_depth, 1.0)
+        .read_texture(shadow);
+    graph
+        .pass("composite")
+        .kind(rg::PassType::Graphics)
+        .color(backbuffer, [0.0, 0.0, 0.0, 1.0])
+        .read_texture(scene_color);
+    graph.compile().expect("the frame compiles")
+}
+
+/// A frame that renders to a texture of its own and never to the swapchain.
+fn offscreen_frame() -> rg::CompiledGraph {
+    let mut graph = rg::RenderGraph::new();
+    let target = graph.import_texture(
+        "target",
+        rg::ImageState::Undefined,
+        rg::ImageState::TransferSrc,
+    );
+    graph
+        .pass("draw")
+        .kind(rg::PassType::Graphics)
+        .color_load(target);
+    graph.compile().expect("the frame compiles")
+}
+
+// ── the rule, which reads the compiled frame ────────────────────────────────
+
+/// The swapchain image is the resource that has to leave the frame presentable.
+///
+/// That is the whole rule, and it is the graph's own words: `import_texture`'s doc
+/// says the two states differ for the swapchain image, which enters undefined and
+/// has to leave in `Present`, and the compiler carries that declaration into the
+/// pass list as the epilogue transition.
+#[test]
+fn the_swapchain_image_is_the_slot_that_has_to_leave_present() {
+    let frame = compiled_frame();
+    assert_eq!(backbuffer_slot(&frame), Some(3), "slot 3");
+
+    // A frame that renders offscreen ends its target in `TransferSrc` for the
+    // readback, which is what every other import looks like: no slot for the
+    // backend to fill.
+    assert_eq!(backbuffer_slot(&offscreen_frame()), None);
+}
+
+/// The acquired image is bound to that slot, and nothing else is touched.
+#[test]
+fn the_acquired_image_is_bound_to_the_swapchain_slot() {
+    let frame = compiled_frame();
+    let (scene_color, acquired) = handles();
+
+    let mut slots = SlotTable::default();
+    slots.set_texture(0, scene_color);
+
+    resolve_backbuffer(&frame, &mut slots, Some(acquired)).expect("bound");
+
+    assert_eq!(slots.texture(3), Some(acquired));
+    assert_eq!(
+        slots.texture(0),
+        Some(scene_color),
+        "the frontend's own registrations stay where they were",
+    );
+    assert_eq!(
+        slots.texture(1),
+        None,
+        "and a slot nobody bound is still empty rather than filled in",
+    );
+}
+
+/// A resize mints a new handle for a new image, and the slot has to hold the new
+/// one.
+#[test]
+fn a_new_image_replaces_the_previous_one_in_the_slot() {
+    let frame = compiled_frame();
+    let (first, second) = handles();
+
+    let mut slots = SlotTable::default();
+    resolve_backbuffer(&frame, &mut slots, Some(first)).expect("bound");
+    resolve_backbuffer(&frame, &mut slots, Some(second)).expect("rebound");
+
+    assert_eq!(slots.texture(3), Some(second));
+    assert_ne!(slots.texture(3), Some(first), "not the retired handle");
+}
+
+/// No image, and a frame that draws the swapchain image: refused here, naming the
+/// slot, rather than at record time with a slot that resolves to nothing.
+#[test]
+fn a_frame_with_no_acquired_image_is_refused_and_the_slot_cleared() {
+    let frame = compiled_frame();
+    let (first, _) = handles();
+
+    let mut slots = SlotTable::default();
+    resolve_backbuffer(&frame, &mut slots, Some(first)).expect("bound");
+    assert_eq!(slots.texture(3), Some(first), "the previous frame's image");
+
+    // Headless, or an acquire that was skipped. Either way the frame cannot be
+    // recorded, and the handle left over from the last frame names an image the
+    // surface has already released.
+    let error = resolve_backbuffer(&frame, &mut slots, None).expect_err("no image to bind");
+    let message = error.to_string();
+    assert!(message.contains("slot 3"), "names the slot: {message}");
+    assert!(message.contains("swapchain"), "names the image: {message}");
+    assert_eq!(
+        slots.texture(3),
+        None,
+        "the retired handle must not survive into a recording",
+    );
+}
+
+/// A frame that never draws the swapchain image needs no surface at all.
+///
+/// An offscreen or transfer-only frame is ordinary headless work, and refusing it
+/// would make a headless device useless.
+#[test]
+fn a_frame_that_never_draws_the_swapchain_image_needs_no_image() {
+    let mut slots = SlotTable::default();
+    resolve_backbuffer(&offscreen_frame(), &mut slots, None).expect("not an error");
+
+    assert_eq!(
+        slots.texture_count(),
+        0,
+        "and nothing was bound, not even a null in a slot",
+    );
+}
+
+/// The whole path on a device: the slot resolves, through the same `PassScope` a
+/// pass records with, to the image the backend bound to it.
+///
+/// Ignored, not skipped: it needs an adapter, and the image in the slot is a
+/// texture standing in for the swapchain's. A swapchain image comes from a
+/// `Surface`, a `Surface` comes from a window, and this crate names no windowing
+/// library -- the acquire half is driven by `bins/sandbox`, which has one. This is
+/// what a person runs when the frame path stops working.
+#[test]
+#[ignore = "needs a GPU adapter; the swapchain image itself needs a window"]
+fn the_recorded_scope_sees_the_bound_swapchain_image() {
+    let Some(adapter) = Adapter::request(0) else {
+        eprintln!("skipping: no wgpu adapter");
+        return;
+    };
+    let Some((device, queue)) = adapter.create_device("stormglass-backbuffer") else {
+        return;
+    };
+    let resources = WgpuResources::new(&device);
+    let mut executor = WgpuExecutor::new(
+        queue,
+        resources,
+        chassis::Extent2d {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+    );
+
+    let acquired = chassis::Resources::create_texture(
+        executor.resources_mut(),
+        chassis::TextureDesc::new_2d(
+            chassis::Extent {
+                width: WIDTH,
+                height: HEIGHT,
+                depth: 1,
+            },
+            chassis::TextureFormat::Rgba8Unorm,
+            chassis::TextureUsage::COLOR_ATTACHMENT,
+        ),
+    )
+    .expect("a stand-in for the acquired image");
+
+    let compiled = compiled_frame();
+    let backbuffer = backbuffer_slot(&compiled).expect("the frame draws it");
+
+    executor
+        .resolve_backbuffer(&compiled, Some(acquired))
+        .expect("the acquired image is bound");
+
+    let seen = std::sync::Mutex::new(None);
+    let record = |scope: &PassScope<'_>, _list: &mut dyn CommandList| {
+        if scope.name == "composite" {
+            *seen.lock().expect("not poisoned") = scope.texture(backbuffer);
+        }
+        Ok(())
+    };
+    executor.execute(&compiled, &record).expect("records");
+
+    assert_eq!(
+        *seen.lock().expect("not poisoned"),
+        Some(acquired),
+        "the composite pass can name the backbuffer and get the bound handle",
+    );
+
+    // No image at all: refused when it is resolved, and refused again at record
+    // time for a caller that never asked -- naming the slot, rather than
+    // beginning a render pass with no attachment.
+    let error = executor
+        .resolve_backbuffer(&compiled, None)
+        .expect_err("no image to bind");
+    assert!(error.to_string().contains("slot 3"));
+
+    let error = executor
+        .execute(&compiled, &record)
+        .expect_err("nothing is bound to the swapchain slot");
+    assert!(error.to_string().contains("slot 3"));
 }

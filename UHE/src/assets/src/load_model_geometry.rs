@@ -211,10 +211,16 @@ fn compute_bounds(mesh: &mut MeshData) {
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
     for position in &mesh.positions {
-        for axis in 0..3 {
-            min[axis] = min[axis].min(position[axis]);
-            max[axis] = max[axis].max(position[axis]);
-        }
+        min = [
+            min[0].min(position[0]),
+            min[1].min(position[1]),
+            min[2].min(position[2]),
+        ];
+        max = [
+            max[0].max(position[0]),
+            max[1].max(position[1]),
+            max[2].max(position[2]),
+        ];
     }
     if min[0] <= max[0] {
         mesh.bounds_min = min;

@@ -16,7 +16,7 @@ use mirror::content_browser::Entry;
 use mirror::Editor;
 
 use crate::app::EditorApp;
-use crate::panels::{body, placeholder, with_alpha};
+use crate::panels::{body, dim_label, with_alpha};
 use crate::theme::EditorTheme;
 
 const CELL_WIDTH: f32 = 132.0;
@@ -33,9 +33,9 @@ pub fn panel(
     let selected = browser.selected.clone();
 
     let mut crumbs: Vec<gpui::AnyElement> = Vec::with_capacity(breadcrumbs.len() + 1);
-    crumbs.push(crumb(0, "Assets", None, theme, cx));
+    crumbs.push(crumb(0, "Assets", None, theme, cx).into_any_element());
     for (index, (name, path)) in breadcrumbs.iter().enumerate() {
-        crumbs.push(crumb(index + 1, name, Some(path), theme, cx));
+        crumbs.push(crumb(index + 1, name, Some(path), theme, cx).into_any_element());
     }
 
     let mut cells: Vec<gpui::AnyElement> = Vec::with_capacity(entries.len());
@@ -71,9 +71,7 @@ pub fn panel(
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .when(entries.is_empty(), |grid| {
-                    grid.child(placeholder("Empty directory", theme))
-                })
+                .when(entries.is_empty(), |grid| grid.child(dim_label("Empty directory", theme)))
                 .children(cells),
         )
 }

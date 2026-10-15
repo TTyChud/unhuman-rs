@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use adam::PhysicsBackend;
-use glam::{EulerRot, Quat, Vec3};
+use glam::Vec3;
 use meats::{Collider, Entity, RigidBody, RigidBodyKind, Scene, Transform};
 use rapier3d::prelude::{
     BroadPhaseBvh, CCDSolver, ColliderBuilder, ColliderSet, ImpulseJointSet,
@@ -173,16 +173,12 @@ impl Physics3D {
         let shape = match source.shape.shared() {
             Ok(shape) => shape,
             Err(Refusal::Unsupported(name)) => {
-                log::warn!(
-                    "femur: entity {entity:?}: collider shape {name} is not supported; no body created"
-                );
+                log::warn!("femur: entity {entity:?}: collider shape {name} is unsupported");
                 self.track_refused(entity, source, pose, generation);
                 return;
             }
             Err(Refusal::Missing) => {
-                log::debug!(
-                    "femur: entity {entity:?}: rigid body without a collider; no body created"
-                );
+                log::debug!("femur: entity {entity:?}: rigid body with no collider; no body");
                 self.track_refused(entity, source, pose, generation);
                 return;
             }
@@ -339,36 +335,45 @@ struct Source {
     shape: ShapeSlot,
 }
 
-/// A pose as the scene stores one: a translation, and a rotation as the Euler angles
-/// `Transform::rotation` holds (`Components.h` — box-collider style, x/y/z).
+/// A pose as the scene stores one: a translation, and `Transform::rotation` — Euler
+/// **degrees**, in the `glm::quat(vec3)` order `Transform::rotation_quat` is the forward
+/// half of.
 ///
 /// The comparison that catches an editor edit is between this and what the backend last
-/// wrote, so it stays in the scene's own representation. Converting the write-back through
-/// a quaternion and back would leave every resting body looking edited each frame, and
-/// waking it forever.
+/// wrote, so it stays in the scene's own representation: writing the angles back is what
+/// makes the two sides bit-equal for an untouched body, where comparing a quaternion
+/// against a re-derived one would leave every resting body looking edited and awake it
+/// forever.
 #[derive(Clone, Copy, PartialEq)]
 struct ScenePose {
     translation: Vec3,
     rotation: Vec3,
 }
 
+/// Euler degrees to Rapier's quaternion, through `meats`' own conversion.
+///
+/// `Transform::rotation_quat` and not `Quat::from_euler(EulerRot::XYZ)`: the scene stores
+/// the C++ `glm::quat(vec3)` order, which is `Rz*Ry*Rx` — the composition glam names
+/// `EulerRot::XYZEx`, not the `Rx*Ry*Rz` of its `XYZ`. Either way the convention is
+/// `meats`', so the conversion lives there and this only takes it.
 fn rapier_pose(pose: ScenePose) -> Pose {
-    Pose::from_parts(
-        pose.translation,
-        Quat::from_euler(
-            EulerRot::XYZ,
-            pose.rotation.x.to_radians(),
-            pose.rotation.y.to_radians(),
-            pose.rotation.z.to_radians(),
-        ),
-    )
+    let transform = Transform {
+        translation: Vec3::ZERO,
+        rotation: pose.rotation,
+        scale: Vec3::ONE,
+    };
+    Pose::from_parts(pose.translation, transform.rotation_quat())
 }
 
+/// Rapier's quaternion back to Euler degrees, through `meats`' own conversion.
+///
+/// `meats::euler_degrees` is the inverse of `Transform::rotation_quat`, so the two
+/// directions are one convention kept in the crate that owns it; glam's `to_euler` is the
+/// inverse of a different order and would hand the scene a different orientation.
 fn scene_pose(pose: &Pose) -> ScenePose {
-    let (x, y, z) = pose.rotation.to_euler(EulerRot::XYZ);
     ScenePose {
         translation: pose.translation,
-        rotation: Vec3::new(x.to_degrees(), y.to_degrees(), z.to_degrees()),
+        rotation: meats::euler_degrees(pose.rotation),
     }
 }
 
@@ -405,8 +410,8 @@ fn read_source(scene: &Scene, entity: Entity) -> Option<(Source, ScenePose)> {
 /// Writes the simulated pose back, leaving the scale alone.
 ///
 /// The C++ went through Euler angles on the way out (`glm::eulerAngles`,
-/// `Scene.cpp:1273`) because the component stores them; the port keeps that shape, so the
-/// round trip out and back in is one convention, `EulerRot::XYZ`, in both directions.
+/// `Scene.cpp:1273`) because the component stores them; the port keeps that shape, and
+/// both directions go through the one convention `meats` defines.
 fn write_pose(scene: &mut Scene, entity: Entity, pose: ScenePose) {
     let Some(mut built) = scene.get_mut(entity) else {
         return;

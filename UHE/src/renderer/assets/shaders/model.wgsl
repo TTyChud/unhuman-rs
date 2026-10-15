@@ -69,6 +69,8 @@ struct VertexInput {
     @location(2) uv: vec2<f32>,
     // xyz tangent, w handedness.
     @location(3) tangent: vec4<f32>,
+    // COLOR_0. Location 6, the C++ `a_Color`.
+    @location(6) color: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -78,6 +80,7 @@ struct VertexOutput {
     @location(2) uv: vec2<f32>,
     @location(3) tangent: vec3<f32>,
     @location(4) bitangent: vec3<f32>,
+    @location(5) color: vec4<f32>,
 };
 
 @vertex
@@ -95,6 +98,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.tangent = tangent;
     out.bitangent = cross(normal, tangent) * in.tangent.w;
     out.uv = in.uv;
+    out.color = in.color;
     out.clip = frame.view_projection * world;
     return out;
 }
@@ -163,7 +167,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let occlusion = textureSample(occlusion_texture, material_sampler, slot_uv(3u, in.uv)).r;
     let emissive_texel = textureSample(emissive_texture, material_sampler, slot_uv(4u, in.uv));
 
-    let base = albedo_texel.rgb * material.base_color_factor.rgb * draw.tint.rgb;
+    // Multiplied unconditionally: an absent COLOR_0 is white on the CPU side
+    // (`mesh::interleave`), so this is a no-op for a mesh that has none, and the
+    // C++'s per-primitive `useVertexColor` flag has nothing left to gate.
+    let base = albedo_texel.rgb * material.base_color_factor.rgb * draw.tint.rgb * in.color.rgb;
     let alpha = albedo_texel.a * material.base_color_factor.a * draw.tint.a;
 
     // glTF alphaMode: 0 opaque, 1 mask, 2 blend.

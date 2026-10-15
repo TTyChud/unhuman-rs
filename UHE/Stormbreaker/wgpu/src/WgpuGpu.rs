@@ -12,19 +12,32 @@
 //! That is the whole claim of a two-backend engine, and until this file compiled
 //! it was untested.
 //!
-//! ## The render graph adapter, and its one wart
+//! ## The render graph adapter, and its two refusals
 //!
 //! `chassis::RenderGraph` wants `add_pass`, `add_dependency`, `compile` and
 //! `execute`. The graph in `chassis::graph` wants a fluent builder and derives
 //! ordering from declared reads and writes. Those are two different authoring
-//! styles over the same thing, and the adapter below provides the former on top
-//! of the latter.
+//! styles, and the adapter below bridges only the half that carries the same
+//! information: neither `add_pass` nor `add_dependency` can be honoured.
 //!
-//! `add_dependency` is **refused**. The shared graph has no explicit edge list:
-//! ordering comes from reads and writes, which is what makes a read-after-write
-//! hazard unrepresentable rather than merely discouraged. Accepting an edge the
-//! compiler would ignore would be worse than refusing it — a caller would believe
-//! something the graph does not do.
+//! Both refusals become a `chassis::Error::Unsupported`: neither method has room
+//! for one in its own signature (`add_pass` returns an id, `add_dependency`
+//! returns nothing), so a refusal is recorded and named by `compile` -- and by
+//! `submit`, so a refused frame is not submitted as an empty one and presented.
+//!
+//! `add_dependency` first: the shared graph has no explicit edge list. Ordering
+//! comes from reads and writes, which is what makes a read-after-write hazard
+//! unrepresentable rather than merely discouraged. Accepting an edge the compiler
+//! would ignore would be worse than refusing it — a caller would believe something
+//! the graph does not do.
+//!
+//! `add_pass` cannot be honoured faithfully either. A pass in the shared graph
+//! names its resources by id and by *state* (`ImageState`), which is what the
+//! compiler orders a frame from; a `RenderPassDesc` carries attachments as handles
+//! with a format and a load op and no state at all, its label may be empty — which
+//! the compiler refuses as an unnamed pass — and a resolve target has nowhere to
+//! go. A pass declared from one would be ordered against states the caller never
+//! gave: a wrong frame, which is worse than a missing one.
 
 use std::sync::Arc;
 
@@ -300,26 +313,34 @@ impl Swapchain for WgpuGpu {
 impl RenderGraphTrait for GraphAdapter {
     fn reset(&mut self) {
         self.graph.reset();
+        self.refusal = None;
     }
 
     fn add_pass(&mut self, desc: chassis::RenderPassDesc) -> PassId {
-        // The fluent builder and this signature disagree about style; the
-        // builder is what the graph offers, so a pass declared here is built
-        // through it and returned as a declaration index.
-        let _ = desc;
-        self.next_index
+        // Refused, and named -- see the file header for why a `RenderPassDesc`
+        // cannot be declared into the shared graph. Recorded rather than returned:
+        // this signature returns an id, so an error has nowhere to go, and
+        // `compile` is the next point a caller can be told.
+        let name = if desc.label.is_empty() { "unnamed" } else { desc.label.as_str() };
+        self.refusal = Some(format!(
+            "no pass '{name}': the graph is declared through \
+             `chassis::graph::RenderGraph`, where a pass names its resources by id \
+             and by state, not through `RenderGraph::add_pass`, whose \
+             `RenderPassDesc` carries no resource states"
+        ));
+        NO_PASS
     }
 
     fn add_dependency(&mut self, _producer: PassId, _consumer: PassId) {
-        // Refused, and documented in the file header. Accepting an edge the
-        // compiler ignores would be worse than an error.
-        unimplemented!(
-            "this backend derives ordering from declared reads and writes; \
-             an explicit edge has nowhere to go"
-        )
+        // Refused, and named. Accepting an edge the compiler ignores would be worse
+        // than an error, and a panic is worse than an error the caller can read.
+        let why = "`add_dependency` has nowhere to go: ordering comes from declared \
+                   reads and writes";
+        self.refusal = Some(why.to_owned());
     }
 
     fn compile(&mut self) -> RhiResult<Vec<PassId>> {
+        self.refused()?;
         Ok(self
             .graph
             .passes()
@@ -335,6 +356,7 @@ impl RenderGraphTrait for GraphAdapter {
         // `RenderGraph::execute` exists so a caller can order *and* run a frame
         // through one trait object; the two halves live in `submit` and here, and
         // this validates that the frame is sound before either.
+        self.refused()?;
         let compiled = self
             .graph
             .compile()
@@ -384,23 +406,81 @@ impl chassis::Gpu for WgpuGpu {
     }
 
     fn submit(&mut self) -> RhiResult<()> {
-        let Some(recorder) = self.recorder.clone() else {
-            // No frontend attached. Not an error: a frame that only does
-            // transfers still submits, and `NoRecording` is the honest recorder
-            // for it.
-            let compiled = self
-                .graph
-                .graph
-                .compile()
-                .map_err(|errors| chassis::Error::Unsupported(describe(&errors)))?;
-            return self.executor.execute(&compiled, &NoRecording);
-        };
+        // A refused declaration submits nothing on purpose: the frame the caller
+        // described was never declared, so running it would present a cleared image
+        // and call it a frame.
+        self.graph.refused()?;
+
         let compiled = self
             .graph
             .graph
             .compile()
             .map_err(|errors| chassis::Error::Unsupported(describe(&errors)))?;
-        self.executor.execute(&compiled, recorder.as_ref())
+
+        // The image this frame draws into, if it has one: `None` headless, and
+        // `None` when the acquire was skipped. The frame's swapchain slot is bound
+        // from it here, before a single pass records.
+        let acquired = self.surface.as_ref().and_then(WgpuSurface::texture);
+        self.executor.resolve_backbuffer(&compiled, acquired)?;
+
+        // No frontend attached is not an error: a frame that only does transfers
+        // still submits, and `NoRecording` is the honest recorder for it.
+        let recorder: Arc<dyn PassRecorder> = match self.recorder.clone() {
+            Some(recorder) => recorder,
+            None => Arc::new(NoRecording),
+        };
+        self.executor.execute(&compiled, recorder.as_ref())?;
+
+        // The trait's own sentence for `submit` is "submit every list produced this
+        // frame, then present", and this is the only place a caller gets the second
+        // half: the engine's frame holds `Box<dyn Gpu>`, and `present` is inherent
+        // on this backend. Headless there is nothing to present, which is not a
+        // failure.
+        if self.surface.is_some() {
+            self.present()?;
+        }
+        Ok(())
+    }
+
+    /// Execute a frame the frontend compiled.
+    ///
+    /// [`WgpuGpu::submit`] runs the *backend's* graph; this runs the frame a
+    /// frontend declared and compiled itself, which is the only shape a renderer
+    /// that sees `&mut dyn Gpu` can produce. The slot table comes with it because
+    /// the frontend minted the textures the graph names by slot, so it is the only
+    /// side that knows which handle is which -- and binding the one slot it cannot
+    /// fill, the swapchain image, is this backend's job.
+    fn record_frame(
+        &mut self,
+        frame: &chassis::graph::CompiledGraph,
+        slots: &SlotTable,
+        recorder: Arc<dyn PassRecorder>,
+    ) -> RhiResult<()> {
+        // The swapchain's extent when there is one: it is the clamped, configured
+        // size, and the frontend sized this frame's targets from the same one.
+        let extent = self.extent();
+        self.executor.set_extent(extent);
+
+        // The frontend's table is the frame's table. Replaced rather than merged:
+        // slot indices move when the frame changes, so a stale entry would name a
+        // texture that has been destroyed.
+        *self.executor.slots_mut() = slots.clone();
+
+        // The one slot no frontend can fill. A swapchain image has no `Texture`
+        // handle until this backend mints one for the image it acquired, so a frame
+        // that draws it with no image is refused here, by slot -- rather than at
+        // `begin_rendering`, where the message would name a pass and not the image
+        // that was never bound.
+        let acquired = self.surface.as_ref().and_then(WgpuSurface::texture);
+        self.executor.resolve_backbuffer(frame, acquired)?;
+
+        self.executor.execute(frame, recorder.as_ref())?;
+
+        // No present here, deliberately: `submit` is the frame loop's last call and
+        // the single present site, and this frame is already recorded onto the
+        // queue, so `submit` presents it. Presenting here too would present twice
+        // per frame -- once for this frame and once for the backend's own graph.
+        Ok(())
     }
 
     fn wait_idle(&mut self) {
@@ -425,25 +505,44 @@ fn describe(errors: &[chassis::graph::types::ValidationError]) -> String {
         .join("; ")
 }
 
+/// The id `add_pass` returns when it refuses.
+///
+/// Not a declaration index: nothing was declared, and `compile` reports the same
+/// refusal, so there is no pass to look up by it. `u32::MAX` is the graph's own
+/// "no resource" sentinel (`chassis::graph::types::NO_RESOURCE`).
+const NO_PASS: PassId = u32::MAX;
+
 /// Adapts the fluent graph to the `RenderGraph` trait.
 ///
-/// See the file header for `add_dependency`, which is the only method that
-/// refuses.
+/// See the file header for `add_pass` and `add_dependency`, the two methods that
+/// refuse.
 pub struct GraphAdapter {
     graph: chassis::graph::RenderGraph,
-    next_index: PassId,
+    /// Why a pass or an edge was refused, if one was.
+    ///
+    /// Kept because the two methods that can refuse have no return value to put an
+    /// error in; `refused` is where it becomes one.
+    refusal: Option<String>,
 }
 
 impl GraphAdapter {
     pub fn new() -> Self {
         Self {
             graph: chassis::graph::RenderGraph::new(),
-            next_index: 0,
+            refusal: None,
         }
     }
 
     pub fn graph(&mut self) -> &mut chassis::graph::RenderGraph {
         &mut self.graph
+    }
+
+    /// Reports a refusal recorded by `add_pass` or `add_dependency`.
+    fn refused(&self) -> RhiResult<()> {
+        match &self.refusal {
+            Some(why) => Err(chassis::Error::Unsupported(why.clone())),
+            None => Ok(()),
+        }
     }
 }
 

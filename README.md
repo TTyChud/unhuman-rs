@@ -40,12 +40,20 @@ why. `docs/WORK.md` is the state of the work and the rules this repository runs 
 cargo build --workspace            # logic crates only; no GPU, no Vulkan SDK needed
 ./scripts/gate.sh                  # the whole gate: build, clippy -D warnings, tests
 ./scripts/gate.sh --no-vulkan      # on a machine with no driver
+./scripts/parity.sh                # coverage: every C++ file ported or a recorded reason
 ```
 
 `scripts/gate.sh` is the gate: a green run locally means a green run in CI. Two rules it
 encodes are there because getting them wrong produces a green run that means nothing —
 validation is enabled only through `DeviceOptions::from_env`, and the suites run with
 `--test-threads=1` because they share one device and one scratch directory.
+
+`scripts/parity.sh` is the check behind this README's claim that nothing was left behind:
+232 C++ files, each mapped to the Rust file that holds its port or to a recorded reason it
+does not exist. It exits non-zero on a file it cannot place, and it verifies that every
+target in its table still exists, so a rename breaks the check instead of the table going
+stale. Point it at a C++ checkout (`scripts/parity.sh ../UNHUMAN`, the default) or run it
+where the tree is absent — it says so and passes.
 
 Backends: **wgpu by default, Vulkan opt-in**, chosen by `--backend`, `UHE_BACKEND` or a
 `backend` key in the settings file. That is a stability decision, not a preference: when

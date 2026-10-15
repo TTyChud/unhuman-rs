@@ -13,7 +13,6 @@ forge = { workspace = true }
 grind = { workspace = true }
 meats = { workspace = true }
 vault = { workspace = true }
-pings = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
 ab_glyph = { workspace = true }

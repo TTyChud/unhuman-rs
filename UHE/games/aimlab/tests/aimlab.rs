@@ -165,6 +165,20 @@ fn the_spawn_cadence_is_deterministic_for_a_fixed_step_count() {
 }
 
 #[test]
+fn the_camera_carries_the_shot_sound() {
+    let (engine, _) = built();
+    let camera = engine.scene.primary_camera().expect("primary camera");
+    let entry = engine.scene.get(camera).expect("the camera entity");
+    let source = entry.get::<meats::AudioSource>().expect("a sound component");
+
+    assert_eq!(source.clip_path, "assets/audio/gunshot.wav");
+    assert!(
+        !source.playing,
+        "a one-shot goes through the backend, not a held `playing` flag"
+    );
+}
+
+#[test]
 fn a_hit_is_worth_its_points_and_a_miss_is_not() {
     let mut score = Score::default();
     score.hit();

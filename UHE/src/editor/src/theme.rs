@@ -350,10 +350,8 @@ impl Theme {
     /// index, the custom-accent flag, then r g b.
     pub fn parse(text: &str) -> Result<Theme, ThemeError> {
         let mut fields = text.split_whitespace();
-        let need = |what: &str| {
-            ThemeError {
-                message: format!("editor_theme.ini: missing {what}"),
-            }
+        let need = |what: &str| ThemeError {
+            message: format!("editor_theme.ini: missing {what}"),
         };
         let bad = |what: &str, token: &str| ThemeError {
             message: format!("editor_theme.ini: {what} is not a number: {token:?}"),
@@ -376,12 +374,14 @@ impl Theme {
             let token = fields.next().ok_or_else(|| need("accent channel"))?;
             token.parse().map_err(|_| bad("accent channel", token))
         };
-        let accent = Rgba::rgb(channel()?, channel()?, channel()?);
+        let r = channel()?;
+        let g = channel()?;
+        let b = channel()?;
 
         Ok(Theme {
             selected,
             custom_enabled: enabled != 0,
-            custom_accent: accent,
+            custom_accent: Rgba::rgb(r, g, b),
         })
     }
 
@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_the_defaults() {
-        let path = std::path::Path::new("/nonexistent/editor_theme.ini");
-        assert_eq!(Theme::load(path).unwrap(), Theme::new());
+        let path = std::env::temp_dir().join("mirror_theme_unit_absent/editor_theme.ini");
+        assert_eq!(Theme::load(&path).unwrap(), Theme::new());
     }
 }

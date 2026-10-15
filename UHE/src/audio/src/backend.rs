@@ -12,13 +12,16 @@ use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use adam::VoiceId;
 
 use crate::sound::Sound;
-use crate::spatial::{Pan, CHANNELS};
+use crate::spatial::{CHANNELS, Pan, PanHandle};
 use crate::voice::Voice;
 
 /// An open output device and the voices playing through it.
+///
+/// Dropping this is the C++ `Shutdown`: `players` is declared first so it drops
+/// first, and the sounds stop while the stream that plays them is still open.
 pub struct Backend {
-    sink: MixerDeviceSink,
     players: HashMap<VoiceId, Player>,
+    sink: MixerDeviceSink,
 }
 
 impl Backend {
@@ -35,8 +38,8 @@ impl Backend {
                 sink.log_on_drop(false);
                 log::info!("wire: audio output open ({:?})", sink.config());
                 Some(Self {
-                    sink,
                     players: HashMap::new(),
+                    sink,
                 })
             }
             Err(error) => {
@@ -54,25 +57,31 @@ impl Backend {
     /// decoded — the C++ `MA_SUCCESS` check, which logged the path and freed the
     /// sound it had allocated.
     pub fn start(&mut self, voice: &Voice, sound: &Sound) -> bool {
-        let decoder = match Decoder::new(sound.reader()) {
-            Ok(decoder) => decoder,
-            Err(error) => {
-                log::warn!("wire: cannot decode sound {}: {error}", sound.id().index());
-                return false;
-            }
-        };
-        // Pan and attenuate in stereo, whatever the clip was recorded in.
-        let rate = decoder.sample_rate();
-        let stereo = UniformSourceIterator::new(decoder, CHANNELS, rate);
-        let pan = Pan::new(stereo, voice.pan.clone());
-
-        let player = Player::connect_new(self.sink.mixer());
         if voice.spec.looping {
-            player.append(pan.repeat_infinite());
+            // Told to loop by the decoder, which seeks back to the start. Looping the
+            // source instead (`repeat_infinite`) buffers the whole clip in memory.
+            let decoder = match Decoder::new_looped(sound.reader()) {
+                Ok(decoder) => decoder,
+                Err(error) => {
+                    log::warn!("wire: cannot decode sound {}: {error}", sound.id().index());
+                    return false;
+                }
+            };
+            let player = Player::connect_new(self.sink.mixer());
+            player.append(stereo(decoder, &voice.pan));
+            self.players.insert(voice.id, player);
         } else {
-            player.append(pan);
+            let decoder = match Decoder::new(sound.reader()) {
+                Ok(decoder) => decoder,
+                Err(error) => {
+                    log::warn!("wire: cannot decode sound {}: {error}", sound.id().index());
+                    return false;
+                }
+            };
+            let player = Player::connect_new(self.sink.mixer());
+            player.append(stereo(decoder, &voice.pan));
+            self.players.insert(voice.id, player);
         }
-        self.players.insert(voice.id, player);
         true
     }
 
@@ -99,4 +108,14 @@ impl Backend {
             .map(|(id, _)| *id)
             .collect()
     }
+}
+
+/// Pan and attenuate in stereo, whatever the clip was recorded in: `Pan` needs two
+/// channels, and miniaudio spatialised into two as well.
+fn stereo<S>(decoder: S, pan: &PanHandle) -> Pan<UniformSourceIterator<S>>
+where
+    S: Source,
+{
+    let rate = decoder.sample_rate();
+    Pan::new(UniformSourceIterator::new(decoder, CHANNELS, rate), pan.clone())
 }

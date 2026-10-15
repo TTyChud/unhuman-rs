@@ -31,6 +31,7 @@ pub use desc::{
     ShaderStageDesc, StageMask, TextureDesc, VertexAttribute, VertexLayout,
 };
 pub use format::{BufferUsage, SampleCount, TextureFormat, TextureUsage};
+pub use graph::{PassRecorder, PassScope, SlotTable};
 pub use handle::{
     BindGroup, BindGroupTag, Buffer, BufferTag, Handle, ImageView, ImageViewTag, Pipeline,
     PipelineTag, Registry, Sampler, SamplerTag, Shader, ShaderTag, Texture, TextureTag,

@@ -72,8 +72,6 @@ pub enum GenerateError {
         width: u32,
         atlas_width: u32,
     },
-    /// The packer ran out of rows at `max_height`.
-    AtlasFull { max_height: u32 },
 }
 
 impl std::fmt::Display for GenerateError {
@@ -89,9 +87,6 @@ impl std::fmt::Display for GenerateError {
                 f,
                 "glyph {codepoint:#x} is {width}px wide, atlas is {atlas_width}px"
             ),
-            GenerateError::AtlasFull { max_height } => {
-                write!(f, "atlas full at {max_height}px tall")
-            }
         }
     }
 }

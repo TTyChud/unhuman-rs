@@ -10,11 +10,8 @@ publish = false
 [dependencies]
 adam = { workspace = true }
 meats = { workspace = true }
-vault = { workspace = true }
 wire = { workspace = true }
 femur = { workspace = true }
 aimlab = { workspace = true }
-grind = { workspace = true }
-glam = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }

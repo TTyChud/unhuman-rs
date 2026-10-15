@@ -89,6 +89,10 @@ fn run(arguments: &[String]) -> Result<(), String> {
         .add(FemurPlugin)
         .add(MirrorPlugin::new());
 
+    // The repository's `assets/` is where the relative paths in a scene and in
+    // aimlab resolve from, exactly as in the editor binary.
+    app.engine_mut().assets.mount("assets");
+
     log::info!("sandbox: plugins {}", app.plugin_names().join(", "));
 
     // The frame callback is `'static` and owns the app, so a failure inside it

@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 adam = { workspace = true }
 meats = { workspace = true }
-pings = { workspace = true }
 glam = { workspace = true }
 rodio = { workspace = true }
 log = { workspace = true }

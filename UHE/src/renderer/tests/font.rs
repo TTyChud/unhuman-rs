@@ -150,7 +150,8 @@ fn layout_adds_the_tracking_to_every_glyph() {
     };
     let out = layout("AV", &atlas, &options);
 
-    assert!(near(out.placements[1].pen_x, 0.4));
+    // A's advance plus one tracking, less the (A, V) pair.
+    assert!(near(out.placements[1].pen_x, 0.3));
     assert!(near(out.width, 0.65));
 }
 

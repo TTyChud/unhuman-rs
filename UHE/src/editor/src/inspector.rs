@@ -53,11 +53,6 @@ impl Property {
     pub fn value(&self, scene: &Scene, entity: Entity) -> PropertyValue {
         (self.get)(scene, entity)
     }
-
-    /// A stable key for a property, for queueing an edit before it is applied.
-    pub fn key(&self) -> (&'static str, &'static str) {
-        (self.component, self.name)
-    }
 }
 
 fn boolean(
@@ -257,7 +252,13 @@ impl Inspector {
 
     /// Writes one property and marks the entity dirty, so the renderer and the
     /// physics backend can see that their copy of the scene is stale.
-    pub fn set(&mut self, scene: &mut Scene, entity: Entity, property: &Property, value: PropertyValue) {
+    pub fn set(
+        &mut self,
+        scene: &mut Scene,
+        entity: Entity,
+        property: &Property,
+        value: PropertyValue,
+    ) {
         (property.set)(scene, entity, &value);
         self.mark_dirty(entity);
     }
@@ -571,7 +572,11 @@ fn mesh_renderer_properties() -> Vec<Property> {
             |scene, entity| {
                 scene
                     .get(entity)
-                    .and_then(|entry| entry.get::<MeshRenderer>().map(|mesh| mesh.mesh_path.clone()))
+                    .and_then(|entry| {
+                        entry
+                            .get::<MeshRenderer>()
+                            .map(|mesh| mesh.mesh_path.clone())
+                    })
                     .unwrap_or_default()
             },
             |scene, entity, value| {
@@ -793,7 +798,9 @@ fn text_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Text>().map(|text| text.text.clone()))
                     .unwrap_or_default()
             },
-            |scene, entity, value| edit::<Text>(scene, entity, |text| text.text = value.to_string()),
+            |scene, entity, value| {
+                edit::<Text>(scene, entity, |text| text.text = value.to_string())
+            },
         ),
         text(
             "Font Path",
@@ -1172,7 +1179,9 @@ fn collider_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Collider>().map(|collider| collider.friction))
                     .unwrap_or(0.2)
             },
-            |scene, entity, value| edit::<Collider>(scene, entity, |collider| collider.friction = value),
+            |scene, entity, value| {
+                edit::<Collider>(scene, entity, |collider| collider.friction = value)
+            },
         ),
         scalar(
             "Restitution",
@@ -1222,7 +1231,9 @@ fn audio_source_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<AudioSource>().map(|source| source.playing))
                     .unwrap_or(false)
             },
-            |scene, entity, value| edit::<AudioSource>(scene, entity, |source| source.playing = value),
+            |scene, entity, value| {
+                edit::<AudioSource>(scene, entity, |source| source.playing = value)
+            },
         ),
         boolean(
             "Looping",
@@ -1233,7 +1244,9 @@ fn audio_source_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<AudioSource>().map(|source| source.looping))
                     .unwrap_or(false)
             },
-            |scene, entity, value| edit::<AudioSource>(scene, entity, |source| source.looping = value),
+            |scene, entity, value| {
+                edit::<AudioSource>(scene, entity, |source| source.looping = value)
+            },
         ),
         boolean(
             "Spatial",
@@ -1244,7 +1257,9 @@ fn audio_source_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<AudioSource>().map(|source| source.spatial))
                     .unwrap_or(false)
             },
-            |scene, entity, value| edit::<AudioSource>(scene, entity, |source| source.spatial = value),
+            |scene, entity, value| {
+                edit::<AudioSource>(scene, entity, |source| source.spatial = value)
+            },
         ),
         scalar(
             "Gain",
@@ -1266,7 +1281,9 @@ fn audio_source_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<AudioSource>().map(|source| source.pitch))
                     .unwrap_or(1.0)
             },
-            |scene, entity, value| edit::<AudioSource>(scene, entity, |source| source.pitch = value),
+            |scene, entity, value| {
+                edit::<AudioSource>(scene, entity, |source| source.pitch = value)
+            },
         ),
         scalar(
             "Range",
@@ -1277,7 +1294,9 @@ fn audio_source_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<AudioSource>().map(|source| source.range))
                     .unwrap_or(0.0)
             },
-            |scene, entity, value| edit::<AudioSource>(scene, entity, |source| source.range = value),
+            |scene, entity, value| {
+                edit::<AudioSource>(scene, entity, |source| source.range = value)
+            },
         ),
     ]
 }
@@ -1308,7 +1327,9 @@ fn animator_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Animator>().map(|clip| clip.playing))
                     .unwrap_or(false)
             },
-            |scene, entity, value| edit::<Animator>(scene, entity, |animator| animator.playing = value),
+            |scene, entity, value| {
+                edit::<Animator>(scene, entity, |animator| animator.playing = value)
+            },
         ),
         boolean(
             "Looping",
@@ -1319,7 +1340,9 @@ fn animator_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Animator>().map(|clip| clip.looping))
                     .unwrap_or(false)
             },
-            |scene, entity, value| edit::<Animator>(scene, entity, |animator| animator.looping = value),
+            |scene, entity, value| {
+                edit::<Animator>(scene, entity, |animator| animator.looping = value)
+            },
         ),
         scalar(
             "Speed",
@@ -1330,7 +1353,9 @@ fn animator_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Animator>().map(|clip| clip.speed))
                     .unwrap_or(1.0)
             },
-            |scene, entity, value| edit::<Animator>(scene, entity, |animator| animator.speed = value),
+            |scene, entity, value| {
+                edit::<Animator>(scene, entity, |animator| animator.speed = value)
+            },
         ),
         scalar(
             "Time",
@@ -1341,7 +1366,9 @@ fn animator_properties() -> Vec<Property> {
                     .and_then(|entry| entry.get::<Animator>().map(|clip| clip.time))
                     .unwrap_or(0.0)
             },
-            |scene, entity, value| edit::<Animator>(scene, entity, |animator| animator.time = value),
+            |scene, entity, value| {
+                edit::<Animator>(scene, entity, |animator| animator.time = value)
+            },
         ),
     ]
 }

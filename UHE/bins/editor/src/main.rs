@@ -12,7 +12,7 @@ mod panels;
 mod theme;
 mod viewport;
 
-use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 
 fn main() {
     env_logger::init();
@@ -25,7 +25,8 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
                     title: Some("unhuman".into()),
-                    ..Default::default()
+                    appears_transparent: false,
+                    traffic_light_position: None,
                 }),
                 ..Default::default()
             },

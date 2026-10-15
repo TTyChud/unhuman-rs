@@ -42,6 +42,10 @@ fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .add(WirePlugin::new())
         .add(FemurPlugin);
 
+    // The repository's `assets/` is where the relative paths in a scene and in
+    // aimlab resolve from, exactly as in the editor binary.
+    app.engine_mut().assets.mount("assets");
+
     log::info!("nocap: plugins {}", app.plugin_names().join(", "));
 
     if config.list_plugins {

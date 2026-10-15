@@ -1,25 +1,58 @@
-//! The opaque and transparent geometry passes.
+//! The geometry pass: opaque draws, then blended ones.
 //!
-//! Port of `Renderer3D::SubmitMesh` (`Renderer3D.cpp:346-440`): for every
-//! primitive, bind the pipeline its material selects, bind its uniforms, bind
-//! the vertex and index buffers, and draw indexed. One difference the RHI
-//! forces: the C++ picked a *pipeline* per primitive and pushed constants; here
-//! the per-draw values are a descriptor set, so each draw carries the group that
-//! holds them.
+//! Port of `Renderer3D::SubmitMesh` (`Renderer3D.cpp:346-440`): per primitive,
+//! bind the pipeline its material selects, bind its uniforms, bind the vertex
+//! and index buffers, and draw indexed. The C++ switches pipeline per primitive
+//! for exactly one reason — `doubleSided` selects the no-cull variant — and this
+//! does the same, for culling and for blending.
 //!
-//! The C++ also had no transparent pass — its `MaterialExtensions.h:29-36`
-//! records that transmission "needs a sorted pass to look right; until one
-//! exists, the renderer draws these in submission order". This one is sorted
-//! back to front, which is what that comment asks for.
+//! ## Why the transparent draws are not a pass of their own
+//!
+//! They should be: a second pass, after this one, with its own depth-tested
+//! pipeline. `chassis::graph::PassBuilder` has `color_load` and no
+//! `depth_load`, so a second depth-tested pass would declare
+//! `depth(texture, 1.0)` and *clear* the depth buffer the opaque draws just
+//! wrote — the transparent geometry would then be drawn with no occlusion test
+//! at all, which is worse than not splitting. The C++ is in the same shape, and
+//! says so itself (`MaterialExtensions.h:29-36`: "drawn after opaques, blended.
+//! Needs depth sorting to avoid artefacts where surfaces overlap"), so this pass
+//! draws the opaques and then the blended items back to front — which is what
+//! that comment asks for — and the pass boundary arrives when `depth_load` does.
 
 use chassis::{BindGroup, CommandList, PassScope, Pipeline};
 
+use crate::material::MaterialVariant;
 use crate::mesh::GpuMesh;
 
 /// Bind group numbers within the model pipeline's shader.
 pub const FRAME_SET: u32 = 0;
 pub const MATERIAL_SET: u32 = 1;
 pub const DRAW_SET: u32 = 2;
+
+/// The four pipelines one geometry pass can bind, one per [`MaterialVariant`].
+///
+/// The C++ builds two and keeps them in `s_Data3D.ModelPipeline` and
+/// `ModelPipelineDoubleSided` (`Renderer3D.cpp:78-95`), for the same reason:
+/// cull mode and blending are pipeline state, so a material cannot ask for them
+/// per draw.
+#[derive(Clone, Copy, Debug)]
+pub struct MaterialPipelines {
+    pub opaque: Pipeline,
+    pub opaque_double_sided: Pipeline,
+    pub transparent: Pipeline,
+    pub transparent_double_sided: Pipeline,
+}
+
+impl MaterialPipelines {
+    pub fn get(&self, variant: MaterialVariant) -> Pipeline {
+        match variant {
+            MaterialVariant::Opaque => self.opaque,
+            MaterialVariant::OpaqueDoubleSided => self.opaque_double_sided,
+            MaterialVariant::Transparent => self.transparent,
+            MaterialVariant::TransparentDoubleSided => self.transparent_double_sided,
+        }
+    }
+}
 
 /// A draw whose buffers, uniforms and material are already resolved.
 #[derive(Clone, Copy, Debug)]
@@ -30,19 +63,26 @@ pub struct PreparedDraw {
     /// `None` draws with the default material, which is the C++'s slot 0
     /// (`Renderer3D::RestartMaterialRegion`).
     pub material: Option<BindGroup>,
+    pub variant: MaterialVariant,
 }
 
-/// Records one variant of the geometry pass.
+impl PreparedDraw {
+    /// Blended draws are drawn after every opaque draw.
+    pub fn transparent(&self) -> bool {
+        self.variant.blends()
+    }
+}
+
 pub struct GeometryPass {
-    pipeline: Pipeline,
+    pipelines: MaterialPipelines,
     frame: BindGroup,
     draws: Vec<PreparedDraw>,
 }
 
 impl GeometryPass {
-    pub fn new(pipeline: Pipeline, frame: BindGroup, draws: Vec<PreparedDraw>) -> Self {
+    pub fn new(pipelines: MaterialPipelines, frame: BindGroup, draws: Vec<PreparedDraw>) -> Self {
         Self {
-            pipeline,
+            pipelines,
             frame,
             draws,
         }
@@ -57,10 +97,18 @@ impl GeometryPass {
             return Ok(());
         }
 
-        list.bind_pipeline(&self.pipeline);
         list.bind_group(FRAME_SET, &self.frame);
 
+        // Only rebound when the variant changes: a scene whose materials
+        // alternate between culling modes would otherwise pay a pipeline bind
+        // per draw. The C++ binds per primitive.
+        let mut bound: Option<MaterialVariant> = None;
         for draw in &self.draws {
+            if bound != Some(draw.variant) {
+                list.bind_pipeline(&self.pipelines.get(draw.variant));
+                bound = Some(draw.variant);
+            }
+
             if let Some(material) = draw.material {
                 list.bind_group(MATERIAL_SET, &material);
             }

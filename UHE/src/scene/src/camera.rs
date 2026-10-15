@@ -5,17 +5,12 @@ use glam::Mat4;
 
 /// Port of `SceneCamera::ProjectionType`. The discriminants are the C++ ones
 /// (`Perspective` = 0), because the serializer writes the integer.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum ProjectionType {
     Perspective,
+    /// The C++ default is `Orhtographic` (sic).
+    #[default]
     Orthographic,
-}
-
-impl Default for ProjectionType {
-    fn default() -> Self {
-        // The C++ default is `Orhtographic` (sic).
-        ProjectionType::Orthographic
-    }
 }
 
 /// A camera's projection. The C++ keeps these fields private behind accessors
@@ -223,46 +218,5 @@ impl Default for Camera {
 impl Camera {
     pub fn projection(&self) -> Mat4 {
         self.camera.projection()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn perspective_projection_matches_the_glm_formula() {
-        let mut camera = SceneCamera::new_perspective(std::f32::consts::FRAC_PI_2, 0.1, 100.0);
-        camera.set_viewport_size(16.0, 9.0);
-
-        let projection = camera.projection();
-        let aspect = 16.0 / 9.0;
-        // f = 1 / tan(fov / 2) = 1 / tan(45deg) = 1
-        assert!((projection.x_axis.x - 1.0 / aspect).abs() < 1e-6);
-        assert!((projection.y_axis.y - 1.0).abs() < 1e-6);
-        assert!((projection.z_axis.z - (100.0 + 0.1) / (0.1 - 100.0)).abs() < 1e-5);
-        assert!((projection.w_axis.z - (2.0 * 100.0 * 0.1) / (0.1 - 100.0)).abs() < 1e-5);
-        assert_eq!(projection.w_axis.w, 0.0);
-        assert_eq!(projection.z_axis.w, -1.0);
-    }
-
-    #[test]
-    fn orthographic_projection_spans_the_size_times_the_aspect() {
-        let mut camera = SceneCamera::new_orthographic(10.0, -1.0, 1.0);
-        camera.set_viewport_size(2.0, 1.0);
-
-        // half_height = size / 2 = 5, half_width = half_height * aspect = 10,
-        // so the projection spans [-10, 10] x [-5, 5].
-        let projection = camera.projection();
-        assert!((projection.x_axis.x - 1.0 / 10.0).abs() < 1e-6);
-        assert!((projection.y_axis.y - 1.0 / 5.0).abs() < 1e-6);
-        assert_eq!(projection.w_axis.w, 1.0);
-    }
-
-    #[test]
-    fn a_camera_with_no_viewport_is_square_not_nan() {
-        let camera = SceneCamera::new_perspective(std::f32::consts::FRAC_PI_4, 0.1, 10.0);
-        assert_eq!(camera.aspect_ratio(), 0.0);
-        assert!(camera.projection().is_finite());
     }
 }

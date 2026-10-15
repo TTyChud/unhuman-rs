@@ -234,6 +234,16 @@ pub enum DescriptorKind {
     /// `SAMPLED_IMAGE` and `SAMPLER` to be separate bindings when they are
     /// separate; declaring them as one is `CombinedImageSampler`.
     SampledImage,
+    /// A depth texture read as a texture rather than an attachment.
+    ///
+    /// A separate kind because wgpu is not Vulkan here: a depth view needs
+    /// `TextureSampleType::Depth`, and a `Float` binding against one is a layout
+    /// mismatch the driver refuses. Vulkan takes the same `SAMPLED_IMAGE`
+    /// descriptor either way and checks the layout at barrier time instead --
+    /// the asymmetry `docs/WORK.md` records for `CombinedImageSampler`, with the
+    /// sign flipped: there Vulkan is the one with a kind wgpu has not got, here
+    /// the two need different declarations for one descriptor.
+    SampledDepth,
     Sampler,
     CombinedImageSampler,
     StorageImage,

@@ -17,7 +17,7 @@ use vault::{AssetId, Assets};
 use crate::backend::Backend;
 use crate::sound::{Bus, SoundId, SoundTable};
 use crate::spatial::{attenuation, pan};
-use crate::voice::{Voice, VoicePool, VoiceSpec};
+use crate::voice::{VoicePool, VoiceSpec};
 
 /// Voices an engine runs at once when nothing asks for another number.
 pub const DEFAULT_VOICES: usize = 64;
@@ -68,21 +68,9 @@ impl AudioEngine {
         self.listener = listener;
     }
 
-    pub fn voices(&self) -> &[Voice] {
-        self.pool.voices()
-    }
-
     /// Voices playing right now. Zero in silent mode, because nothing was started.
     pub fn active_voices(&self) -> usize {
         self.pool.len()
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.pool.capacity()
-    }
-
-    pub fn sounds(&self) -> &SoundTable {
-        &self.sounds
     }
 
     pub fn bus_gain(&self, bus: Bus) -> f32 {
@@ -150,7 +138,7 @@ impl AudioEngine {
             return None;
         }
         let id = self.pool.spawn(None, sound, spec)?;
-        if self.start(id) {
+        if self.start_player(id) {
             Some(id)
         } else {
             self.pool.remove(id);
@@ -176,9 +164,9 @@ impl AudioEngine {
         self.drive();
     }
 
-    /// Start the player of a voice that has none, shooing decode failures back out
-    /// of the pool.
-    fn start(&mut self, id: VoiceId) -> bool {
+    /// Start the player of a voice that has none, failing when its clip cannot be
+    /// decoded.
+    fn start_player(&mut self, id: VoiceId) -> bool {
         let Some(voice) = self.pool.get(id) else {
             return false;
         };
@@ -218,18 +206,28 @@ impl AudioEngine {
         let master = self.master_gain;
         let buses = self.bus_gains;
 
+        // Voices the scene added this frame have no player yet.
+        let pending: Vec<VoiceId> = match &self.device {
+            Some(backend) => self
+                .pool
+                .voices()
+                .iter()
+                .filter(|voice| !backend.has(voice.id))
+                .map(|voice| voice.id)
+                .collect(),
+            None => return,
+        };
+        for id in pending {
+            // A clip that cannot be decoded is dropped rather than retried, and
+            // logged, every frame.
+            if !self.start_player(id) {
+                self.pool.remove(id);
+            }
+        }
+
         let Some(backend) = self.device.as_mut() else {
             return;
         };
-
-        for voice in self.pool.voices() {
-            if backend.has(voice.id) {
-                continue;
-            }
-            if let Some(sound) = self.sounds.get(voice.sound) {
-                backend.start(voice, sound);
-            }
-        }
 
         for id in backend.finished() {
             backend.stop(id);

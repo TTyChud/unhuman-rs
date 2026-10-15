@@ -30,6 +30,11 @@ pub fn descriptor_type_of(kind: DescriptorKind) -> vk::DescriptorType {
         DescriptorKind::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
         DescriptorKind::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
         DescriptorKind::SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
+        // The same descriptor as `SampledImage`, and the aspect is the image's
+        // own -- `VulkanTypes.aspect` reads it from the format, not the kind.
+        // Nothing about the layout is a choice here: the graph puts a read in
+        // `SHADER_READ_ONLY_OPTIMAL` for a depth image too.
+        DescriptorKind::SampledDepth => vk::DescriptorType::SAMPLED_IMAGE,
         DescriptorKind::StorageImage => vk::DescriptorType::STORAGE_IMAGE,
         DescriptorKind::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
         DescriptorKind::Sampler => vk::DescriptorType::SAMPLER,

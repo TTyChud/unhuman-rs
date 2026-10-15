@@ -39,8 +39,15 @@ pub const fn rgba8_size(width: u32, height: u32) -> usize {
 /// question with one answer; `image` picks the codec from the bytes themselves,
 /// so a `.png` named `.jpg` still decodes.
 pub fn decode_image(bytes: &[u8], srgb: bool) -> Result<Image> {
-    let decoded =
-        image::load_from_memory(bytes).map_err(|error| Error::Decode(format!("image: {error}")))?;
+    let decoded = match image::load_from_memory(bytes) {
+        Ok(decoded) => decoded,
+        // TGA carries no magic number, so the format guesser cannot recognise
+        // it; it is the one encoding that has to be named to be decoded.
+        Err(guessed) => match image::load_from_memory_with_format(bytes, image::ImageFormat::Tga) {
+            Ok(decoded) => decoded,
+            Err(_) => return Err(Error::Decode(format!("image: {guessed}"))),
+        },
+    };
     let rgba = decoded.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
     Ok(Image {
@@ -78,19 +85,27 @@ pub fn downsample_rgba8(source: &[u8], width: u32, height: u32) -> Option<MipLev
     let dst_height = (height / 2).max(1);
     let mut rgba8 = vec![0u8; rgba8_size(dst_width, dst_height)];
 
-    for y in 0..dst_height {
-        for x in 0..dst_width {
+    for (y, row) in rgba8.chunks_exact_mut(dst_width as usize * 4).enumerate() {
+        for (x, texel) in row.chunks_exact_mut(4).enumerate() {
+            let x = x as u32;
+            let y = y as u32;
             let x0 = (x * 2).min(width - 1);
             let y0 = (y * 2).min(height - 1);
             let x1 = (x * 2 + 1).min(width - 1);
             let y1 = (y * 2 + 1).min(height - 1);
 
-            for channel in 0..4 {
-                let sum = source[offset(x0, y0, width) + channel] as u32
-                    + source[offset(x1, y0, width) + channel] as u32
-                    + source[offset(x0, y1, width) + channel] as u32
-                    + source[offset(x1, y1, width) + channel] as u32;
-                rgba8[offset(x, y, dst_width) + channel] = ((sum + 2) / 4) as u8;
+            let texel00 = offset(x0, y0, width);
+            let texel10 = offset(x1, y0, width);
+            let texel01 = offset(x0, y1, width);
+            let texel11 = offset(x1, y1, width);
+
+            for (channel, out) in texel.iter_mut().enumerate() {
+                *out = average(
+                    source[texel00 + channel],
+                    source[texel10 + channel],
+                    source[texel01 + channel],
+                    source[texel11 + channel],
+                );
             }
         }
     }
@@ -100,6 +115,12 @@ pub fn downsample_rgba8(source: &[u8], width: u32, height: u32) -> Option<MipLev
         height: dst_height,
         rgba8,
     })
+}
+
+/// Mean of four channel values, rounded to nearest as the C++ did
+/// (`(sum + 2) / 4`).
+fn average(a: u8, b: u8, c: u8, d: u8) -> u8 {
+    ((a as u32 + b as u32 + c as u32 + d as u32 + 2) / 4) as u8
 }
 
 /// Full chain: level 0 is a copy of the source, then repeated halving until
@@ -123,7 +144,8 @@ pub fn generate_mipmap_chain_rgba8(source: &[u8], width: u32, height: u32) -> Ve
     let (mut level_width, mut level_height) = (width, height);
     while level_width > 1 || level_height > 1 {
         let previous = chain.last().map(|level| level.rgba8.as_slice());
-        let downsampled = previous.and_then(|bytes| downsample_rgba8(bytes, level_width, level_height));
+        let downsampled =
+            previous.and_then(|bytes| downsample_rgba8(bytes, level_width, level_height));
         let Some(next) = downsampled else {
             break;
         };

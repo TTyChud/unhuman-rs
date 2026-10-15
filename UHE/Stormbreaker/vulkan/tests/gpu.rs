@@ -158,10 +158,14 @@ fn a_swapchain_has_real_images_and_views() {
     assert_eq!(gpu.frame_index(), index);
 }
 
-/// Acquire, present, acquire again -- the loop a window would run.
+/// Acquire, submit (which presents), acquire again -- the loop a window would run.
 ///
 /// The real test of the views: they are created before the first present and
 /// destroyed after the last, and validation is watching throughout.
+///
+/// The present is `submit`'s, per the trait's own sentence for it, so a
+/// `present()` here as well would be a second present of an image nobody holds.
+/// The acquire stays explicit: `frame_begin` resets the graph and no more.
 #[test]
 fn acquiring_and_presenting_repeatedly() {
     let Some(mut gpu) = with_swapchain() else {
@@ -183,9 +187,7 @@ fn acquiring_and_presenting_repeatedly() {
         );
 
         gpu.submit()
-            .unwrap_or_else(|e| panic!("submit {frame}: {e}"));
-        gpu.present()
-            .unwrap_or_else(|e| panic!("present {frame}: {e}"));
+            .unwrap_or_else(|e| panic!("submit and present {frame}: {e}"));
     }
     gpu.wait_idle();
 }

@@ -6,11 +6,12 @@
 
 use std::collections::HashMap;
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use hecs::World;
 
+use crate::camera::Camera;
 use crate::components::{
-    Animator, AnimatorState, AudioSource, Camera, Collider, Id, Light, LightKind, MeshRenderer,
+    Animator, AnimatorState, AudioSource, Collider, Id, Light, LightKind, MeshRenderer,
     NativeScript, RigidBody, SpriteAnimation, SpriteRenderer, Tag, Text, Transform,
 };
 use crate::entity::{Entity, EntityRef, EntityRefMut};
@@ -20,8 +21,8 @@ use crate::entity::{Entity, EntityRef, EntityRefMut};
 /// still contain one, so the walks keep it.
 const MAX_DEPTH: usize = 4096;
 
-/// A light as a renderer wants it: world-space, and with the direction the C++
-/// light system computed.
+/// A light as a renderer wants it: world-space, with the direction the C++ light
+/// system computed.
 #[derive(Clone, Copy, Debug)]
 pub struct LightSample {
     pub entity: Entity,
@@ -48,12 +49,40 @@ pub struct MeshSample {
     pub cast_shadows: bool,
 }
 
-/// A path the registry could not resolve. Recorded, never a panic — a scene
-/// that references a deleted asset still loads and still renders the rest.
+/// A path the registry could not resolve. Recorded, never a panic — a scene that
+/// references a deleted asset still loads and still renders the rest.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AssetError {
     pub entity: Entity,
     pub path: String,
+}
+
+impl std::fmt::Display for AssetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unresolved asset `{}` on {:?}", self.path, self.entity)
+    }
+}
+
+impl std::error::Error for AssetError {}
+
+/// Copies every cloneable component from one entity to another, leaving
+/// `NativeScript` behind. A macro because it is a dozen near-identical
+/// statements and a trait would need a bound every component would have to
+/// carry.
+macro_rules! copy_components {
+    ($source:expr, $target:expr, $from:expr, $to:expr, $($ty:ty),* $(,)?) => {
+        $(
+            if let Ok(component) = $source.world.get::<&$ty>($from) {
+                let _ = $target.world.insert_one($to, duplicate(&*component));
+            }
+        )*
+    };
+}
+
+/// Clones through a generic so `copy_components!` works for the `Copy`
+/// components too without a `clone_on_copy` lint at every expansion.
+fn duplicate<T: Clone>(value: &T) -> T {
+    value.clone()
 }
 
 pub struct Scene {
@@ -151,9 +180,9 @@ impl Scene {
         self.hecs_of(entity).is_some()
     }
 
-    /// Every live entity, ordered by slot index so two calls with no mutation
-    /// agree — a render graph that sees a different pass list each frame is a
-    /// render graph that cannot compile.
+    /// Every live entity, ordered by slot index so two calls with no mutation in
+    /// between agree — a render graph that sees a different pass list each frame
+    /// is a render graph that cannot compile.
     pub fn entities(&self) -> Vec<Entity> {
         let mut entities: Vec<Entity> = self.entities.values().copied().collect();
         entities.sort_unstable_by_key(|entity| (entity.index, entity.generation));
@@ -179,11 +208,29 @@ impl Scene {
     }
 
     pub fn entity_of_id(&self, id: u64) -> Option<Entity> {
-        self.id_index.get(&id).copied().filter(|e| self.contains(*e))
+        self.id_index
+            .get(&id)
+            .copied()
+            .filter(|entity| self.contains(*entity))
     }
 
     pub fn entity_of(&self, hecs: hecs::Entity) -> Option<Entity> {
         self.entities.get(&hecs).copied()
+    }
+
+    /// The raw world, for a backend that needs a multi-component query
+    /// (`world.query_mut::<(&mut Transform, &RigidBody)>()`).
+    ///
+    /// Read and write components through it freely, but never spawn or despawn:
+    /// the slot map, the hierarchy and the id index are [`Scene`]'s, and an
+    /// entity created behind its back has no entry in any of them.
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    /// See [`world`](Self::world).
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
     }
 
     // --- components -------------------------------------------------------
@@ -331,8 +378,8 @@ impl Scene {
 
     /// Port of `LightSystem::ExtractLights` for the scene's own light
     /// components. Disabled lights and entities with no transform are skipped;
-    /// the direction is the entity's world rotation applied to local -Z, the
-    /// axis the C++ light system used.
+    /// the direction is the entity's world rotation applied to local -Z, the axis
+    /// the C++ light system used.
     pub fn lights(&self) -> Vec<LightSample> {
         let mut lights = Vec::new();
         for entity in self.entities() {
@@ -345,8 +392,8 @@ impl Scene {
             if !light.enabled || !self.has::<Transform>(entity) {
                 continue;
             }
-            let world = self.world_transform(entity);
-            let (_, rotation, position) = world.to_scale_rotation_translation();
+            let (_, rotation, position) =
+                self.world_transform(entity).to_scale_rotation_translation();
             lights.push(LightSample {
                 entity,
                 kind: light.kind,
@@ -411,16 +458,10 @@ impl Scene {
             };
 
             if let Ok(mut renderer) = self.world.get::<&mut MeshRenderer>(hecs) {
-                let mesh_path = renderer.mesh_path.clone();
-                resolve(&mut renderer.mesh, &mesh_path, assets, &mut errors, entity);
-                let material_path = renderer.material_path.clone();
-                resolve(
-                    &mut renderer.material,
-                    &material_path,
-                    assets,
-                    &mut errors,
-                    entity,
-                );
+                let path = renderer.mesh_path.clone();
+                resolve(&mut renderer.mesh, &path, assets, &mut errors, entity);
+                let path = renderer.material_path.clone();
+                resolve(&mut renderer.material, &path, assets, &mut errors, entity);
             }
             if let Ok(mut sprite) = self.world.get::<&mut SpriteRenderer>(hecs) {
                 let path = sprite.texture_path.clone();
@@ -451,8 +492,8 @@ impl Scene {
     /// Port of the `NativeScriptComponent` half of `Scene::OnUpdateRuntime`:
     /// `on_create` on the first call for an entity, then `on_update`.
     ///
-    /// The script is moved out of the world for the duration of the call,
-    /// because a hook takes `&mut Scene` and the component lives in that scene.
+    /// The script is moved out of the world for the duration of the call, because
+    /// a hook takes `&mut Scene` and the component lives in that scene.
     pub fn update_scripts(&mut self, dt: f32) {
         for entity in self.entities() {
             let Some(hecs) = self.hecs_of(entity) else {
@@ -480,25 +521,25 @@ impl Scene {
     pub(crate) fn hecs_of(&self, entity: Entity) -> Option<hecs::Entity> {
         let slot = self.slots.get(entity.index as usize)?.as_ref()?;
         if self.generations[entity.index as usize] == entity.generation {
-            Some(slot.0)
+            Some(*slot)
         } else {
             None
         }
     }
 
     /// Restore a serialized `Id`. The serializer owns id assignment because a
-    /// file's ids are the ones the hierarchy refers to.
+    /// file's ids are the ones its hierarchy refers to.
     pub(crate) fn set_id(&mut self, entity: Entity, id: u64) {
         let Some(hecs) = self.hecs_of(entity) else {
             return;
         };
-        let old = self.world.get::<&Id>(hecs).ok().map(|id| id.0);
+        let previous = self.world.get::<&Id>(hecs).ok().map(|id| id.0);
         if let Ok(mut component) = self.world.get::<&mut Id>(hecs) {
             component.0 = id;
         }
-        if let Some(old) = old {
-            if old != id {
-                self.id_index.remove(&old);
+        if let Some(previous) = previous {
+            if previous != id {
+                self.id_index.remove(&previous);
             }
         }
         self.id_index.insert(id, entity);
@@ -604,7 +645,9 @@ impl Scene {
                 return;
             }
             if parent == child || self.is_descendant_of(parent, child) {
-                log::warn!("meats: refused to parent {child:?} under its own descendant {parent:?}");
+                log::warn!(
+                    "meats: refused to parent {child:?} under its own descendant {parent:?}"
+                );
                 return;
             }
             if self.parents.get(&child) == Some(&parent) {
@@ -692,10 +735,19 @@ impl Default for Scene {
     }
 }
 
+impl std::fmt::Debug for Scene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scene")
+            .field("name", &self.name)
+            .field("entities", &self.entities.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for Scene {
-    /// Port of `~Scene` -> `DestroyScriptInstances`: a script's `on_destroy`
-    /// runs even when the scene is simply dropped. Rust frees the box either
-    /// way; this is about the callback.
+    /// Port of `~Scene` -> `DestroyScriptInstances`: a script's `on_destroy` runs
+    /// even when the scene is simply dropped. Rust frees the box either way; this
+    /// is about the callback.
     fn drop(&mut self) {
         self.destroy_all_scripts();
     }
@@ -704,8 +756,8 @@ impl Drop for Scene {
 impl Clone for Scene {
     /// Port of `Scene::Copy`, used for play-mode snapshots. The hierarchy and
     /// every component come across; `NativeScript` does not, because
-    /// `Box<dyn Script>` cannot be cloned — the C++ copy left `Instance` null
-    /// for the same reason and let the copy's runtime instantiate its own.
+    /// `Box<dyn Script>` cannot be cloned — the C++ copy left `Instance` null for
+    /// the same reason and let the copy's runtime instantiate its own.
     fn clone(&self) -> Self {
         let mut clone = Scene::new();
         clone.name = self.name.clone();
@@ -714,24 +766,35 @@ impl Clone for Scene {
 
         let mut map: HashMap<Entity, Entity> = HashMap::new();
         for entity in self.entities() {
-            let Some(hecs) = self.hecs_of(entity) else {
+            let Some(source) = self.hecs_of(entity) else {
                 continue;
             };
-            map.insert(entity, clone.register(hecs));
-        }
-        // `register` keys the new world by the *source* handle, so replace each
-        // entry with the handle the clone actually spawned.
-        clone.entities.clear();
-        for (source, target) in &map {
-            let Some(source_hecs) = self.hecs_of(*source) else {
-                continue;
-            };
-            let components = self.world.take(source_hecs);
-            if let Ok(components) = components {
-                let target_hecs = clone.world.spawn(components);
-                debug_assert_eq!(target_hecs, *target);
+            let hecs = clone.world.spawn(());
+            let target = clone.register(hecs);
+            // The `Id` goes across verbatim so the hierarchy references below
+            // still resolve; it is `Copy`, so it is copied rather than cloned.
+            if let Ok(id) = self.world.get::<&Id>(source) {
+                let _ = clone.world.insert_one(hecs, *id);
             }
-            clone.entities.insert(*target, *target);
+            copy_components!(
+                self,
+                clone,
+                source,
+                hecs,
+                Tag,
+                Transform,
+                Camera,
+                MeshRenderer,
+                SpriteRenderer,
+                Text,
+                Light,
+                RigidBody,
+                Collider,
+                AudioSource,
+                Animator,
+                SpriteAnimation,
+            );
+            map.insert(entity, target);
         }
 
         for (source, target) in &map {
@@ -796,15 +859,14 @@ fn seed_id() -> u64 {
     nanos | 1
 }
 
-/// `glm::eulerAngles`: the inverse of the quaternion constructor above.
-fn euler_degrees(rotation: glam::Quat) -> Vec3 {
-    let (x, y, z) = (
-        rotation.x.to_degrees(),
-        rotation.y.to_degrees(),
-        rotation.z.to_degrees(),
-    );
-    let (sx, cx) = (x * 0.5).to_radians().sin_cos();
-    let (sy, cy) = (y * 0.5).to_radians().sin_cos();
-    let (sz, cz) = (z * 0.5).to_radians().sin_cos();
-    Vec3::new(sx, sy, sz) + Vec3::new(cx, cy, cz) * 0.0 + Vec3::new(0.0, 0.0, 0.0)
+/// The inverse of [`Transform::rotation_quat`]: hand-written because glam's
+/// `EulerRot` sequences do not reproduce the C++ `glm::quat(vec3)` order.
+///
+/// `glm::eulerAngles` from `glm/gtx/quaternion.hpp`, returned in degrees.
+pub fn euler_degrees(rotation: Quat) -> Vec3 {
+    let (x, y, z, w) = (rotation.x, rotation.y, rotation.z, rotation.w);
+    let pitch = (2.0 * (y * z + w * x)).atan2(w * w - x * x - y * y + z * z);
+    let yaw = (-2.0 * (x * z - w * y)).clamp(-1.0, 1.0).asin();
+    let roll = (2.0 * (x * y + w * z)).atan2(w * w + x * x - y * y - z * z);
+    Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees())
 }

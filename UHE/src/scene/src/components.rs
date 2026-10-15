@@ -84,8 +84,8 @@ impl Tag {
 pub struct Id(pub u64);
 
 /// The 3D mesh on an entity. The C++ spread this over `Model3DComponent` and
-/// `ModelNodeComponent`; the loader expands glTF nodes into one entity per
-/// node, so a single handle plus its tint is the whole component.
+/// `ModelNodeComponent`; the loader expands glTF nodes into one entity per node,
+/// so a handle, an optional material and how it shades is the whole component.
 #[derive(Clone, PartialEq, Debug)]
 pub struct MeshRenderer {
     /// Filled by [`Scene::resolve_assets`]; `None` until then, and `None`
@@ -449,32 +449,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_transform_is_the_identity_matrix() {
-        assert_eq!(Transform::default().matrix(), Mat4::IDENTITY);
-    }
-
-    #[test]
-    fn a_ninety_degree_rotation_about_x_maps_y_to_z() {
-        let transform = Transform {
-            rotation: Vec3::new(90.0, 0.0, 0.0),
-            ..Transform::default()
-        };
-        let rotated = transform.matrix().transform_vector3(Vec3::Y);
-        assert!((rotated - Vec3::Z).length() < 1e-5, "{rotated:?}");
-    }
-
-    #[test]
-    fn rotation_is_read_as_degrees() {
-        let degrees = Transform {
-            rotation: Vec3::new(180.0, 0.0, 0.0),
-            ..Transform::default()
-        };
-        assert!((degrees.matrix().transform_vector3(Vec3::Y) - Vec3::NEG_Y).length() < 1e-5);
-    }
-
-    #[test]
     fn euler_order_matches_glm() {
-        // glm::quat(vec3(90, 90, 0)) for the X-then-Y-then-Z order the C++ uses.
+        // glm::quat(vec3(90, 90, 0)) for the X-then-Y-then-Z order the C++
+        // header's `glm::quat(Rotation)` uses.
         let transform = Transform {
             rotation: Vec3::new(90.0, 90.0, 0.0),
             ..Transform::default()

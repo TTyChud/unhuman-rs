@@ -303,9 +303,62 @@ pub trait Gpu {
     fn graph(&mut self) -> &mut dyn RenderGraph;
     fn resources(&mut self) -> &mut dyn Resources;
 
+    /// Record and submit one compiled frame from a renderer frontend, in the
+    /// graph's compiled order.
+    ///
+    /// The frame was compiled by `chassis::graph`; the backend owns the executor,
+    /// the slot table and the command lists, so this is the one call that turns a
+    /// frontend's declaration into GPU work.
+    ///
+    /// **Not `present`.** The frame loop is `frame_begin` -> `record_frame` ->
+    /// [`Gpu::submit`], and `submit` is where the present goes: one per frame, at
+    /// the point every caller reaches through `Box<dyn Gpu>`, which is what
+    /// `submit`'s own sentence ("submit every list produced this frame, then
+    /// present") describes. Two presents in one frame is a present of an image
+    /// nobody holds.
+    ///
+    /// ## Why these three arguments
+    ///
+    /// `CompiledGraph` is what both executors already take
+    /// (`VulkanRenderGraphExecutor::execute`, `WgpuRenderGraphExecutor::execute`)
+    /// and what a frontend's `RenderGraph::compile` produces -- a `CompiledFrame`
+    /// is that graph plus the builder's passes and resource names, which a
+    /// backend has no use for.
+    ///
+    /// `SlotTable` is the frontend's half of the frame: the graph names resources
+    /// by slot index, the RHI names them by generational handle, and only the
+    /// frontend knows which handle it put at which slot. It fills every slot it
+    /// created and leaves the swapchain image's unbound -- a swapchain image has
+    /// no `Texture` handle -- and binding that one is the backend's job.
+    ///
+    /// `Arc`, not `&`, because a backend may record passes on worker threads and
+    /// a closure handed to a job pool is `'static`; a borrowed recorder cannot be
+    /// one.
+    ///
+    /// The default refuses by name rather than recording nothing: a frame that
+    /// silently did nothing is the failure this method exists to remove, and a
+    /// backend that has not adopted it yet should say so.
+    fn record_frame(
+        &mut self,
+        _frame: &crate::graph::CompiledGraph,
+        _slots: &crate::graph::SlotTable,
+        _recorder: std::sync::Arc<dyn crate::graph::PassRecorder>,
+    ) -> Result<()> {
+        Err(Error::Unsupported(
+            "this gpu does not execute frontend frames".to_owned(),
+        ))
+    }
+
     /// Fence wait, swapchain acquire, deferred-deletion flush.
     fn frame_begin(&mut self) -> Result<()>;
-    /// Submit every list produced this frame, then present.
+    /// Submit whatever the backend recorded for this frame, then present.
+    ///
+    /// This is the backend's own graph, not a frontend's: a renderer's frame goes
+    /// through [`Gpu::record_frame`], which also presents when a swapchain is
+    /// attached. Which of the two is reachable differs by backend — Vulkan can
+    /// only run an empty `submit`, because nothing can declare into its graph
+    /// adapter — so a frame loop that draws a frontend's frame calls
+    /// `record_frame` and does not need `submit` at all.
     fn submit(&mut self) -> Result<()>;
     /// Blocks until the device is idle. Test and shutdown only.
     fn wait_idle(&mut self);

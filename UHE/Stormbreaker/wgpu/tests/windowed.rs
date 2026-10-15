@@ -5,7 +5,13 @@
 //! this path is most likely to get wrong (a badly chosen extent, an out-of-date
 //! acquire treated as an error) are decisions, not driver calls.
 
-use chassis::{Extent2d, Swapchain, TextureFormat};
+use std::sync::Arc;
+
+use chassis::graph::pass::{NoRecording, SlotTable};
+use chassis::graph::{CompiledGraph, ImageState, RenderGraph};
+use chassis::{Extent2d, Gpu, Swapchain, TextureFormat};
+use stormglass::wgpu_gpu::GraphAdapter;
+use stormglass::wgpu_render_graph_executor::{backbuffer_slot, resolve_backbuffer};
 use stormglass::wgpu_swapchain::{
     choose_alpha_mode, choose_extent, choose_format, choose_present_mode, classify, images_for,
     latency_for, AcquireStatus, IMAGE_COUNT,
@@ -246,6 +252,128 @@ fn the_surface_and_the_gpu_are_the_rhi_swapchain() {
     takes::<WgpuGpu>();
 }
 
+// ── the graph adapter ───────────────────────────────────────────────────────
+
+/// `add_pass` refuses rather than returning an id that names no pass.
+///
+/// `RenderGraph::add_pass` returns an id, so a refusal cannot be its return value:
+/// it is recorded and reported by `compile`, which is the next point a caller can
+/// be told. This file rather than a graph suite because it needs no device, and a
+/// caller that got an id naming a pass the backend never declared is the failure.
+#[test]
+fn add_pass_refuses_instead_of_naming_no_pass() {
+    let mut adapter = GraphAdapter::new();
+    let desc = chassis::RenderPassDesc::color(TextureFormat::Bgra8Srgb);
+    let _ = chassis::RenderGraph::add_pass(&mut adapter, desc);
+
+    let error = chassis::RenderGraph::compile(&mut adapter).expect_err("nothing was declared");
+    let message = error.to_string();
+    assert!(message.contains("add_pass"), "got {message}");
+    assert!(message.contains("chassis::graph"), "got {message}");
+}
+
+/// An explicit edge is refused too, and as an error rather than a panic.
+#[test]
+fn add_dependency_refuses_rather_than_panicking() {
+    let mut adapter = GraphAdapter::new();
+    chassis::RenderGraph::add_dependency(&mut adapter, 0, 1);
+    assert!(chassis::RenderGraph::compile(&mut adapter).is_err());
+}
+
+/// The refusal does not outlive the frame it happened in.
+///
+/// `frame_begin` resets the graph, so a frame that ended with a refusal must not
+/// make the next one fail for a reason that is no longer true.
+#[test]
+fn a_refused_frame_does_not_poison_the_next_one() {
+    let mut adapter = GraphAdapter::new();
+    let desc = chassis::RenderPassDesc::color(TextureFormat::Bgra8Srgb);
+    let _ = chassis::RenderGraph::add_pass(&mut adapter, desc);
+    chassis::RenderGraph::reset(&mut adapter);
+
+    // The path that does work: the fluent graph, a resource imported by id.
+    let target = adapter.graph().import_texture(
+        "target",
+        ImageState::Undefined,
+        ImageState::Present,
+    );
+    let _ = adapter.graph().pass("blit").color(target, [0.0; 4]);
+    let ids = chassis::RenderGraph::compile(&mut adapter).expect("a declared pass compiles");
+    assert_eq!(ids, vec![0]);
+}
+
+// ── record_frame ────────────────────────────────────────────────────────────
+
+/// An empty frame: no passes, and so nothing it could need from a surface.
+fn empty_frame() -> CompiledGraph {
+    RenderGraph::new()
+        .compile()
+        .expect("an empty graph compiles")
+}
+
+/// A frame that draws the swapchain image: one imported target, declared
+/// `Undefined` in and `Present` out, which is how a backend finds the slot.
+fn swapchain_frame() -> CompiledGraph {
+    let mut graph = RenderGraph::new();
+    let target = graph.import_texture("swapchain", ImageState::Undefined, ImageState::Present);
+    let _ = graph.pass("blit").color(target, [0.0; 4]);
+    graph.compile().expect("the frame compiles")
+}
+
+/// A non-null handle, without a device. Only its slot and generation matter here.
+fn a_texture_handle() -> chassis::Texture {
+    let mut registry = chassis::Registry::<(), chassis::TextureTag>::new();
+    registry.create(())
+}
+
+/// An offscreen frame needs no surface: there is nothing to bind.
+///
+/// This is the half of `record_frame` that runs before a single pass records, and
+/// it is device-free -- which is the only way it can be tested at all, because a
+/// `WgpuGpu` cannot exist without an adapter.
+#[test]
+fn an_offscreen_frame_binds_nothing_and_needs_no_surface() {
+    let frame = empty_frame();
+    let mut slots = SlotTable::default();
+    assert_eq!(backbuffer_slot(&frame), None);
+    resolve_backbuffer(&frame, &mut slots, None).expect("nothing to bind, so nothing to refuse");
+}
+
+/// A frame that draws the swapchain with no image acquired is refused by slot.
+///
+/// Refusing before recording is the point: at `begin_rendering` the attachment
+/// would resolve to nothing, and the message would name the pass rather than the
+/// image that was never bound.
+#[test]
+fn a_frame_that_draws_the_swapchain_with_no_image_is_refused() {
+    let frame = swapchain_frame();
+    let slot = backbuffer_slot(&frame).expect("the frame names its swapchain slot");
+
+    let mut slots = SlotTable::default();
+    let error = resolve_backbuffer(&frame, &mut slots, None).expect_err("no image is acquired");
+    let message = error.to_string();
+    assert!(message.contains("swapchain image"), "got {message}");
+    assert!(message.contains("no image is acquired"), "got {message}");
+
+    // The slot is cleared, not left holding the previous frame's image: that
+    // handle names an image the surface has already released, and resolving it at
+    // record time would give a missing attachment rather than this error.
+    assert!(slots.texture(slot).is_none());
+}
+
+/// An acquired image is bound to the slot the frame names, and only the frame that
+/// names one gets bound at all.
+#[test]
+fn an_acquired_image_binds_the_slot_the_frame_names() {
+    let frame = swapchain_frame();
+    let slot = backbuffer_slot(&frame).expect("the frame names its swapchain slot");
+    let image = a_texture_handle();
+
+    let mut slots = SlotTable::default();
+    resolve_backbuffer(&frame, &mut slots, Some(image)).expect("an image binds the slot");
+    assert_eq!(slots.texture(slot), Some(image));
+}
+
 // ── the device ──────────────────────────────────────────────────────────────
 
 /// Headless is `None` from `swapchain`, and says so.
@@ -277,4 +405,32 @@ fn a_gpu_with_no_surface_reports_no_swapchain() {
     let smaller = Extent2d { width: 128, height: 96 };
     gpu.resize(smaller).expect("recording an extent cannot fail");
     assert_eq!(Swapchain::extent(&gpu), smaller);
+}
+
+/// `record_frame` headless: an offscreen frame records, a swapchain frame is
+/// refused by name.
+///
+/// Needs an adapter, and the windowed half of it -- drawing into an acquired image,
+/// and reaching the slot that image is bound to -- needs a display as well, which
+/// this crate must not name. That path is driven by `bins/sandbox`.
+#[test]
+#[ignore = "needs an adapter and a display; the surface path needs a window"]
+fn record_frame_records_offscreen_and_refuses_a_swapchain_frame_headless() {
+    let extent = Extent2d { width: 64, height: 64 };
+    let Ok(mut gpu) = WgpuGpu::headless(extent) else {
+        eprintln!("skipping: no wgpu adapter");
+        return;
+    };
+
+    // A frame with no passes has nothing to record and needs no surface.
+    gpu.record_frame(&empty_frame(), &SlotTable::default(), Arc::new(NoRecording))
+        .expect("an empty frame records");
+
+    // A frame that draws the swapchain image has no image to draw into here, and
+    // that is refused before anything records.
+    let frame = swapchain_frame();
+    let error = gpu
+        .record_frame(&frame, &SlotTable::default(), Arc::new(NoRecording))
+        .expect_err("no surface, so no image to draw the swapchain image into");
+    assert!(error.to_string().contains("no image is acquired"), "got {error}");
 }

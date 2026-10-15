@@ -9,8 +9,8 @@ pub mod generate;
 pub mod layout;
 
 pub use atlas::{Atlas, AtlasError, Glyph, Metrics};
-pub use generate::{generate, GenerateError, GeneratorOptions};
-pub use layout::{layout, Align, Layout, LayoutOptions, Placement, TextQuad};
+pub use generate::{GenerateError, GeneratorOptions};
+pub use layout::{Align, Layout, LayoutOptions, Placement, TextQuad};
 
 /// `Font2D::GetDefault()` (`UHE/src/UHE/Renderer/Font.cpp:220-227`) is the face
 /// the engine ships, resolved through `vault` rather than the filesystem, so it

@@ -9,11 +9,17 @@
 //! Kept from the C++ layer: the five targets, the spawn box, the hit rule and the
 //! look sensitivity. Added by the port, and named as such: a lifetime (the C++
 //! targets lived until they were hit), a spawn cadence, and a point total.
+//!
+//! The demo's assets are the repository's: `assets/models/Sphere.glb` for the
+//! targets, `assets/models/Box.gltf` for the ground and `assets/audio/gunshot.wav`
+//! for the shot. `UHEGAME/assets/models/pistol_animations_blender.glb` (12 MB) is
+//! deliberately not copied, because no code path here names it — the gun model,
+//! its skeleton and the fire/reload clips stay unported.
 
 mod rules;
 mod scene;
 
-use adam::{Engine, FrameCtx, Plugin, Result};
+use adam::{AudioBackend, Engine, FrameCtx, Plugin, Result};
 use glam::Vec3;
 use meats::{Entity, Scene};
 use pings::MouseButton;
@@ -24,9 +30,14 @@ pub use rules::{
     TARGET_LIFETIME, TARGET_RADIUS,
 };
 
-/// The C++ layer's `Sphere.glb` targets and `Box.gltf` ground.
-const TARGET_MESH: &str = "models/Sphere.glb";
-const GROUND_MESH: &str = "models/Box.gltf";
+/// The C++ layer's `Sphere.glb` targets and `Box.gltf` ground, as virtual paths
+/// against the workspace asset root — the C++ joined the same two names onto its
+/// game asset directory, and `assets/` is this tree's.
+const TARGET_MESH: &str = "assets/models/Sphere.glb";
+const GROUND_MESH: &str = "assets/models/Box.gltf";
+
+/// The C++ layer's `audio/gunshot.wav`, played on every shot.
+const SHOT_SOUND: &str = "assets/audio/gunshot.wav";
 
 /// The `physics_test.unhuman` floor: scale 20x1x20, top face at y = -1.5, which
 /// is the bottom of the lowest target.
@@ -151,6 +162,7 @@ impl AimLabPlugin {
         }
 
         self.score.shot();
+        self.play_shot(eng);
         let Some(entity) = self.pick(&eng.scene) else {
             return;
         };
@@ -160,6 +172,22 @@ impl AimLabPlugin {
         scene::set_translation(&mut eng.scene, entity, position);
         if let Some(target) = self.targets.iter_mut().find(|t| t.entity == entity) {
             target.life = TARGET_LIFETIME;
+        }
+    }
+
+    /// The C++ layer's `PlaySound3D(gunshot.wav, gun)`. A one-shot, so it goes
+    /// through the backend's `play` rather than a `playing` flag that `wire`
+    /// would keep restarting; the clip and its gain come from the camera's sound
+    /// component, which `resolve_assets` filled from the path.
+    fn play_shot(&self, eng: &mut Engine) {
+        let Some(camera) = eng.scene.primary_camera() else {
+            return;
+        };
+        let Some((clip, gain)) = scene::audio(&eng.scene, camera) else {
+            return;
+        };
+        if let Some(audio) = eng.audio.as_mut() {
+            audio.play(&eng.assets, clip, gain);
         }
     }
 }
@@ -185,12 +213,25 @@ impl Plugin for AimLabPlugin {
         let camera = scene::spawn(&mut eng.scene, "Camera", CAMERA_POSITION, Vec3::ONE);
         scene::add_primary_camera(&mut eng.scene, camera, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR);
 
+        // The C++ played the shot at the gun, which sits at the camera. There is
+        // no gun entity here, so the clip hangs on the camera: the ear and the
+        // muzzle are the same point for a one-shot the listener takes.
+        scene::add_audio_source(&mut eng.scene, camera, SHOT_SOUND);
+
         // Staggered by the cadence so the five do not expire in one tick.
         for index in 0..TARGET_COUNT {
             self.spawn_target(eng, TARGET_LIFETIME + index as f32 * SPAWN_INTERVAL);
         }
         self.spawn_timer = SPAWN_INTERVAL;
         self.built = true;
+
+        // A `MeshRenderer` with a path and no handle is invisible to
+        // `Scene::meshes`, so the paths are resolved here, once, against the
+        // registry the bin built. A missing model is a warning.
+        let Engine { scene, assets, .. } = eng;
+        for error in scene.resolve_assets(assets) {
+            log::warn!("aimlab: {error}");
+        }
 
         log::info!(
             "aimlab: {} entities, {} targets",

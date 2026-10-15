@@ -23,6 +23,8 @@ mod id;
 mod image;
 mod ktx2;
 mod load_model;
+mod load_model_animation;
+mod load_model_geometry;
 mod mesh;
 mod vfs;
 
@@ -35,8 +37,7 @@ pub use image::{
 };
 pub use ktx2::{is_ktx2, load_ktx2, Ktx2Image};
 pub use mesh::{
-    AlphaMode, AnimationData, AnimationTrack, BoneData, Filter, Interpolation, MaterialData,
-    MeshData, ModelData, ModelNode, SamplerData, SkinData, SkeletonData, TextureData, TrackPath,
-    Wrap,
+    AlphaMode, AnimationData, BoneData, Filter, Interpolation, MaterialData, MeshData, ModelData,
+    ModelNode, QuaternionTrack, SamplerData, SkinData, SkeletonData, TextureData, VectorTrack, Wrap,
 };
 pub use vfs::Vfs;

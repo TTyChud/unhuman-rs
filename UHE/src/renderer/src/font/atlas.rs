@@ -86,7 +86,7 @@ impl fmt::Display for AtlasError {
                 image_height,
             } => write!(
                 f,
-                "atlas image is {image_width}x{image_height}, json says {atlas_width}x{atlas_height}"
+                "atlas image {image_width}x{image_height}, json says {atlas_width}x{atlas_height}"
             ),
             AtlasError::ImageBytes { expected, found } => {
                 write!(f, "atlas image is {found} bytes, expected {expected}")

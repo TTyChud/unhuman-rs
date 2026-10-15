@@ -6,16 +6,17 @@
 // ## Bindings
 //
 // Set 0, binding 0 is a `SampledImage`, binding 1 a `Sampler` -- separate, for
-// the same reason `assets/shaders/Textured.slang` documents: wgpu has no
-// combined descriptor. Binding 2 is the view-projection and the atlas parameters
-// the C++ spelt as a push constant (`Renderer2D.cpp:29-33`); the RHI has no
-// push-constant range, so it is a uniform buffer.
+// the same reason the root `assets/shaders/Textured.slang` documents: wgpu has
+// no combined descriptor. Set 1, binding 0 is the view-projection and the atlas
+// parameters the C++ spelt as a push constant (`Renderer2D.cpp:29-33`); the RHI
+// has no push-constant range, so it is a uniform buffer, and separating it from
+// set 0 is what lets a pass bind it once for every text run.
 //
 // ## Two atlas kinds, one pipeline
 //
 // `globals.atlas.w` selects the reconstruction. A baked `msdf-atlas-gen` atlas
 // is a signed distance field and takes the median-of-three screen-space range
-// path the C++ shader used (`assets/shaders/Text.slang`), with one correction:
+// path the C++ shader used (the root `assets/shaders/Text.slang`), with one correction:
 // the C++ divided the pixel range by a hardcoded `float2(1024.0, 1024.0)`, which
 // is wrong for every atlas that is not 1024x1024, so the real atlas size and
 // distance range come from the atlas instead. The atlas `font::generate` builds
@@ -32,7 +33,7 @@ struct Globals {
 
 @group(0) @binding(0) var text_atlas: texture_2d<f32>;
 @group(0) @binding(1) var text_sampler: sampler;
-@group(0) @binding(2) var<uniform> globals: Globals;
+@group(1) @binding(0) var<uniform> globals: Globals;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,

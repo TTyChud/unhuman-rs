@@ -560,11 +560,11 @@ impl chassis::Resources for WgpuResources {
             let kind = declared(*binding)?;
             let texture = self.views.get(*view).ok_or(chassis::Error::InvalidHandle)?;
             entries.push(match kind {
-                chassis::DescriptorKind::SampledImage | chassis::DescriptorKind::StorageImage => {
-                    wgpu::BindGroupEntry {
-                        binding: *binding,
-                        resource: wgpu::BindingResource::TextureView(texture),
-                    }
+                chassis::DescriptorKind::SampledImage
+                | chassis::DescriptorKind::SampledDepth
+                | chassis::DescriptorKind::StorageImage => wgpu::BindGroupEntry {
+                    binding: *binding,
+                    resource: wgpu::BindingResource::TextureView(texture),
                 }
                 chassis::DescriptorKind::CombinedImageSampler => {
                     // **wgpu has no combined image sampler.**

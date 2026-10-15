@@ -5,7 +5,8 @@
 //! are not usable through this RHI**: `PipelineDesc` has no push-constant range,
 //! `VulkanPipelineState.rs:222` declares `push_constant_ranges(&[])` so any
 //! `vkCmdPushConstants` is a validation error, and wgpu's
-//! `CommandList::set_push_constants` is a documented no-op. So the same values
+//! `CommandList::set_push_constants` is `unimplemented!()` -- it panics rather
+//! than pushing anything. The renderer never calls it. So the same values
 //! travel as uniform buffers, and a draw's block is bound through a descriptor
 //! set rather than pushed.
 //!
@@ -101,13 +102,19 @@ impl DrawUniforms {
     }
 }
 
-/// A single-block uniform buffer and the group that binds it.
-pub struct UniformBuffer {
+/// One descriptor set whose contents are uploaded as a unit: a uniform block,
+/// plus whatever else its layout binds.
+///
+/// Rebuilt rather than written into, for the reason in this module's header.
+/// The previous buffer and group are released with the destroy calls before the
+/// new ones are made, so a frame holds one of each per set rather than one per
+/// frame for the process's life.
+pub struct BindSet {
     buffer: Option<Buffer>,
     group: Option<BindGroup>,
 }
 
-impl UniformBuffer {
+impl BindSet {
     pub fn new() -> Self {
         Self {
             buffer: None,
@@ -115,20 +122,32 @@ impl UniformBuffer {
         }
     }
 
-    /// Uploads one block, replacing whatever was there.
-    pub fn upload<T: Pod>(
+    /// Uploads the block and binds it together with `buffers`, `images` and
+    /// `samplers`, addressed by binding number.
+    pub fn rebuild<T: Pod>(
         &mut self,
         resources: &mut dyn Resources,
         layout: &DescriptorSetLayoutDesc,
         value: &T,
+        buffers: &[(u32, Buffer, u64)],
+        images: &[(u32, ImageView)],
+        samplers: &[(u32, Sampler)],
     ) -> Result<BindGroup, chassis::Error> {
         self.destroy(resources);
+
         let bytes = bytemuck::bytes_of(value);
         let buffer = resources.create_buffer(
             BufferDesc::new(bytes.len() as u64, BufferUsage::UNIFORM),
             Some(bytes),
         )?;
-        let group = resources.create_bind_group(layout, &[(0, buffer, 0)], &[], &[])?;
+
+        // The set's own uniform is binding 0, which is what every layout here
+        // declares: the C++'s push-constant block, in the one place a set can
+        // put it.
+        let mut entries = vec![(0u32, buffer, 0u64)];
+        entries.extend_from_slice(buffers);
+
+        let group = resources.create_bind_group(layout, &entries, images, samplers)?;
         self.buffer = Some(buffer);
         self.group = Some(group);
         Ok(group)
@@ -148,7 +167,52 @@ impl UniformBuffer {
     }
 }
 
-impl Default for UniformBuffer {
+impl Default for BindSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A descriptor set with no uniform block at all: only images and samplers.
+///
+/// The composite pass is the one that needs this — it reads two textures and
+/// uploads nothing — and it is separate from [`BindSet`] because a `BindSet`
+/// always allocates a uniform buffer for binding 0, which a layout without that
+/// binding cannot accept.
+pub struct ImageSet {
+    group: Option<BindGroup>,
+}
+
+impl ImageSet {
+    pub fn new() -> Self {
+        Self { group: None }
+    }
+
+    pub fn rebuild(
+        &mut self,
+        resources: &mut dyn Resources,
+        layout: &DescriptorSetLayoutDesc,
+        images: &[(u32, ImageView)],
+        samplers: &[(u32, Sampler)],
+    ) -> Result<BindGroup, chassis::Error> {
+        self.destroy(resources);
+        let group = resources.create_bind_group(layout, &[], images, samplers)?;
+        self.group = Some(group);
+        Ok(group)
+    }
+
+    pub fn group(&self) -> Option<BindGroup> {
+        self.group
+    }
+
+    pub fn destroy(&mut self, resources: &mut dyn Resources) {
+        if let Some(group) = self.group.take() {
+            resources.destroy_bind_group(group);
+        }
+    }
+}
+
+impl Default for ImageSet {
     fn default() -> Self {
         Self::new()
     }

@@ -58,9 +58,23 @@
 //! has no equivalent: a `Recording` owns its own encoder and there is nothing to
 //! share. No timeline semaphores either; `queue.submit` is the whole synchronisation
 //! story and wgpu orders submissions to one queue itself.
+//!
+//! ## The swapchain image, which is the one slot the frontend cannot fill
+//!
+//! A graph names a texture by slot, and the slot *is* the `TextureId` the frame's
+//! `import_texture`/`create_texture` returned -- import order, not a number anybody
+//! chooses. The frontend fills `SlotTable` for every texture it created; the one it
+//! cannot is the swapchain's, because the image belongs to the surface and arrives
+//! with the acquire, so there is no RHI `Texture` handle to put there until a
+//! backend mints one for the image it acquired. That is what
+//! [`resolve_backbuffer`] does, from the frame loop, between the acquire and the
+//! recording -- so `PassScope::texture` answers for every pass in the frame,
+//! including the one that composites into the swapchain. [`backbuffer_slot`] is
+//! how the slot is found: from the compiled frame, which is all a backend is ever
+//! handed.
 
 use chassis::graph::pass::{PassRecorder, PassScope, SlotTable};
-use chassis::graph::CompiledGraph;
+use chassis::graph::{CompiledGraph, ImageState, TextureId};
 
 use crate::wgpu_command_buffer::{Recording, WgpuCommandList};
 use crate::wgpu_device::Queue;
@@ -134,17 +148,44 @@ impl WgpuRenderGraphExecutor {
         self.extent = extent;
     }
 
+    /// [`resolve_backbuffer`] against the table this executor records from.
+    ///
+    /// Once per frame, after the acquire and before [`Self::execute`] -- it is the
+    /// first half of that call and the reason it can record at all.
+    pub fn resolve_backbuffer(
+        &mut self,
+        graph: &CompiledGraph,
+        acquired: Option<chassis::Texture>,
+    ) -> Result<(), chassis::Error> {
+        resolve_backbuffer(graph, &mut self.slots, acquired)
+    }
+
     /// Record every pass and submit, in the graph's compiled order.
     ///
     /// `recordings` must be in compiled order and the submit keeps it, because
     /// wgpu executes submissions to one queue in the order they were made. That is
     /// what replaces the Vulkan executor's whole chain of timeline semaphore
     /// waits: same guarantee, one fewer piece of machinery to get wrong.
+    ///
+    /// [`Self::resolve_backbuffer`] comes first: a frame that draws the swapchain
+    /// image records against a slot nothing has bound until it has run.
     pub fn execute(
         &mut self,
         graph: &CompiledGraph,
         record: &dyn PassRecorder,
     ) -> Result<(), chassis::Error> {
+        // The swapchain slot is the backend's to bind, so a frame that draws one
+        // and never got it bound is refused here rather than at `begin_rendering`
+        // -- where the message would name a pass and not the image that was never
+        // bound to it.
+        let unbound = backbuffer_slot(graph).filter(|slot| self.slots.texture(*slot).is_none());
+        if let Some(slot) = unbound {
+            return Err(chassis::Error::Unsupported(format!(
+                "the frame draws the swapchain image (slot {slot}) but nothing is bound to \
+                 it: `resolve_backbuffer` did not run for this frame"
+            )));
+        }
+
         let mut buffers = Vec::with_capacity(graph.passes.len());
 
         for pass in &graph.passes {
@@ -194,5 +235,77 @@ impl WgpuRenderGraphExecutor {
             .poll(wgpu::PollType::wait_indefinitely())
             .map(|_| ())
             .map_err(|error| chassis::Error::Unsupported(format!("poll failed: {error:?}")))
+    }
+}
+
+/// The slot a frame draws the swapchain image into, if it draws one at all.
+///
+/// The swapchain image is the one resource a frame claims is *external* and has
+/// to leave presentable: the renderer imports it with `import_texture`, declared
+/// `Undefined` in and `Present` out, because the image arrives with the acquire
+/// and the frame ends with a present. The compiler carries that declaration into
+/// the pass list as the epilogue transition to `Present` on the last pass that
+/// touches the resource (`synthesize_barriers`' own comment: "A swapchain image,
+/// for instance, has to reach `Present` after the last pass that writes it"), so
+/// the compiled frame names the slot on its own -- which matters, because the
+/// compiled frame is all a backend is handed.
+///
+/// Nothing else in a frame reaches `Present`: every other texture ends at
+/// whatever state the pass that last touched it left it in.
+pub fn backbuffer_slot(graph: &CompiledGraph) -> Option<TextureId> {
+    graph
+        .passes
+        .iter()
+        .flat_map(|pass| pass.pre_barriers.iter().chain(&pass.post_barriers))
+        .find(|barrier| barrier.dst_state == ImageState::Present)
+        .map(|barrier| barrier.texture)
+}
+
+/// Bind the frame's acquired swapchain image to the slot it was imported at.
+///
+/// ## Who calls this, and when
+///
+/// The frame loop: once per frame, after the acquire and before any pass records
+/// (`WgpuGpu::submit` is the caller here). Not the frontend, and not a pass -- a
+/// swapchain image has no RHI `Texture` handle to bind until a backend mints one
+/// for the image it acquired, which is why this exists at all.
+///
+/// ## `None` is an error, not a no-op
+///
+/// A frame that draws the swapchain image and has no image to draw into cannot be
+/// recorded: the pass would attach nothing, and the failure would surface at
+/// `begin_rendering` with no word about the slot or the frame. `None` covers two
+/// situations and both are the caller's to fix -- a headless device, where the
+/// frame asked for something that is not there, and an acquire that timed out or
+/// came back occluded, where the frame should not have been submitted.
+///
+/// The only no-op is a frame that never draws the swapchain image: an offscreen or
+/// transfer-only frame needs nothing from the surface, and is fine headless.
+///
+/// The slot is cleared in every case where it is not bound, because the handle
+/// from the previous frame names an image the surface has already released -- a
+/// resize, a present, or a skipped acquire. Leaving it in the table would resolve,
+/// at record time, to a texture no longer in the registry: a missing attachment
+/// rather than this error.
+pub fn resolve_backbuffer(
+    graph: &CompiledGraph,
+    slots: &mut SlotTable,
+    acquired: Option<chassis::Texture>,
+) -> Result<(), chassis::Error> {
+    let Some(slot) = backbuffer_slot(graph) else {
+        return Ok(());
+    };
+    match acquired.filter(|texture| !texture.is_null()) {
+        Some(texture) => {
+            slots.set_texture(slot, texture);
+            Ok(())
+        }
+        None => {
+            slots.set_texture(slot, chassis::Texture::null());
+            Err(chassis::Error::Unsupported(format!(
+                "the frame draws the swapchain image (slot {slot}) but no image is acquired: \
+                 this device has no surface, or the acquire was skipped"
+            )))
+        }
     }
 }

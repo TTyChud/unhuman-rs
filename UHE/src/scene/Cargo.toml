@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-pings = { workspace = true }
 vault = { workspace = true }
 glam = { workspace = true }
 hecs = { workspace = true }

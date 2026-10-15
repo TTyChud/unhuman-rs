@@ -19,10 +19,15 @@
 //! No rendering policy. Materials, meshes and passes are the renderer's; this
 //! owns device objects and nothing else.
 //!
-//! [`create_bind_group`] is not implemented. A bind group needs a declared set
-//! layout, and nothing declares one yet. It returns an error that says so rather
-//! than handing back a handle that binds nothing -- a bind group that silently
-//! binds nothing renders the wrong image and is close to undebuggable.
+//! ## `create_bind_group`
+//!
+//! [`create_bind_group`] declares the set layout from the same
+//! `DescriptorSetLayoutDesc` a pipeline is built with, so a pipeline and its
+//! bind group share one `vk::DescriptorSetLayout`, and then writes the buffers,
+//! images and samplers into a freshly allocated set. A binding the layout does
+//! not declare, or a descriptor kind this cannot write, is refused by name
+//! rather than handed back as a handle that binds nothing -- a bind group that
+//! silently binds nothing renders the wrong image and is close to undebuggable.
 
 use std::sync::{Arc, RwLock};
 

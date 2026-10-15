@@ -35,11 +35,8 @@ pub enum Bus {
 }
 
 impl Bus {
-    /// Every bus, in the order the engine stores their gains.
-    pub const ALL: [Bus; 3] = [Bus::Sfx, Bus::Music, Bus::Ui];
-
-    /// How many gains an engine holds.
-    pub const COUNT: usize = Bus::ALL.len();
+    /// How many gains an engine holds; `slot` indexes them.
+    pub const COUNT: usize = 3;
 
     pub(crate) fn slot(self) -> usize {
         match self {
@@ -166,7 +163,10 @@ mod tests {
         let second = table.register(asset(7), &[9, 9, 9, 9]);
         assert_eq!(first, second);
         assert_eq!(table.len(), 1);
-        assert_eq!(table.get(first).expect("registered").bytes(), &[1, 2, 3, 4]);
+        assert_eq!(
+            table.get(first).expect("registered").bytes(),
+            &[1u8, 2, 3, 4][..]
+        );
         assert_eq!(table.id_for(asset(7)), Some(first));
         assert_eq!(table.id_for(asset(8)), None);
     }
@@ -178,7 +178,13 @@ mod tests {
         let sound = table.get(id).expect("registered");
         assert_eq!(sound.len(), 4);
         assert!(!sound.is_empty());
-        assert_eq!(sound.reader().get_ref().len(), 4);
+
+        let first = sound.reader().into_inner();
+        let second = sound.reader().into_inner();
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &second),
+            "a second reader copies nothing"
+        );
     }
 
     #[test]

@@ -57,14 +57,14 @@ impl Hierarchy {
     /// Entities that are nobody's child. `Scene` has one owner per entity, so
     /// the roots are exactly the complement of every parent's child list.
     fn roots(&self, scene: &Scene) -> Vec<Entity> {
+        let entities = scene.entities();
         let mut linked: HashSet<Entity> = HashSet::new();
-        for entity in scene.entities() {
-            for child in scene.children(entity) {
+        for entity in &entities {
+            for child in scene.children(*entity) {
                 linked.insert(*child);
             }
         }
-        scene
-            .entities()
+        entities
             .into_iter()
             .filter(|entity| !linked.contains(entity))
             .collect()

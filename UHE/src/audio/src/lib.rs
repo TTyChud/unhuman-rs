@@ -23,7 +23,7 @@ pub mod voice;
 /// to convert between.
 pub use adam::{Listener, VoiceId};
 
-pub use engine::{listener_from, AudioEngine, WirePlugin, DEFAULT_VOICES};
+pub use engine::{listener_from, AudioEngine, DEFAULT_VOICES, WirePlugin};
 pub use sound::{Bus, Sound, SoundId, SoundTable};
-pub use spatial::{attenuation, channel_gains, pan, Pan, PanHandle, MIN_CHANNEL_GAIN};
-pub use voice::{Voice, VoicePool, VoiceSpec, DEFAULT_RANGE};
+pub use spatial::{attenuation, channel_gains, pan, MIN_CHANNEL_GAIN, Pan, PanHandle};
+pub use voice::{DEFAULT_RANGE, Voice, VoicePool, VoiceSpec};

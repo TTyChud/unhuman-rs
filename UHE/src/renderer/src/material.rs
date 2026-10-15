@@ -362,13 +362,15 @@ impl MaterialCache {
     ///
     /// `images` are the resolved views to sample, `(binding, view)`, and must be
     /// the views behind `key.textures`: they are what the entry is invalidated
-    /// by when a texture is destroyed.
+    /// by when a texture is destroyed. `samplers` is the one sampler every map
+    /// in the set is read with.
     pub fn get_or_insert(
         &mut self,
         resources: &mut dyn Resources,
         key: MaterialKey,
         material: &Material,
         images: &[(u32, ImageView)],
+        samplers: &[(u32, Sampler)],
         layout: &DescriptorSetLayoutDesc,
     ) -> Result<MaterialBinding, chassis::Error> {
         if let Some(entry) = self.entries.get(&key) {
@@ -384,7 +386,7 @@ impl MaterialCache {
             Some(bytemuck::bytes_of(&gpu)),
         )?;
 
-        let group = resources.create_bind_group(layout, &[(0, params, 0)], images, &[])?;
+        let group = resources.create_bind_group(layout, &[(0, params, 0)], images, samplers)?;
 
         let binding = MaterialBinding {
             slot: self.next_slot,
@@ -465,6 +467,7 @@ pub struct TextureCache {
     entries: HashMap<AssetId, CachedTexture>,
     linear: Option<Sampler>,
     white: Option<CachedTexture>,
+    neutral: Option<CachedTexture>,
 }
 
 impl TextureCache {
@@ -473,6 +476,7 @@ impl TextureCache {
             entries: HashMap::new(),
             linear: None,
             white: None,
+            neutral: None,
         }
     }
 
@@ -499,8 +503,11 @@ impl TextureCache {
         Ok(sampler)
     }
 
-    /// The 1x1 white texture a material with no albedo map samples. The C++
-    /// makes one at `Renderer3D::Init` for exactly this.
+    /// The 1x1 texture a material with no map of a given kind samples: white.
+    ///
+    /// Multiplying by white is the correct neutral for albedo, metallic/
+    /// roughness, occlusion and emissive — glTF says an absent map leaves the
+    /// factor in force, which is what sampling 1.0 does.
     pub fn white(&mut self, resources: &mut dyn Resources) -> Result<CachedTexture, chassis::Error> {
         if let Some(white) = self.white {
             return Ok(white);
@@ -513,6 +520,30 @@ impl TextureCache {
         };
         let cached = self.upload(resources, &image)?;
         self.white = Some(cached);
+        Ok(cached)
+    }
+
+    /// The 1x1 texture an absent *normal* map samples: `(0.5, 0.5, 1)`.
+    ///
+    /// Not white: `(1, 1, 1)` decodes to a tangent-space normal tilted 45° in
+    /// both axes, so binding white for a missing normal map tilts every normal
+    /// on that surface. Linear, because a normal map is data and not colour —
+    /// an sRGB view would decode `0.5` to `0.21`.
+    pub fn neutral_normal(
+        &mut self,
+        resources: &mut dyn Resources,
+    ) -> Result<CachedTexture, chassis::Error> {
+        if let Some(neutral) = self.neutral {
+            return Ok(neutral);
+        }
+        let image = vault::Image {
+            width: 1,
+            height: 1,
+            rgba8: vec![128, 128, 255, 255],
+            srgb: false,
+        };
+        let cached = self.upload(resources, &image)?;
+        self.neutral = Some(cached);
         Ok(cached)
     }
 
@@ -574,7 +605,12 @@ impl TextureCache {
         for (_, cached) in self.entries.drain() {
             resources.destroy_texture(cached.texture);
         }
-        self.white = None;
+        for cached in [self.white.take(), self.neutral.take()].into_iter().flatten() {
+            resources.destroy_texture(cached.texture);
+        }
+        if let Some(sampler) = self.linear.take() {
+            resources.destroy_sampler(sampler);
+        }
     }
 }
 

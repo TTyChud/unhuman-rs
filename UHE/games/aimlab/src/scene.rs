@@ -6,7 +6,9 @@
 //! `GetComponent<T>()`.
 
 use glam::{Mat4, Vec3};
-use meats::{Camera, Entity, Light, LightKind, MeshRenderer, Scene, SceneCamera, Transform};
+use meats::{
+    AudioSource, Camera, Entity, Light, LightKind, MeshRenderer, Scene, SceneCamera, Transform,
+};
 
 /// Spawns an entity with a transform, the way `Scene::CreateEntity` gives every
 /// entity an `IDComponent`, a `TransformComponent` and a `TagComponent`.
@@ -78,6 +80,24 @@ pub(crate) fn add_mesh(scene: &mut Scene, entity: Entity, path: &str) {
         ..Default::default()
     };
     let _ = scene.insert(entity, mesh);
+}
+
+/// A sound on an entity by virtual path, the C++ `PlaySound3D`'s first argument.
+/// The handle beside it is `Scene::resolve_assets`' to fill.
+pub(crate) fn add_audio_source(scene: &mut Scene, entity: Entity, path: &str) {
+    let source = AudioSource {
+        clip_path: path.to_owned(),
+        ..Default::default()
+    };
+    let _ = scene.insert(entity, source);
+}
+
+/// The clip `resolve_assets` filled on this entity's sound component, and the
+/// gain beside it. `None` before resolution, or when the file is missing.
+pub(crate) fn audio(scene: &Scene, entity: Entity) -> Option<(vault::AssetId, f32)> {
+    let entry = scene.get(entity)?;
+    let source = entry.get::<AudioSource>()?;
+    Some((source.clip?, source.gain))
 }
 
 /// World position of an entity.

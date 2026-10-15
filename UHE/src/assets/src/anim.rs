@@ -115,11 +115,16 @@ pub fn compress(clip: &mut AnimationData, settings: CompressSettings) -> Compres
 
 /// The same measurement without changing the clip, so a caller can decide
 /// whether compressing is worth it. Port of `AnimationCompressor::MeasureClip`.
+///
+/// The mask is computed on the real key values with `apply` left off, which is
+/// what the C++ achieved by cloning the clip and running the same pass: a
+/// measurement that disagreed with the compression would be worse than none.
 pub fn measure(clip: &AnimationData, settings: CompressSettings) -> CompressionStats {
     let mut stats = CompressionStats::default();
     for track in &clip.position_tracks {
         stats.merge(measure_track::<[f32; 3]>(
             &track.times,
+            &track.values,
             &track.in_tangents,
             &track.out_tangents,
             settings.position_tolerance,
@@ -129,6 +134,7 @@ pub fn measure(clip: &AnimationData, settings: CompressSettings) -> CompressionS
     for track in &clip.rotation_tracks {
         stats.merge(measure_track::<[f32; 4]>(
             &track.times,
+            &track.values,
             &track.in_tangents,
             &track.out_tangents,
             settings.rotation_tolerance,
@@ -138,6 +144,7 @@ pub fn measure(clip: &AnimationData, settings: CompressSettings) -> CompressionS
     for track in &clip.scale_tracks {
         stats.merge(measure_track::<[f32; 3]>(
             &track.times,
+            &track.values,
             &track.in_tangents,
             &track.out_tangents,
             settings.scale_tolerance,
@@ -150,23 +157,27 @@ pub fn measure(clip: &AnimationData, settings: CompressSettings) -> CompressionS
 /// A track's values and tangents cost the same per key as `T`.
 fn measure_track<T: TrackValue>(
     times: &[f32],
+    values: &[T],
     in_tangents: &[T],
     out_tangents: &[T],
     tolerance: f32,
     interpolation: crate::mesh::Interpolation,
 ) -> CompressionStats {
-    let mut stats = CompressionStats::default();
-    stats.keys_before = times.len();
-    stats.keys_after = times.len();
-    stats.tracks_processed = 1;
-    let spline = is_spline(times.len(), in_tangents, out_tangents);
-    stats.bytes_before = bytes_of::<T>(times.len(), spline);
-    stats.bytes_after = stats.bytes_before;
+    let keys = times.len();
+    let spline = is_spline(keys, in_tangents, out_tangents);
+    let bytes = bytes_of::<T>(keys, spline);
+    let mut stats = CompressionStats {
+        keys_before: keys,
+        keys_after: keys,
+        tracks_processed: 1,
+        bytes_before: bytes,
+        bytes_after: bytes,
+    };
 
-    if interpolation == crate::mesh::Interpolation::Linear && times.len() > 2 {
-        let keep = keep_count(times, tolerance, spline, in_tangents, out_tangents);
-        stats.keys_after = keep;
-        stats.bytes_after = bytes_of::<T>(keep, spline);
+    if interpolation == crate::mesh::Interpolation::Linear && keys > 2 {
+        let keep = keep_mask(times, values, in_tangents, out_tangents, spline, tolerance);
+        stats.keys_after = keep.len();
+        stats.bytes_after = bytes_of::<T>(keep.len(), spline);
     }
     stats
 }
@@ -189,17 +200,26 @@ fn process_track<T: TrackValue>(
     reduce: bool,
     apply: bool,
 ) -> CompressionStats {
-    let spline = is_spline(times.len(), in_tangents, out_tangents);
+    let keys = times.len();
+    let spline = is_spline(keys, in_tangents.as_slice(), out_tangents.as_slice());
+    let bytes = bytes_of::<T>(keys, spline);
+    let mut stats = CompressionStats {
+        keys_before: keys,
+        keys_after: keys,
+        tracks_processed: 1,
+        bytes_before: bytes,
+        bytes_after: bytes,
+    };
 
-    let mut stats = CompressionStats::default();
-    stats.keys_before = times.len();
-    stats.keys_after = times.len();
-    stats.tracks_processed = 1;
-    stats.bytes_before = bytes_of::<T>(times.len(), spline);
-    stats.bytes_after = stats.bytes_before;
-
-    if reduce && times.len() > 2 {
-        let keep = keep_mask(times, values, in_tangents, out_tangents, spline, tolerance);
+    if reduce && keys > 2 {
+        let keep = keep_mask(
+            times.as_slice(),
+            values.as_slice(),
+            in_tangents.as_slice(),
+            out_tangents.as_slice(),
+            spline,
+            tolerance,
+        );
         stats.keys_after = keep.len();
         stats.bytes_after = bytes_of::<T>(keep.len(), spline);
         if apply && keep.len() < times.len() {
@@ -215,20 +235,6 @@ fn process_track<T: TrackValue>(
 
 fn is_spline<T>(keys: usize, in_tangents: &[T], out_tangents: &[T]) -> bool {
     !in_tangents.is_empty() && in_tangents.len() == keys && out_tangents.len() == keys
-}
-
-fn keep_count<T: TrackValue>(
-    times: &[f32],
-    tolerance: f32,
-    spline: bool,
-    in_tangents: &[T],
-    out_tangents: &[T],
-) -> usize {
-    if times.len() <= 2 {
-        return times.len();
-    }
-    let values = vec![T::ZERO; times.len()];
-    keep_mask(times, &values, in_tangents, out_tangents, spline, tolerance).len()
 }
 
 /// The indices to keep: greedy, walking the track once, keeping a key when the
@@ -266,14 +272,16 @@ fn keep_mask<T: TrackValue>(
     let mut i = 1usize;
     while i + 1 < times.len() {
         let mut within = true;
-        for k in last_kept + 1..=i {
+        let first = last_kept + 1;
+        let skipped = values.iter().enumerate().skip(first).take(i + 1 - first);
+        for (k, value) in skipped {
             let blended = sample_between(
                 (times[last_kept], values[last_kept], tangent_out(last_kept)),
                 (times[i + 1], values[i + 1], tangent_in(i + 1)),
                 spline,
                 times[k],
             );
-            if T::error(values[k], blended) > tolerance {
+            if T::error(*value, blended) > tolerance {
                 within = false;
                 break;
             }
@@ -332,6 +340,10 @@ fn apply_mask<T: Copy>(values: &mut Vec<T>, keep: &[usize]) {
 pub(crate) trait TrackValue: Copy {
     const ZERO: Self;
 
+    /// The value a track holds before it has any keys: zero for a vector,
+    /// identity for a rotation.
+    fn identity() -> Self;
+
     fn blend(a: Self, b: Self, u: f32) -> Self;
     fn error(a: Self, b: Self) -> f32;
     /// Cubic Hermite, with the tangents already scaled by the segment duration.
@@ -340,6 +352,10 @@ pub(crate) trait TrackValue: Copy {
 
 impl TrackValue for [f32; 3] {
     const ZERO: Self = [0.0; 3];
+
+    fn identity() -> Self {
+        [0.0; 3]
+    }
 
     fn blend(a: Self, b: Self, u: f32) -> Self {
         [
@@ -356,17 +372,20 @@ impl TrackValue for [f32; 3] {
 
     fn hermite(a: Self, b: Self, a_out: Self, b_in: Self, span: f32, t: f32) -> Self {
         let (h00, h10, h01, h11) = hermite_basis(t);
-        let mut out = [0.0; 3];
-        for i in 0..3 {
-            out[i] =
-                h00 * a[i] + h10 * span * a_out[i] + h01 * b[i] + h11 * span * b_in[i];
-        }
-        out
+        [
+            h00 * a[0] + h10 * span * a_out[0] + h01 * b[0] + h11 * span * b_in[0],
+            h00 * a[1] + h10 * span * a_out[1] + h01 * b[1] + h11 * span * b_in[1],
+            h00 * a[2] + h10 * span * a_out[2] + h01 * b[2] + h11 * span * b_in[2],
+        ]
     }
 }
 
 impl TrackValue for [f32; 4] {
     const ZERO: Self = [0.0, 0.0, 0.0, 0.0];
+
+    fn identity() -> Self {
+        [0.0, 0.0, 0.0, 1.0]
+    }
 
     fn blend(a: Self, b: Self, u: f32) -> Self {
         slerp(a, b, u)
@@ -381,12 +400,12 @@ impl TrackValue for [f32; 4] {
 
     fn hermite(a: Self, b: Self, a_out: Self, b_in: Self, span: f32, t: f32) -> Self {
         let (h00, h10, h01, h11) = hermite_basis(t);
-        let mut out = [0.0; 4];
-        for i in 0..4 {
-            out[i] =
-                h00 * a[i] + h10 * span * a_out[i] + h01 * b[i] + h11 * span * b_in[i];
-        }
-        normalize(out)
+        normalize([
+            h00 * a[0] + h10 * span * a_out[0] + h01 * b[0] + h11 * span * b_in[0],
+            h00 * a[1] + h10 * span * a_out[1] + h01 * b[1] + h11 * span * b_in[1],
+            h00 * a[2] + h10 * span * a_out[2] + h01 * b[2] + h11 * span * b_in[2],
+            h00 * a[3] + h10 * span * a_out[3] + h01 * b[3] + h11 * span * b_in[3],
+        ])
     }
 }
 
@@ -491,23 +510,23 @@ fn sample_value<T: TrackValue>(
     time: f32,
 ) -> T {
     if times.is_empty() || values.is_empty() {
-        return T::ZERO;
+        return T::identity();
     }
-    if times.len() == 1 || values.len() == 1 {
+    // Before the first key and at or after the last one, the endpoint holds
+    // exactly: interpolating towards it and clamping the parameter would
+    // otherwise land an ulp away from the key that is really there.
+    if time <= times[0] {
         return values[0];
     }
-
-    // First key strictly after `time`, i.e. `upper_bound`.
-    let index = times.partition_point(|key| *key <= time);
-    if index == 0 {
-        return values[0];
-    }
-    if index >= times.len() {
+    if time >= times[times.len() - 1] {
         return values[values.len() - 1];
     }
 
-    let a = index - 1;
-    let b = index;
+    // First key strictly after `time`, i.e. `upper_bound`. The endpoint checks
+    // above put `time` strictly inside the range, so the segment is a real one.
+    let index = times.partition_point(|key| *key <= time);
+    let a = index.saturating_sub(1).min(values.len() - 1);
+    let b = index.min(values.len() - 1).max(a);
     let span = times[b] - times[a];
     let u = if span > 0.0 {
         ((time - times[a]) / span).clamp(0.0, 1.0)

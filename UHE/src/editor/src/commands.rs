@@ -68,7 +68,7 @@ impl Command {
                 parent,
                 name,
             } => {
-                let created = scene.spawn(name);
+                let created = scene.spawn(name.as_str());
                 set_parent_if_present(scene, created, *parent);
                 *entity = created;
             }
@@ -80,9 +80,9 @@ impl Command {
                 after,
                 ..
             } => {
-                inspector.set_named(scene, *entity, component, property, after);
+                inspector.set_named(scene, *entity, *component, *property, after);
             }
-            Command::Rename { entity, after, .. } => set_tag(scene, *entity, after),
+            Command::Rename { entity, after, .. } => set_tag(scene, *entity, after.as_str()),
             Command::Reparent { entity, after, .. } => scene.set_parent(*entity, *after),
         }
     }
@@ -101,7 +101,7 @@ impl Command {
                 parent,
                 name,
             } => {
-                let restored = scene.spawn(name);
+                let restored = scene.spawn(name.as_str());
                 set_parent_if_present(scene, restored, *parent);
                 *entity = restored;
             }
@@ -112,9 +112,9 @@ impl Command {
                 before,
                 ..
             } => {
-                inspector.set_named(scene, *entity, component, property, before);
+                inspector.set_named(scene, *entity, *component, *property, before);
             }
-            Command::Rename { entity, before, .. } => set_tag(scene, *entity, before),
+            Command::Rename { entity, before, .. } => set_tag(scene, *entity, before.as_str()),
             Command::Reparent { entity, before, .. } => scene.set_parent(*entity, *before),
         }
     }
@@ -123,7 +123,7 @@ impl Command {
 pub(crate) fn set_tag(scene: &mut Scene, entity: Entity, name: &str) {
     if let Some(mut entry) = scene.get_mut(entity) {
         if let Some(tag) = entry.get_mut::<Tag>() {
-            tag.name = name.to_string();
+            tag.tag = name.to_string();
         }
     }
 }

@@ -32,14 +32,14 @@ fn add_body(
         .get_mut::<Transform>()
         .expect("every entity has a transform")
         .translation = translation;
-    let _ = built.insert(RigidBody {
+    built.insert(RigidBody {
         kind,
         mass: 1.0,
         velocity: Vec3::ZERO,
         damping: 0.0,
         gravity_scale: 1.0,
     });
-    let _ = built.insert(Collider {
+    built.insert(Collider {
         shape,
         offset: Vec3::ZERO,
         friction: 0.5,
@@ -55,6 +55,15 @@ fn translation(scene: &Scene, entity: Entity) -> Vec3 {
         .get::<Transform>()
         .expect("transform")
         .translation
+}
+
+fn rotation(scene: &Scene, entity: Entity) -> Vec3 {
+    scene
+        .get(entity)
+        .expect("entity")
+        .get::<Transform>()
+        .expect("transform")
+        .rotation
 }
 
 /// Every transform in the scene, as bit patterns: `assert_eq!` on floats would pass for
@@ -245,7 +254,7 @@ fn an_entity_without_a_rigid_body_is_untouched() {
 fn a_rigid_body_without_a_collider_creates_no_body() {
     let mut scene = Scene::new();
     let entity = scene.spawn("crate");
-    let _ = scene.get_mut(entity).expect("spawned").insert(RigidBody {
+    scene.get_mut(entity).expect("spawned").insert(RigidBody {
         kind: RigidBodyKind::Dynamic,
         mass: 1.0,
         velocity: Vec3::ZERO,
@@ -253,7 +262,6 @@ fn a_rigid_body_without_a_collider_creates_no_body() {
         gravity_scale: 1.0,
     });
     let before = snapshot(&scene);
-
     let mut physics = Physics3D::new();
     for _ in 0..10 {
         physics.step(&mut scene, DT);
@@ -278,6 +286,42 @@ fn an_unchanged_body_keeps_its_handle() {
 
     assert_eq!(physics.handle(entity), Some(first));
     assert_eq!(physics.body_count(), 2);
+}
+
+/// The rotation the scene authored has to survive the trip into Rapier and back.
+///
+/// `Transform::rotation_quat` is the C++ `glm::quat(vec3)` — `Rz*Ry*Rx`, glam's `XYZEx`
+/// and not the `Rx*Ry*Rz` of its `XYZ` — so `to_euler(EulerRot::XYZ)`, the inverse anyone
+/// would reach for, belongs to a different order and would hand the scene angles that
+/// mean another orientation.
+#[test]
+fn an_authored_rotation_survives_the_round_trip() {
+    let mut scene = Scene::new();
+    let entity = add_body(
+        &mut scene,
+        "box",
+        Vec3::new(0.0, 5.0, 0.0),
+        RigidBodyKind::Dynamic,
+        box_shape(Vec3::splat(0.5)),
+    );
+    let authored = Vec3::new(30.0, 20.0, 10.0);
+    scene
+        .get_mut(entity)
+        .expect("entity")
+        .get_mut::<Transform>()
+        .expect("transform")
+        .rotation = authored;
+
+    let mut physics = Physics3D::new();
+    // One step of free fall: nothing moves the rotation, so whatever comes back is the
+    // conversion's error and nothing else.
+    physics.step(&mut scene, DT);
+
+    let after = rotation(&scene, entity);
+    assert!(
+        (after - authored).length() < 0.1,
+        "rotation {authored:?} came back as {after:?}"
+    );
 }
 
 #[test]
