@@ -1,0 +1,18 @@
+[package]
+name = "eyes"
+description = "Window, surface and input. The only crate that talks to a windowing system."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `raw-window-handle` must stay on 0.6. winit 0.30 implements rwh_06 and wgpu 30
+# asks for rwh_06, so this one version is what lets a single window hand a raw
+# Vulkan handle to ash and a `SurfaceTarget` to wgpu without a shim.
+#
+# It is a *dependency* rather than something we re-export our own type over,
+# because both backends already speak it and a wrapper type would only have to be
+# unwrapped at the exact point it was meant to save.
+raw-window-handle = "0.6"
+winit = "0.30"

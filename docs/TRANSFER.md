@@ -18,8 +18,8 @@ HEAD**. It is a finished, tested superset: +2,136 lines adding
 interpolation modes, loop modes, cross-fade, events, root motion, multi-skin,
 an animation state machine, a compressor, and an IK solver.
 
-Porting from HEAD would port code that branch already obsoletes. **Decision
-needed: target `9177d5c`.** It is assumed below.
+**Decided: port `9177d5c`, not HEAD `871d3f0`.** Porting HEAD would port code
+that branch already obsoletes. See `session.md` Phase 8 for what that changes.
 
 ### `Renderer2D/Renderer2D.cpp` does not compile
 
@@ -125,12 +125,28 @@ most of the win. Revisit `meshopt` only if profiling says 30%+ is being left.
 ### The window serves both backends
 
 winit 0.30 implements `HasWindowHandle`, so **one window gives both** a raw
-`RawWindowHandle` for ash *and* a `wgpu::Surface`. Pin `raw-window-handle = "0.6"`
-to match winit's `rwh_06`; a mismatch is the classic failure here.
+`RawWindowHandle` for ash *and* a `wgpu::SurfaceTarget`. Pin
+`raw-window-handle = "0.6"` to match winit's `rwh_06`; a mismatch is the
+classic failure here.
 
-**Windows caveat:** winit restricts raw-handle access to the thread that created
-the window. Both backends want the surface on a non-main thread, so use
-`WindowExtWindows::window_handle_any_thread()`.
+`eyes` therefore depends on `raw-window-handle` but **not** on `ash` or `wgpu`:
+it hands over a handle and each backend decides what it is. Putting a
+`wgpu::Surface` in `eyes` would be the same mistake as naming `vk::` in
+`bifrost`, one layer earlier.
+
+**Windows caveat:** winit 0.30 takes `any_thread` at *event-loop construction*,
+not per call, so it has to be set in `eyes::winit_config`. Without it winit
+refuses a raw handle to any thread but the creating one — and both backends
+build their surface from the frame callback, which is not that thread. The
+failure is a panic inside `create_surface` naming neither winit's rule nor the
+cause, and **only on Windows**, so a Linux test run passes every time.
+
+**Threading, which changed the design.** `EventLoop` is not `Send` and on macOS
+must own the main thread, so it cannot be moved to a render thread. The window
+therefore *owns the frame loop*: `Window::run` hands control to winit and invokes
+the frame callback from inside it. That is what makes the C++'s one-frame-late
+input structurally impossible rather than a convention — and it is why `eyes`
+has a `HeadlessWindow`, so the loop can be tested at all.
 
 ### egui runs on our own render target
 
@@ -140,7 +156,12 @@ existing wgpu renderpass"* — which is exactly our
 renderer feed its own textures in.
 
 But `egui-wgpu` is welded to **wgpu ^30**, so there is no equivalent for the ash
-backend. Scope UI to wgpu, or hand-roll egui tessellation into `bifrost`.
+backend.
+
+**Decided: both, wgpu first.** Ship the editor on wgpu to get it working, then
+add egui tessellation through `bifrost` so the Vulkan backend can host UI too.
+The tessellation path is the same work either way; doing it second means the
+editor exists before it needs it.
 
 ---
 

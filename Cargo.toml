@@ -9,6 +9,7 @@ default-members = [
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
+    "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
 ]
@@ -18,6 +19,7 @@ members = [
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
+    "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
 ]
@@ -31,6 +33,7 @@ repository = "https://github.com/unhuman-engine/unhuman-rs.git"
 [workspace.dependencies]
 adam = { path = "UHE/src/core" }
 chassis = { path = "UHE/src/rhi" }
+eyes = { path = "UHE/platform/eyes" }
 forge = { path = "UHE/src/shaders" }
 grind = { path = "UHE/src/jobs" }
 stormbreaker = { path = "UHE/Stormbreaker/vulkan" }

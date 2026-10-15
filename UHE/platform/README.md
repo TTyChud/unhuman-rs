@@ -2,7 +2,7 @@
 
 Platform-level code only: what changes when the operating system changes.
 
-- windowing and input (`eyes`) — surface creation, event loops, raw input
+- windowing and input (`eyes`) — window, surface handle, events, polled input
 - anything that names `std::os::windows` or `std::os::linux`
 
 ## What does not belong here
