@@ -23,22 +23,31 @@ fi
 #
 # sm_6_0 is the floor the engine targets; nothing in the test needs more, and
 # compiling higher would hide a missing feature rather than report it.
+# `source` is an argument rather than hardcoded, because there is more than one
+# shader now and a compiler that can only build one of them is a compiler that
+# makes the second shader look like a backend bug.
 compile() {
-  local entry="$1" stage="$2" out="$3"
+  local entry="$1" stage="$2" out="$3" source="$4"
   "$slangc" \
     -target spirv \
     -profile sm_6_0 \
     -emit-spirv-directly \
     -entry "$entry" \
     -stage "$stage" \
-    "$here/Triangle.slang" \
+    "$here/$source" \
     -o "$here/$out"
   echo "  $out"
 }
 
 echo "compiling with $slangc"
-compile vs_main    vertex    Triangle.vert.spv
-compile fs_main    fragment  Triangle.frag.spv
+compile vs_main vertex Triangle.vert.spv Triangle.slang
+compile fs_main fragment Triangle.frag.spv Triangle.slang
+
+# The sampling shader. Two bindings -- a sampled image and a sampler -- because
+# wgpu has no combined descriptor, so `CombinedImageSampler` would compile here
+# and be unbuildable on the second backend.
+compile vs_main vertex Textured.vert.spv Textured.slang
+compile fs_main fragment Textured.frag.spv Textured.slang
 
 # A zero-byte or truncated module fails at pipeline creation with a message that
 # points at the backend rather than the shader, so check the header here.
