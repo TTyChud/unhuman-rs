@@ -206,6 +206,46 @@ pub trait Resources {
 
     fn destroy_buffer(&mut self, buffer: Buffer);
     fn destroy_texture(&mut self, texture: Texture);
+
+    /// Puts `data` into a texture.
+    ///
+    /// ## Why this exists rather than `create_texture` taking initial data
+    ///
+    /// `create_buffer` does take it, and asymmetry is the whole problem: a
+    /// sampled texture was necessarily empty, so the descriptor path -- sampler,
+    /// image, bind group, draw -- could be built but never *proven*. Every way
+    /// to fake the contents produced a green test for a renderer that cannot
+    /// load an image.
+    ///
+    /// ## Row order, and why it is not configurable here
+    ///
+    /// Top-to-bottom. `origin` is top-left and `extent.height` counts downwards,
+    /// which is the opposite of Vulkan's and of wgpu's. A per-backend or
+    /// per-call option makes every caller carry the knowledge, and a test that
+    /// forgets it fails in a way that looks like a wrong texture. One rule,
+    /// both backends, documented here.
+    ///
+    /// ## Returns when submitted, not when finished
+    ///
+    /// The bytes are in a staging buffer and a copy has been *queued*. Destroying
+    /// the texture before the queue drains is
+    /// `VUID-vkDestroyImage-image-01000` -- "currently in use by VkCommandBuffer"
+    /// -- which is what validation reported the first time this ran, against the
+    /// test written to prove it worked.
+    ///
+    /// So this is not synchronous and no caller may treat it as one. The honest
+    /// shape is a wait before anything the upload touched is destroyed, and a
+    /// frame loop that waits once at frame end rather than once per upload.
+    ///
+    /// An earlier version of this comment claimed the opposite, which is the
+    /// worst kind of wrong: it is reassuring, and it would have been followed.
+    fn upload_texture(
+        &mut self,
+        texture: &Texture,
+        data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<()>;
     fn destroy_pipeline(&mut self, pipeline: Pipeline);
     fn destroy_shader(&mut self, shader: Shader);
     fn destroy_bind_group(&mut self, group: BindGroup);

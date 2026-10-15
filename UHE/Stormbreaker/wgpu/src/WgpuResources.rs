@@ -116,6 +116,12 @@ impl ShaderResource {
 /// Owns every wgpu object the RHI creates.
 pub struct WgpuResources {
     device: Device,
+    /// Kept for `upload_texture`: `queue.write_texture` is the whole of a wgpu
+    /// upload, and unlike Vulkan there is no staging buffer and no command buffer
+    /// because the driver does the copy.
+    /// `None` when built without one; `upload_texture` reports that rather than
+    /// dropping the bytes.
+    queue: Option<wgpu::Queue>,
     buffers: Registry<BufferResource, chassis::BufferTag>,
     textures: Registry<TextureResource, chassis::TextureTag>,
     views: Registry<wgpu::TextureView, chassis::ImageViewTag>,
@@ -139,8 +145,18 @@ pub struct WgpuResources {
 
 impl WgpuResources {
     pub fn new(device: &Device) -> Self {
+        Self::with_queue(device, None)
+    }
+
+    /// With a queue, which is what `upload_texture` needs.
+    ///
+    /// `new` keeps working without one so a caller that only reads and draws
+    /// does not have to hold a queue it never uses. `upload_texture` then fails
+    /// with a message that says why, rather than silently discarding bytes.
+    pub fn with_queue(device: &Device, queue: Option<wgpu::Queue>) -> Self {
         Self {
             device: device.clone(),
+            queue,
             buffers: Registry::new(),
             textures: Registry::new(),
             views: Registry::new(),
@@ -609,6 +625,60 @@ impl chassis::Resources for WgpuResources {
         // No `destroy_buffer`: wgpu reference-counts. Only the handle has to
         // stop resolving.
         self.forget_buffer(buffer);
+    }
+
+    fn upload_texture(
+        &mut self,
+        texture: &chassis::Texture,
+        data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> chassis::Result<()> {
+        let resource = self
+            .textures
+            .get(*texture)
+            .ok_or(chassis::Error::InvalidHandle)?;
+        let expected = width as usize * height as usize * 4;
+        if data.len() != expected {
+            return Err(chassis::Error::InvalidDescriptor(format!(
+                "{} bytes for a {width}x{height} RGBA8 texture, which is {expected}",
+                data.len()
+            )));
+        }
+        let Some(queue) = self.queue.as_ref() else {
+            return Err(chassis::Error::Unsupported(
+                "upload_texture needs a queue; build the resources with \
+                 WgpuResources::with_queue"
+                    .to_owned(),
+            ));
+        };
+        // `wgpu` has no layout parameter for this and no staging step: it stages
+        // internally and copies. The whole reason Vulkan needs two barriers and a
+        // command buffer to do the same thing.
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &resource.inner,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // `Option<u32>` in wgpu 30, not a plain number. `None` means
+                // "tightly packed", which is *not* the same as `Some(width * 4)`
+                // for the last row -- and wgpu rejects a row pitch that is not a
+                // multiple of 256 when there is more than one row.
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        Ok(())
     }
 
     fn destroy_texture(&mut self, texture: chassis::Texture) {

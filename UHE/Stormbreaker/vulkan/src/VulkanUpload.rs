@@ -201,6 +201,153 @@ impl UploadRing {
         Ok(())
     }
 
+    /// Copies CPU bytes into an image.
+    ///
+    /// ## The barrier is the whole point
+    ///
+    /// An image created with no layout is `UNDEFINED`, and `vkCmdCopyBufferToImage`
+    /// requires the destination to be in
+    /// `TRANSFER_DST_OPTIMAL` or `GENERAL`. It is *also* required by validation to
+    /// name an old layout the image is actually in. So this transitions
+    /// `UNDEFINED -> TRANSFER_DST_OPTIMAL` before the copy and
+    /// `TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL` after, and the second
+    /// transition is the one that matters: a texture left in
+    /// `TRANSFER_DST_OPTIMAL` is a texture every later descriptor write refuses
+    /// with `VUID-VkWriteDescriptorSet-descriptorType-04149`.
+    ///
+    /// Which is the shape of the bug this whole path exists to prevent: upload
+    /// works, the texture is created, the bind group is created, and the draw is
+    /// wrong because nobody moved the image out of its transfer layout.
+    ///
+    /// `UNDEFINED` on the way in discards whatever was there, which is always
+    /// legal and is the only old layout that is legal for an image whose contents
+    /// nobody has defined.
+    pub fn copy_to_image(
+        &mut self,
+        dst: vk::Image,
+        dst_extent: vk::Extent3D,
+        _format: vk::Format,
+        data: &[u8],
+    ) -> Result<()> {
+        let size = data.len() as vk::DeviceSize;
+        if size == 0 {
+            return Err(BackendError::InvalidSize);
+        }
+        if size > self.capacity {
+            return Err(BackendError::UploadTooLarge {
+                size,
+                capacity: self.capacity,
+            });
+        }
+        if self.offset + size > self.capacity {
+            self.wait()?;
+        }
+
+        unsafe {
+            let ptr = self.device.map_memory(
+                self.device_memory,
+                self.offset,
+                size,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, data.len());
+            self.device.unmap_memory(self.device_memory);
+        }
+
+        let barrier = |old: vk::ImageLayout, new: vk::ImageLayout, access: vk::AccessFlags| {
+            vk::ImageMemoryBarrier::default()
+                .src_access_mask(vk::AccessFlags::MEMORY_WRITE)
+                .dst_access_mask(access)
+                .old_layout(old)
+                .new_layout(new)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .image(dst)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+        };
+
+        let begin = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let command_buffer = self.command_buffer;
+        unsafe {
+            self.device.begin_command_buffer(command_buffer, &begin)?;
+
+            self.device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier(
+                    vk::ImageLayout::UNDEFINED,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::AccessFlags::TRANSFER_WRITE,
+                )],
+            );
+
+            // The 1.0 spelling, and the layout is an explicit argument rather
+            // than derived from the barrier we just recorded. Passing the wrong
+            // one here is not caught by validation -- it silently produces a
+            // frame where the texture is undefined.
+            self.device.cmd_copy_buffer_to_image(
+                command_buffer,
+                self.buffer,
+                dst,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[vk::BufferImageCopy {
+                    buffer_offset: self.offset,
+                    image_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    image_extent: dst_extent,
+                    ..Default::default()
+                }],
+            );
+
+            self.device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier(
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    vk::AccessFlags::SHADER_READ,
+                )],
+            );
+
+            self.device.end_command_buffer(command_buffer)?;
+
+            self.device.reset_fences(&[self.fence])?;
+            let command_buffers = [command_buffer];
+            self.device.queue_submit(
+                self.queue,
+                &[vk::SubmitInfo {
+                    command_buffer_count: 1,
+                    p_command_buffers: command_buffers.as_ptr(),
+                    ..Default::default()
+                }],
+                self.fence,
+            )?;
+        }
+
+        self.offset += size;
+        self.pending = true;
+        Ok(())
+    }
+
     /// Blocks until every queued upload has been read, then rewinds the ring.
     pub fn wait(&mut self) -> Result<()> {
         if !self.pending {

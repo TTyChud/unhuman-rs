@@ -16,8 +16,13 @@ use stormglass::wgpu_resources::WgpuResources;
 /// The backend behind the trait, or `None` when this machine has no wgpu adapter.
 fn backend() -> Option<WgpuResources> {
     let adapter = Adapter::request(0)?;
-    let (device, _queue) = adapter.create_device("stormglass-resources")?;
-    Some(WgpuResources::new(&device))
+    let (device, queue) = adapter.create_device("stormglass-resources")?;
+    // With the queue: `upload_texture` is `queue.write_texture`, so a resources
+    // built without one cannot upload and says so.
+    Some(WgpuResources::with_queue(
+        &device,
+        Some(queue.inner().clone()),
+    ))
 }
 
 /// With a device, or a skip. Used by every test so none can panic on a machine
@@ -562,7 +567,14 @@ fn sampled_texture_desc() -> chassis::TextureDesc {
             depth: 1,
         },
         chassis::TextureFormat::Rgba8Unorm,
-        chassis::TextureUsage::SAMPLED,
+        // `TRANSFER_DST` as well as `SAMPLED`, and the reason is a backend
+        // difference worth knowing: Vulkan's `vkCmdCopyBufferToImage` requires
+        // `TRANSFER_DST`, and wgpu's `queue.write_texture` requires `COPY_DST`.
+        // The RHI's `TRANSFER_DST` maps to both, so one description uploads on
+        // either -- but a texture created `SAMPLED` alone fails on wgpu with
+        // "Usage flags TEXTURE_BINDING do not contain COPY_DST" and works fine on
+        // Vulkan.
+        chassis::TextureUsage::SAMPLED | chassis::TextureUsage::TRANSFER_DST,
     )
 }
 
@@ -693,6 +705,47 @@ fn two_samplers_on_one_texture_are_two_groups() {
         assert_ne!(
             a, b,
             "the same layout with a different sampler is a different group"
+        );
+    });
+}
+
+/// Four texels uploaded and read back, on this backend.
+///
+/// The mirror of the Vulkan upload test, and the reason the two are worth having
+/// separately: **wgpu's upload is synchronous and Vulkan's is not.** Here the
+/// bytes are written and the texture is usable when `upload_texture` returns;
+/// there a copy is queued and the texture is in use by a command buffer until the
+/// ring drains.
+///
+/// A caller written for wgpu and moved to Vulkan would destroy textures while
+/// they were in flight. That is the asymmetry, and each test now says which side
+/// it is on.
+#[test]
+fn four_texels_upload_and_read_back() {
+    with_backend!(|resources| {
+        const QUADRANTS: [[u8; 4]; 4] = [
+            [255, 0, 0, 255],
+            [0, 255, 0, 255],
+            [0, 0, 255, 255],
+            [255, 255, 0, 255],
+        ];
+        let texels: Vec<u8> = QUADRANTS.iter().flatten().copied().collect();
+
+        let resources: &mut dyn Resources = &mut resources;
+        let texture = resources
+            .create_texture(sampled_texture_desc())
+            .expect("a sampled texture");
+        resources
+            .upload_texture(&texture, &texels, 2, 2)
+            .expect("four texels");
+
+        // A size the caller's data does not match is refused, not truncated.
+        let error = resources
+            .upload_texture(&texture, &texels[..8], 2, 2)
+            .expect_err("8 bytes is not a 2x2 RGBA8 texture");
+        assert!(
+            error.to_string().contains("16"),
+            "the error names the size it wanted: {error}",
         );
     });
 }

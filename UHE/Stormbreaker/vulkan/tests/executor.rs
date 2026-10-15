@@ -886,14 +886,33 @@ fn every_object_on_the_descriptor_path_creates_and_resolves() {
     let mut resources = stormbreaker::vulkan_resources::VulkanResources::new(
         &fixture.context.device,
         fixture.context.memory_properties(),
-    );
+    )
+    .with_upload(
+        &fixture.context.device,
+        &fixture.context.memory_properties(),
+        fixture.context.graphics_queue,
+        fixture
+            .context
+            .capabilities
+            .graphics_queue_family
+            .expect("a graphics queue family"),
+        1024 * 1024,
+    )
+    .expect("an upload ring");
 
-    // **The next task:** `Resources::copy_buffer_to_texture` and an upload path
-    // for textures. Until then nothing below can become a pixel, and every
-    // renderer texture hits this on its first frame.
+    // Four exact colours. "Not black" would be satisfied by the wrong texture, a
+    // sampler that ignored the UVs, and a draw that never happened; four named
+    // colours say which of the four went wrong.
+    let texels: [u8; 16] = [
+        255, 0, 0, 255, // top-left: red
+        0, 255, 0, 255, // top-right: green
+        0, 0, 255, 255, // bottom-left: blue
+        255, 255, 0, 255, // bottom-right: yellow
+    ];
+
     let albedo = {
         let resources: &mut dyn chassis::Resources = &mut resources;
-        resources
+        let texture = resources
             .create_texture(chassis::TextureDesc::new_2d(
                 chassis::Extent {
                     width: 2,
@@ -901,9 +920,15 @@ fn every_object_on_the_descriptor_path_creates_and_resolves() {
                     depth: 1,
                 },
                 chassis::TextureFormat::Rgba8Unorm,
-                chassis::TextureUsage::SAMPLED | chassis::TextureUsage::TRANSFER_DST,
+                chassis::TextureUsage::SAMPLED
+                    | chassis::TextureUsage::TRANSFER_DST
+                    | chassis::TextureUsage::TRANSFER_SRC,
             ))
-            .expect("a sampled texture")
+            .expect("a sampled texture");
+        resources
+            .upload_texture(&texture, &texels, 2, 2)
+            .expect("upload four texels");
+        texture
     };
     // Through the trait, not the concrete type: this is the only handle a
     // renderer ever holds, and a test that reached past it would not be testing
@@ -940,4 +965,9 @@ fn every_object_on_the_descriptor_path_creates_and_resolves() {
         resources.destroy_bind_group(group);
         resources.destroy_sampler(sampler);
     }
+
+    // Before the texture goes. The upload is queued, not finished, and
+    // `VUID-vkDestroyImage-image-01000` is what happens otherwise -- which is
+    // what validation said the first time this ran.
+    resources.wait_uploads().expect("drain the upload ring");
 }

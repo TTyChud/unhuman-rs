@@ -597,17 +597,47 @@ texels -- a debug-fill flag, a constant colour in the shader, skipping the uploa
 -- produces a green test for a renderer that cannot load an image. A test that
 says it cannot prove the thing yet is worth more than one that pretends.
 
-The next piece, in order:
+Landed since: `Resources::upload_texture` on both backends, and the Vulkan half
+is `UploadRing::copy_to_image` -- the image sibling of the `copy_to_buffer` that
+already existed. What remains is the *draw* half: a full-screen quad over a 2x2
+texture, read back, each quadrant compared exactly.
 
-- [ ] `Resources::copy_buffer_to_texture` -- the missing half of the copy pair
-- [ ] A texture upload path: staging buffer, transfer region, one submit a frame
-- [ ] `queue.write_texture`-equivalent on wgpu, which has it natively
-- [ ] Then the pixel test: a 2x2 texture of four named colours over a full-screen
-      quad, read back, each quadrant compared exactly
+### Two barriers, and the second one is the point
 
-Four named colours rather than "not black", because "not black" is satisfied by
-the wrong texture, a sampler that ignored the UVs, and a draw that never
-happened. Four exact colours name which of the four went wrong.
+The Vulkan upload transitions `UNDEFINED -> TRANSFER_DST_OPTIMAL` before the copy
+and `TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL` after. The second one is
+the one that matters: a texture left in `TRANSFER_DST_OPTIMAL` is a texture every
+later descriptor write refuses with
+`VUID-VkWriteDescriptorSet-descriptorType-04149`.
+
+Which is the shape of the bug this path exists to prevent: the upload works, the
+texture is created, the bind group is created, and the draw is wrong because
+nobody moved the image out of its transfer layout.
+
+### The upload is queued, not finished
+
+`upload_texture` returns when the copy is **submitted**. Destroying the texture
+before the ring drains is `VUID-vkDestroyImage-image-01000`, which is what
+validation reported against the test written to prove the feature worked.
+
+The first draft of the trait doc said "synchronous". It was not, and it is the
+worst kind of wrong -- reassuring, and it would have been followed. It now says
+what is true and names `wait_uploads`.
+
+### The one place the two backends differ in kind
+
+**wgpu's upload is synchronous. Vulkan's is not.** `queue.write_texture` copies
+before it returns; Vulkan queues a copy on a ring. A caller written for wgpu and
+moved to Vulkan would destroy textures while they were in flight. Each test says
+which side it is on.
+
+### And one usage flag, spelled differently
+
+Vulkan's `vkCmdCopyBufferToImage` needs `TRANSFER_DST`. wgpu's
+`queue.write_texture` needs `COPY_DST`. The RHI's `TRANSFER_DST` maps to both,
+so one description uploads on either -- but a texture created `SAMPLED` alone
+fails on wgpu with "Usage flags TEXTURE_BINDING do not contain COPY_DST" and
+works perfectly on Vulkan.
 
 ## The flake that was not a flake, and the lie in a commit message
 

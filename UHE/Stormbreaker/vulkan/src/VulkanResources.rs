@@ -73,6 +73,16 @@ pub struct VulkanResources {
     /// sampler is not a view of anything: it outlives every texture it samples
     /// and is shared by every bind group that filters the same way.
     samplers: Registry<vk::Sampler, chassis::SamplerTag>,
+    /// Staging ring for `upload_texture`.
+    ///
+    /// `None` when built without a queue. Then `upload_texture` says it cannot
+    /// rather than dropping the bytes and returning `Ok` -- a texture that
+    /// silently has no contents is the failure this method exists to remove.
+    ///
+    /// One ring per `VulkanResources`, i.e. one per `Gpu`. The C++ engine reset a
+    /// shared pool and waited on a shared fence on *every* upload; `UploadRing`
+    /// stops that, and giving each resource set its own is the other half.
+    upload: Option<crate::vulkan_upload::UploadRing>,
     /// `VkPhysicalDeviceLimits::minUniformBufferOffsetAlignment`.
     ///
     /// Checked in `create_bind_group` rather than left to validation, because a
@@ -129,6 +139,7 @@ impl VulkanResources {
             descriptors: Arc::new(RwLock::new(Descriptors::new(device))),
             image_views: Registry::new(),
             samplers: Registry::new(),
+            upload: None,
             uniform_buffer_alignment: 1,
         }
     }
@@ -275,6 +286,37 @@ impl VulkanResources {
             .get(sampler)
             .copied()
             .ok_or(chassis::Error::InvalidHandle)
+    }
+
+    /// Gives the resources a queue, and with it the upload path.
+    ///
+    /// Separate from `new` because most callers -- a test that draws, a tool that
+    /// inspects -- never upload and should not be made to find a queue.
+    pub fn with_upload(
+        mut self,
+        device: &ash::Device,
+        memory: &vk::PhysicalDeviceMemoryProperties,
+        queue: vk::Queue,
+        family: u32,
+        capacity: vk::DeviceSize,
+    ) -> chassis::Result<Self> {
+        self.upload = Some(
+            crate::vulkan_upload::UploadRing::new(device, memory, queue, family, capacity)
+                .map_err(chassis::Error::from)?,
+        );
+        Ok(self)
+    }
+
+    /// Blocks until every queued upload has been read.
+    ///
+    /// Needed before destroying anything an upload wrote into, and at shutdown.
+    pub fn wait_uploads(&mut self) -> chassis::Result<()> {
+        match self.upload.as_mut() {
+            Some(ring) => ring.wait().map_err(chassis::Error::from),
+            // Nothing was ever queued, so there is nothing to wait for. Not an
+            // error: "no upload path" makes the call a no-op.
+            None => Ok(()),
+        }
     }
 
     pub fn live_image_views(&self) -> usize {
@@ -707,6 +749,55 @@ impl chassis::Resources for VulkanResources {
     fn destroy_buffer(&mut self, buffer: chassis::Buffer) {
         let device = self.device.clone();
         self.buffers_mut().destroy(&device, buffer);
+    }
+
+    fn upload_texture(
+        &mut self,
+        texture: &chassis::Texture,
+        data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> chassis::Result<()> {
+        let expected = width as usize * height as usize * 4;
+        if data.len() != expected {
+            return Err(chassis::Error::InvalidDescriptor(format!(
+                "{} bytes for a {width}x{height} RGBA8 texture, which is {expected}",
+                data.len()
+            )));
+        }
+        let (image, format) = {
+            let textures = self.textures();
+            let resource = textures
+                .get(*texture)
+                .ok_or(chassis::Error::InvalidHandle)?;
+            (resource.image(), resource.format())
+        };
+
+        // `take` rather than `as_mut`: the ring is borrowed from `self` while the
+        // closure that needs `self.textures()` is done, so only one borrow at a
+        // time -- but the point is that it is put back either way. A failed
+        // upload is not a reason to lose the ability to upload again.
+        let mut ring = self.upload.take().ok_or_else(|| {
+            chassis::Error::Unsupported(
+                "upload_texture needs a queue; build the resources with \
+                 VulkanResources::with_upload"
+                    .to_owned(),
+            )
+        })?;
+        let result = ring
+            .copy_to_image(
+                image,
+                vk::Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                crate::vulkan_types::vk_format(format),
+                data,
+            )
+            .map_err(chassis::Error::from);
+        self.upload = Some(ring);
+        result
     }
 
     fn destroy_texture(&mut self, texture: chassis::Texture) {
