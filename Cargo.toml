@@ -9,6 +9,7 @@ default-members = [
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
+    "UHE/src/vault",
     "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
@@ -19,6 +20,7 @@ members = [
     "UHE/src/rhi",
     "UHE/src/shaders",
     "UHE/src/jobs",
+    "UHE/src/vault",
     "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
@@ -38,3 +40,4 @@ forge = { path = "UHE/src/shaders" }
 grind = { path = "UHE/src/jobs" }
 stormbreaker = { path = "UHE/Stormbreaker/vulkan" }
 stormglass = { path = "UHE/Stormbreaker/wgpu" }
+vault = { path = "UHE/src/vault" }

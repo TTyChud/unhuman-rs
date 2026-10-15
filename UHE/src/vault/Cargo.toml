@@ -1,0 +1,17 @@
+[package]
+name = "vault"
+description = "Asset identity, VFS, and the scene/settings file formats."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# postcard, not bincode. Both are pure Rust and both are fast, but postcard
+# encodes integers as varints, so a scene of 400 entities with mostly-zero
+# transforms is materially smaller than a fixed-width encoding of the same
+# data. `toml` is pure Rust too -- toml 1.x depends on toml_edit and winnow,
+# neither of which has a build.rs.
+postcard = { version = "1", features = ["use-std"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"

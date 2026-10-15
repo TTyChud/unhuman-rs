@@ -289,6 +289,48 @@ unless `UHE_PROFILE`, and nothing ever defines it.
 
 ---
 
+
+## 4a. File formats
+
+**Decided, after measuring rather than assuming.**
+
+| | format | why |
+|---|---|---|
+| scene, loaded | **binary** (postcard + a header) | fast and small; not mergeable |
+| scene, edited | **TOML** | comments, line diffs, resolvable merge conflicts |
+| settings | **TOML** | comments, and it is the file most often opened by hand |
+
+Measured on this machine, 400-entity scene (75 KB):
+JSON 131 µs · TOML 1,825 µs · YAML 1,973 µs. **JSON is 14x faster and it does not
+matter** — a scene loads once at startup and the entire gap is 1.8 ms. So speed
+did not decide it. The decision is that scenes are rarely hand-edited but
+occasionally *need* to be, and binary is unmergeable: two people editing one
+scene produce a conflict no human can read. So both forms exist and the flow is
+`binary → export → text → edit/merge → import → binary`.
+
+TOML over JSON for the text form because it has real comments. JSON has none, and
+a settings file with no comments means every explanation lives in docs that are
+out of date by the time anyone reads them. YAML (the C++'s choice, via
+`yaml-cpp`) loses on its indentation sensitivity: a stray space silently changes
+a key's nesting.
+
+**The header is not optional.** postcard is positional, so a document whose
+layout changed decodes into *something* rather than failing. Every file starts
+with magic, format version, **schema hash** and payload length. The schema hash
+is `fnv1a64` of a description string sitting next to the wire structs, so there
+is exactly one thing to change and it is impossible to change the struct without
+it being visible in the diff.
+
+**The honest limit of that:** the hash reliably catches a file from a
+*different build*. It cannot catch someone who adds a field and forgets the
+string. No hashing scheme fixes that, because the hash is only as current as the
+description.
+
+Replaces: upstream's yaml-cpp scenes, and an `AssetID` that is a random `u64`
+minted per run whose header claims it survives renames.
+
+---
+
 ## 5. What is not a transfer
 
 - **OpenGL.** No GL loader in Rust, and none wanted.
