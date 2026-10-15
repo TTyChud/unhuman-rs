@@ -1,0 +1,23 @@
+[package]
+name = "meats"
+description = "ECS. hecs storage wrapped by our own API."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Storage only. Nothing in this crate's public interface names a `hecs` type:
+# `World` is ours, so the storage can be swapped without touching a caller, and
+# a system cannot reach past our API into the archetype machinery.
+hecs = "0.11"
+
+# The scene document is this crate's input *and* its output. `from_doc` builds
+# a world from a `SceneDoc` and `to_doc` writes one back, so the document — not
+# the ECS — is what a file format, a diff and a merge see.
+vault = { workspace = true }
+
+# The workspace's canonical math. `glam` rather than a hand-rolled `Mat4`,
+# because matrix maths done twice is the classic place for a wrong answer: the
+# renderer will multiply the matrices this crate produces.
+glam = "0.34"

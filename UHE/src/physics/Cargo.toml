@@ -1,0 +1,21 @@
+[package]
+name = "femur"
+description = "Physics. rapier3d / rapier2d, fixed step, glam canonical."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+glam = "0.34"
+# Both solvers default to `nalgebra`, not glam. rapier has an opt-in `glamx`
+# integration but it pins glam 0.33 -- a second, older glam next to ours, which
+# is exactly the dependency duplication this engine exists to avoid. So we keep
+# glam canonical and pay one conversion at our own boundary, in `convert`.
+# See that module's docs for the whole argument.
+rapier3d = "0.36"
+# 2D. TRANSFER.md lists `parry2d` here, and `rapier2d` *is* parry2d's dynamics
+# half -- same 0.31.1 shapes underneath. parry alone has a broad phase and a
+# query pipeline but no solver, so porting 2D on parry would mean shipping the
+# 2D half of the C++ as a data structure with nothing moving anything.
+rapier2d = "0.36"

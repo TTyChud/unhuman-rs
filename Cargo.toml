@@ -10,6 +10,12 @@ default-members = [
     "UHE/src/shaders",
     "UHE/src/jobs",
     "UHE/src/vault",
+    "UHE/src/renderer",
+    "UHE/src/ecs",
+    "UHE/src/physics",
+    "UHE/src/audio",
+    "UHE/src/ui",
+    "UHE/src/events",
     "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
@@ -21,6 +27,12 @@ members = [
     "UHE/src/shaders",
     "UHE/src/jobs",
     "UHE/src/vault",
+    "UHE/src/renderer",
+    "UHE/src/ecs",
+    "UHE/src/physics",
+    "UHE/src/audio",
+    "UHE/src/ui",
+    "UHE/src/events",
     "UHE/platform/eyes",
     "UHE/Stormbreaker/vulkan",
     "UHE/Stormbreaker/wgpu",
@@ -41,3 +53,9 @@ grind = { path = "UHE/src/jobs" }
 stormbreaker = { path = "UHE/Stormbreaker/vulkan" }
 stormglass = { path = "UHE/Stormbreaker/wgpu" }
 vault = { path = "UHE/src/vault" }
+bifrost = { path = "UHE/src/renderer" }
+meats = { path = "UHE/src/ecs" }
+femur = { path = "UHE/src/physics" }
+wire = { path = "UHE/src/audio" }
+mirror = { path = "UHE/src/ui" }
+pings = { path = "UHE/src/events" }

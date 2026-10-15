@@ -1,0 +1,20 @@
+[package]
+name = "wire"
+description = "Audio. rodio; ALSA on Linux."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `glam` 0.34 is the workspace-canonical maths type, already in the graph for
+# `bifrost` and `meats`. A 3D sound's position and the listener's orientation
+# are `Vec3`; using anything else here would put a conversion at every call
+# site and a second maths version in the graph.
+glam = "0.34"
+# rodio 0.23, not kira: measured within run-to-run noise of each other on parse
+# (see docs/TRANSFER.md §1), both go through cpal, and rodio is the better
+# maintained of the two. **On Linux this resolves to `alsa-sys`, a C binding** --
+# the one documented exception to the workspace's Rust-first policy. There is no
+# pure-Rust Linux audio output path; ALSA is a C system library.
+rodio = "0.23"

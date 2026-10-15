@@ -1,0 +1,27 @@
+[package]
+name = "mirror"
+description = "UI. egui + egui-wgpu, backend-neutral."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# egui is the toolkit, not the renderer. `egui-wgpu` is welded to wgpu ^30, so the
+# Vulkan backend gets no egui-wgpu at all -- see `backend.rs` for how the draw
+# step is kept swappable and `paint.rs` for why widgets never see a `Painter`.
+egui = "0.37"
+
+# `eyes` is *below* `mirror` in the dependency graph (window and input), so this
+# is the right direction. `mirror` needs `Key` and `Modifiers` to describe a
+# shortcut and needs `InputState`'s depth-counted keyboard claim so `Q` cannot
+# fire while the user is typing.
+eyes = { workspace = true }
+
+# glam is the engine's canonical maths crate (`bifrost` already speaks it), so a
+# gizmo returning `Vec3`/`Quat` plugs into the renderer with no conversion and we
+# do not add a second math library to the graph. Note what is deliberately
+# absent: `egui_gizmo`, which pins egui 0.26 and glam 0.25 -- eleven egui
+# releases and a second glam behind us, for four hundred lines of maths this
+# crate writes itself.
+glam = "0.34"
