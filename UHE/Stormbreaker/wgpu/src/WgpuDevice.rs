@@ -100,6 +100,11 @@ impl Adapter {
         self.index
     }
 
+    /// The underlying wgpu adapter, for surface work that needs capabilities.
+    pub fn wgpu_adapter(&self) -> wgpu::Adapter {
+        self.inner.clone()
+    }
+
     pub fn limits(&self) -> wgpu::Limits {
         self.inner.limits()
     }

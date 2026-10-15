@@ -1,0 +1,17 @@
+[package]
+name = "sandbox"
+description = "Sandbox executable for the engine: exercises renderer and assets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sandbox"
+path = "src/main.rs"
+
+[dependencies]
+adam = { path = "../../src/core" }
+bifrost = { path = "../../src/renderer" }
+chassis = { path = "../../src/rhi" }
+vault = { path = "../../src/vault" }

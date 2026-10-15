@@ -11,6 +11,7 @@ chassis = { workspace = true }
 forge = { workspace = true }
 grind = { workspace = true }
 pollster = "0.4"
+raw-window-handle = "0.6"
 # The `spirv` feature is what lets `ShaderSource::SpirV` exist at all, and
 # without it this backend cannot take a module from `forge` -- which is the whole
 # point of sharing one compiler between the two backends.

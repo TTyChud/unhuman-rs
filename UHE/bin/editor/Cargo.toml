@@ -1,0 +1,21 @@
+[package]
+name = "editor"
+description = "UHE-EDITOR port: sandbox for UI and scene authoring."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "editor"
+path = "src/main.rs"
+
+[dependencies]
+# UI-only path: editor implements its window and theme startup here and does not
+# use the rendering backend (bifrost/chassis remain declared by the scaffold).
+adam = { path = "../../src/core" }
+bifrost = { path = "../../src/renderer" }
+chassis = { path = "../../src/rhi" }
+eyes = { path = "../../platform/eyes" }
+mirror = { path = "../../src/ui" }
+vault = { path = "../../src/vault" }
