@@ -70,15 +70,36 @@ pub fn create_device(options: DeviceOptions) -> Result<crate::vulkan_context::Co
     let physical_device = vulkan_physical_device::choose(instance, &physical_devices)?;
 
     let properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    let probe = vulkan_physical_device::probe_capabilities(
+
+    // **Once**, here, and handed down.
+    //
+    // This used to be `vkEnumerateDeviceExtensionProperties` called once per
+    // capability -- eight times during one device creation. The C++ engine
+    // enumerates once into a `VulkanExtensionCheck` and answers named questions
+    // off the cache, and the queries are core-promotion-aware there in a way the
+    // string check here was not.
+    let check = crate::vulkan_extension_check::ExtensionCheck::probe(
         instance,
         physical_device,
         properties.api_version,
     );
+
+    let probe = vulkan_physical_device::probe_capabilities(
+        instance,
+        physical_device,
+        properties.api_version,
+        &check,
+    );
     let families = vulkan_physical_device::queue_families(instance, physical_device)?;
 
-    let logical =
-        vulkan_logical_device::create(instance, physical_device, properties, probe, &families)?;
+    let logical = vulkan_logical_device::create(
+        instance,
+        physical_device,
+        properties,
+        probe,
+        &families,
+        &check,
+    )?;
 
     Ok(crate::vulkan_context::Context::new(
         bundle.entry.clone(),

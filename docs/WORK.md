@@ -639,6 +639,42 @@ so one description uploads on either -- but a texture created `SAMPLED` alone
 fails on wgpu with "Usage flags TEXTURE_BINDING do not contain COPY_DST" and
 works perfectly on Vulkan.
 
+## Extension checking, which was in the wrong file
+
+`VulkanExtensionCheck.rs` existed and held the sync-tier ladder and the
+`Capabilities` struct. The *checking* was scattered across
+`VulkanPhysicalDevice` (five call sites) and `VulkanLogicalDevice` (three), via
+`has_device_extension`, which called `vkEnumerateDeviceExtensionProperties`
+**every time**.
+
+That is eight driver round-trips during one device creation where the C++ engine
+does one. And `has_device_extension` answers "is this string present", which is
+the wrong question for any extension promoted into core: a Vulkan 1.3 driver is
+not required to advertise `VK_KHR_synchronization2`.
+
+The sync path happened to be right -- it went through `select_sync_tier`, which
+checks the API version. The other three went through the string check, so a device
+that had a capability because of its version rather than its extension list was
+reported as not having it.
+
+`ExtensionCheck` now enumerates once, caches, and answers named queries that are
+core-or-extension. `probe_capabilities` and logical-device creation take it
+rather than re-querying. Five tests cover the promotion rule, including the two
+halves: a promoted extension counts by core version alone, and a never-promoted
+one (timeline semaphores) ignores the version entirely.
+
+## The parallelism assertion was demanding the scheduler, not the executor
+
+`seen.len() >= 2` failed under CPU contention with every pass recorded correctly
+and on *one* thread. Not a defect: the waiting thread work-steals, so if every
+worker is descheduled it runs the batches itself. Four spinners and twelve
+workers makes that the correct outcome, and the test called it a failure.
+
+The invariant is `ran == passes.len()` -- every pass exactly once, no drops and
+no duplicates. The spread is measured and reported, and only demanded when
+`pool_has_spare_worker` says the pool actually has an idle worker -- asked of the
+pool, not guessed from the core count.
+
 ## The flake that was not a flake, and the lie in a commit message
 
 `passes_record_on_more_than_one_thread` failed intermittently under CPU

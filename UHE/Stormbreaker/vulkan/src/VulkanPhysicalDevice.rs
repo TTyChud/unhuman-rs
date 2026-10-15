@@ -71,17 +71,17 @@ pub fn probe_capabilities(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     api_version: u32,
+    check: &crate::vulkan_extension_check::ExtensionCheck,
 ) -> Probe {
     if !at_least(api_version, 1, 3) {
+        // Below 1.3 the API version cannot supply these, so it is the extension
+        // string or nothing. Above it, the feature structs below are the better
+        // answer and this branch is not taken.
         return Probe {
-            synchronization2: has_device_extension(instance, physical_device, SYNC_2),
-            timeline_semaphore: has_device_extension(instance, physical_device, TIMELINE_SEMAPHORE),
-            dynamic_rendering: has_device_extension(instance, physical_device, DYNAMIC_RENDERING),
-            descriptor_indexing: has_device_extension(
-                instance,
-                physical_device,
-                DESCRIPTOR_INDEXING,
-            ),
+            synchronization2: check.supports_sync2(),
+            timeline_semaphore: check.supports_timeline_semaphores(),
+            dynamic_rendering: check.supports_dynamic_rendering(),
+            descriptor_indexing: check.supports_descriptor_indexing(),
         };
     }
 

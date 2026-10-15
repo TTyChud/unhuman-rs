@@ -26,6 +26,35 @@ use stormbreaker::{create_device, device_available, DeviceOptions};
 ///
 /// This is the same mistake as resolving a toolchain relative to the process's
 /// working directory: `cargo test` runs from the crate, not the workspace root.
+/// Whether the pool actually had a worker free to take a job.
+///
+/// Probed rather than inferred from `available_parallelism`. Under CPU
+/// contention every worker may be descheduled, and a pool with twelve workers
+/// that cannot run one job is a pool with none -- and an assertion about
+/// parallelism is not checkable there.
+fn pool_has_spare_worker(pool: &Arc<grind::Jobs>) -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let ran_elsewhere = Arc::new(AtomicBool::new(false));
+    let calling_thread = std::thread::current().id();
+    let counter = Arc::new(grind::JobCounter::new());
+
+    pool.execute(
+        Box::new({
+            let ran_elsewhere = Arc::clone(&ran_elsewhere);
+            move || {
+                ran_elsewhere.store(
+                    std::thread::current().id() != calling_thread,
+                    Ordering::SeqCst,
+                );
+            }
+        }),
+        Some(Arc::clone(&counter)),
+    );
+    pool.wait(&counter);
+    ran_elsewhere.load(Ordering::SeqCst)
+}
+
 /// One pool for the whole test binary.
 ///
 /// `grind::Jobs::new` spawns `available_parallelism() - 1` threads, so building
@@ -844,15 +873,31 @@ fn passes_record_on_more_than_one_thread() {
          means one ran twice",
     );
 
+    // ## Whether the scheduler spread the work is not the executor's decision
+    //
+    // This assertion used to fail under CPU contention with every pass recorded
+    // correctly and on *one* thread. That is not a defect: the waiting thread
+    // work-steals, so if every worker is descheduled it runs the batches itself.
+    // On a machine with four spinners and twelve workers, that is the correct
+    // outcome, and the test was calling it a failure.
+    //
+    // So the invariant is `ran == passes.len()` -- every pass exactly once, no
+    // drops and no duplicates -- and the *spread* is measured and reported. It is
+    // only demanded when the pool demonstrably has a spare worker, which is asked
+    // of the pool rather than guessed from the core count.
     let seen = threads.lock().unwrap();
-    assert!(
-        seen.len() >= 2,
-        "all {} passes recorded on one thread ({:?}); the executor claims to \\
-         record in parallel and did not",
+    let spare = pool_has_spare_worker(&pool);
+    eprintln!(
+        "{ran} passes across {} of {} pool threads; a spare worker was {}",
         seen.len(),
-        seen.iter().collect::<Vec<_>>(),
+        pool.thread_count(),
+        if spare { "available" } else { "not available" },
     );
-    eprintln!("passes recorded across {} threads", seen.len());
+    assert!(
+        seen.len() >= 2 || !spare,
+        "all {ran} passes recorded on one thread while the pool had idle workers: \
+         the executor is not offering the work in parallel",
+    );
 }
 
 /// The descriptor path, as far as the RHI currently allows it to be proven.

@@ -27,6 +27,7 @@ pub fn create(
     properties: vk::PhysicalDeviceProperties,
     probe: Probe,
     families: &[QueueFamily],
+    check: &crate::vulkan_extension_check::ExtensionCheck,
 ) -> Result<LogicalDevice> {
     let api_version = properties.api_version;
     let sync_tier = sync_tier_for(api_version, probe);
@@ -41,11 +42,7 @@ pub fn create(
     // path never carries an unused extension.
     let mut extension_ptrs: Vec<*const std::os::raw::c_char> = Vec::new();
     if sync_tier.supports_timeline_semaphores() {
-        if !vulkan_physical_device::has_device_extension(
-            instance,
-            physical_device,
-            vulkan_physical_device::TIMELINE_SEMAPHORE,
-        ) {
+        if !check.supports_timeline_semaphores() {
             return Err(BackendError::ExtensionUnavailable {
                 name: vulkan_physical_device::TIMELINE_SEMAPHORE.into(),
                 required_for: "Sync2Timeline",
@@ -112,11 +109,7 @@ pub fn create(
         queue_families: families.to_vec(),
         graphics_queue_family: Some(graphics_family),
         dynamic_rendering: probe.dynamic_rendering,
-        memory_budget: vulkan_physical_device::has_device_extension(
-            instance,
-            physical_device,
-            vulkan_physical_device::MEMORY_BUDGET,
-        ),
+        memory_budget: check.supports_memory_budget(),
         descriptor_indexing: probe.descriptor_indexing,
         max_texture_dimension_2d: properties.limits.max_image_dimension2_d,
         min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment,
@@ -130,6 +123,13 @@ pub fn create(
     })
 }
 
+/// The tier, from the cached check rather than re-deriving it.
+///
+/// `select_sync_tier` is still the ladder -- one implementation, tested as a pure
+/// function -- and `ExtensionCheck::sync_tier` is how a device asks for it. This
+/// wrapper is what keeps the two from drifting: it passes the *probe* results,
+/// which on a 1.3 device come from the feature structs rather than from strings,
+/// and that is the better answer of the two.
 fn sync_tier_for(api_version: u32, probe: Probe) -> SyncTier {
     crate::vulkan_extension_check::select_sync_tier(
         api_version,
