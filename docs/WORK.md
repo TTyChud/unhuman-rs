@@ -581,6 +581,34 @@ texture on wgpu, and may come from anything on Vulkan -- which checks layouts at
 barrier time instead. So "bind a render target as a texture by mistake" is a
 validation error on one backend and invisible on the other.
 
+## Texture upload: the hole the sampling shader found
+
+`Textured.slang` exists and compiles. **There is no way to give a texture
+contents.**
+
+`Resources::create_buffer` takes initial data. `Resources::create_texture` does
+not, and `CommandList` has `copy_texture_to_buffer` but not the other direction.
+So a sampled texture is necessarily empty, which means there is nothing for a
+sampler to sample.
+
+This is why the sampling test is named `every_object_on_the_descriptor_path_
+creates_and_resolves` and not something that claims pixels. Every way to fake
+texels -- a debug-fill flag, a constant colour in the shader, skipping the upload
+-- produces a green test for a renderer that cannot load an image. A test that
+says it cannot prove the thing yet is worth more than one that pretends.
+
+The next piece, in order:
+
+- [ ] `Resources::copy_buffer_to_texture` -- the missing half of the copy pair
+- [ ] A texture upload path: staging buffer, transfer region, one submit a frame
+- [ ] `queue.write_texture`-equivalent on wgpu, which has it natively
+- [ ] Then the pixel test: a 2x2 texture of four named colours over a full-screen
+      quad, read back, each quadrant compared exactly
+
+Four named colours rather than "not black", because "not black" is satisfied by
+the wrong texture, a sampler that ignored the UVs, and a draw that never
+happened. Four exact colours name which of the four went wrong.
+
 ## The flake that was not a flake, and the lie in a commit message
 
 `passes_record_on_more_than_one_thread` failed intermittently under CPU

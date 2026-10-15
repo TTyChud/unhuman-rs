@@ -854,3 +854,90 @@ fn passes_record_on_more_than_one_thread() {
     );
     eprintln!("passes recorded across {} threads", seen.len());
 }
+
+/// The descriptor path, as far as the RHI currently allows it to be proven.
+///
+/// Texture -> image view -> sampler -> bind group -> destroy, on a real device
+/// under validation, with every handle resolved.
+///
+/// ## What this does *not* prove, and why the name says so
+///
+/// It does not read back a sampled pixel, and that is not a shortfall in the
+/// test -- it is a hole in the RHI. **`Resources` can put bytes into a buffer**
+/// (`create_buffer` takes initial data) but **has no way to put bytes into a
+/// texture**. `CommandList` has `copy_texture_to_buffer`; the other direction
+/// does not exist. So there is no way to give a sampled texture contents, which
+/// means there is nothing for a sampler to sample.
+///
+/// A test that drew a "sampled" quad would have had to invent texels somehow, and
+/// every way of doing that -- a debug-fill path, a magic constant colour in the
+/// shader, skipping the upload -- produces a green test for a renderer that
+/// cannot load an image.
+///
+/// So this asserts what is assertable and the next task is named in the comment
+/// below, rather than being padded into a test that looks like more.
+#[test]
+fn every_object_on_the_descriptor_path_creates_and_resolves() {
+    let Ok(fixture) = fixture() else {
+        eprintln!("skipping: no vulkan fixture");
+        return;
+    };
+
+    let mut resources = stormbreaker::vulkan_resources::VulkanResources::new(
+        &fixture.context.device,
+        fixture.context.memory_properties(),
+    );
+
+    // **The next task:** `Resources::copy_buffer_to_texture` and an upload path
+    // for textures. Until then nothing below can become a pixel, and every
+    // renderer texture hits this on its first frame.
+    let albedo = {
+        let resources: &mut dyn chassis::Resources = &mut resources;
+        resources
+            .create_texture(chassis::TextureDesc::new_2d(
+                chassis::Extent {
+                    width: 2,
+                    height: 2,
+                    depth: 1,
+                },
+                chassis::TextureFormat::Rgba8Unorm,
+                chassis::TextureUsage::SAMPLED | chassis::TextureUsage::TRANSFER_DST,
+            ))
+            .expect("a sampled texture")
+    };
+    // Through the trait, not the concrete type: this is the only handle a
+    // renderer ever holds, and a test that reached past it would not be testing
+    // the path anything actually takes.
+    let view = {
+        let resources: &mut dyn chassis::Resources = &mut resources;
+        resources.create_image_view(&albedo).expect("an image view")
+    };
+    let sampler = {
+        let resources: &mut dyn chassis::Resources = &mut resources;
+        resources
+            .create_sampler(&chassis::SamplerDesc::nearest())
+            .expect("a sampler")
+    };
+
+    let set_layout = chassis::DescriptorSetLayoutDesc::new("material")
+        .with(chassis::BindingDesc::new(
+            0,
+            chassis::DescriptorKind::SampledImage,
+            chassis::StageMask::of(chassis::ShaderStage::Fragment),
+        ))
+        .with(chassis::BindingDesc::new(
+            1,
+            chassis::DescriptorKind::Sampler,
+            chassis::StageMask::of(chassis::ShaderStage::Fragment),
+        ));
+
+    {
+        let resources: &mut dyn chassis::Resources = &mut resources;
+        let group = resources
+            .create_bind_group(&set_layout, &[], &[(0, view)], &[(1, sampler)])
+            .expect("an image bind group");
+        assert!(!group.is_null(), "a real handle, not a null one");
+        resources.destroy_bind_group(group);
+        resources.destroy_sampler(sampler);
+    }
+}
