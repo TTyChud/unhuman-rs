@@ -155,6 +155,12 @@ impl Adapter {
             // would fail device creation on an adapter without it -- which is the
             // worst failure for a test suite, because it passes on the machine
             // you have and fails on the one that matters.
+            //
+            // `VERTEX_WRITABLE_STORAGE` is deliberately *not* requested: the
+            // frame set's storage buffer is bound read-only (see `layout_type_of`),
+            // and read-only storage in the vertex stage does not need it. Asking
+            // for it would grant the vertex stage the power to write buffers, to
+            // make a layout the engine does not have.
             required_features: self.inner.features() & wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
             required_limits: wgpu::Limits::downlevel_defaults(),
             memory_hints: Default::default(),

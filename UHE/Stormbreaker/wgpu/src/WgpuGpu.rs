@@ -149,7 +149,15 @@ impl WgpuGpu {
 
         // One registry, owned by the executor. Two is a bug: a handle created
         // through `dyn Resources` would not resolve inside it.
-        let executor = WgpuExecutor::new(queue.clone(), WgpuResources::new(&device), extent);
+        //
+        // With the queue, because `upload_texture` is `queue.write_texture` and
+        // `bifrost` uploads its 1x1 textures while its plugin is built. Built
+        // without one, the engine's own `Gpu` cannot build the renderer at all.
+        let executor = WgpuExecutor::new(
+            queue.clone(),
+            WgpuResources::with_queue(&device, Some(queue.inner().clone())),
+            extent,
+        );
 
         let info = GpuInfo {
             name,

@@ -268,8 +268,22 @@ pub(crate) fn layout_type_of(kind: chassis::DescriptorKind) -> chassis::Result<w
             has_dynamic_offset: false,
             min_binding_size: None,
         },
+        // Read-only. The RHI's `StorageBuffer` does not say whether a shader
+        // writes it, and wgpu refuses a pipeline whose layout disagrees with the
+        // shader: `LOAD | STORE` against a shader's `LOAD` is
+        // "Storage class ... doesn't match the shader".
+        //
+        // The one binding in the engine (the frame set's light list) is read, so
+        // read-only is both the least privilege and what matches. It also keeps
+        // the vertex-stage binding legal: a *writable* storage buffer visible to
+        // the vertex stage needs `VERTEX_WRITABLE_STORAGE`, and this device is
+        // not built with it.
+        //
+        // shortcut: the RHI cannot express a storage buffer a shader writes, so
+        // every one maps to read-only; give `DescriptorKind` the distinction
+        // when a shader needs to write one.
         chassis::DescriptorKind::StorageBuffer => wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: false },
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
             has_dynamic_offset: false,
             min_binding_size: None,
         },
@@ -384,10 +398,13 @@ mod tests {
                 ..
             })
         ));
+        // Read-only, not writable: the shader reads this binding, and wgpu
+        // refuses a pipeline whose layout disagrees with the shader. See the
+        // comment in `layout_type_of`.
         assert!(matches!(
             layout_type_of(DescriptorKind::StorageBuffer),
             Ok(BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
                 ..
             })
         ));

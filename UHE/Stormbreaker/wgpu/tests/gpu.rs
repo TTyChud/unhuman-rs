@@ -263,6 +263,36 @@ fn a_resource_made_through_the_trait_resolves_in_the_executor() {
     );
 }
 
+/// The engine's own `Gpu` can upload a texture.
+///
+/// The bug this pins: `WgpuGpu` assembled its executor registry with
+/// `WgpuResources::new`, which carries no queue, while the gpu it was building
+/// held one. `upload_texture` is `queue.write_texture`, so it refused -- and
+/// `bifrost` uploads its 1x1 textures during plugin build, so the editor and the
+/// sandbox failed to start on any machine *with* a working GPU. No test caught
+/// it because every test that uploaded built its own `WgpuResources::with_queue`.
+#[test]
+fn the_engine_gpu_can_upload_a_texture() {
+    let Some(mut gpu) = open_gpu() else { return };
+
+    let resources: &mut dyn chassis::Resources = gpu.resources();
+    let texture = resources
+        .create_texture(chassis::TextureDesc::new_2d(
+            chassis::Extent {
+                width: 2,
+                height: 2,
+                depth: 1,
+            },
+            chassis::TextureFormat::Rgba8Unorm,
+            // `TRANSFER_DST` too: `queue.write_texture` requires `COPY_DST`.
+            chassis::TextureUsage::SAMPLED | chassis::TextureUsage::TRANSFER_DST,
+        ))
+        .expect("a sampled texture through dyn Resources");
+    resources
+        .upload_texture(&texture, &[255u8; 2 * 2 * 4], 2, 2)
+        .expect("the engine's resources carry the queue the renderer uploads through");
+}
+
 /// The settings file is the third source, and it is last.
 ///
 /// `BackendSource::Settings` existed from the start and nothing could ever

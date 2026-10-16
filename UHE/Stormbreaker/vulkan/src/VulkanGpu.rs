@@ -128,8 +128,18 @@ impl VulkanGpu {
         .map_err(|error| chassis::Error::Unsupported(error.to_string()))?;
 
         let memory = context.memory_properties();
+        // With the upload ring, for the same reason the wgpu backend passes its
+        // queue: `bifrost` uploads its 1x1 textures while its plugin is built, and
+        // a `Gpu` whose resources cannot upload cannot build the renderer.
         let resources = VulkanResources::new(&context.device, memory)
-            .with_uniform_buffer_alignment(capabilities.min_uniform_buffer_offset_alignment);
+            .with_uniform_buffer_alignment(capabilities.min_uniform_buffer_offset_alignment)
+            .with_upload(
+                &context.device,
+                &memory,
+                context.graphics_queue,
+                family,
+                1024 * 1024,
+            )?;
         let executor = VulkanRenderGraphExecutor::new(recorder, extent);
 
         let info = GpuInfo {

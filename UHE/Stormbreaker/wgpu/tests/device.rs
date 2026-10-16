@@ -58,6 +58,50 @@ fn a_device_can_be_created_headless() {
     let _ = device.inner();
 }
 
+/// A device built with no extra features can bind the storage buffer the frame
+/// set uses.
+///
+/// The bug this pins: the wgpu backend mapped every `StorageBuffer` to
+/// `read_only: false`, but `bifrost`'s frame set binds the light list, which the
+/// shader *reads*. wgpu refuses a render pipeline whose layout says `LOAD|STORE`
+/// where the shader says `LOAD`, so the sandbox died on its first frame with
+/// "Error matching ShaderStages(FRAGMENT) shader requirements".
+///
+/// Read-only is also why this device needs no extra feature: a *writable*
+/// storage buffer visible to the vertex stage would require
+/// `VERTEX_WRITABLE_STORAGE`, which `create_device` deliberately does not ask
+/// for.
+#[test]
+fn a_device_can_bind_the_frame_sets_storage_buffer() {
+    let Some(adapter) = Adapter::request(0) else {
+        eprintln!("skipping: no wgpu adapter");
+        return;
+    };
+    let (device, _queue) = adapter
+        .create_device("stormglass-vertex-storage")
+        .expect("a device");
+
+    // `wgpu` reacts to an invalid layout by panicking through its error handler,
+    // so reaching the end of this function is the assertion. `read_only: true`
+    // and `VERTEX_FRAGMENT` are `layout_type_of(StorageBuffer)` and the frame
+    // set's `graphics_stages`, verbatim.
+    let _layout = device
+        .inner()
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("frame"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+}
+
 /// Every format the RHI can name must map to something wgpu has, or the two
 /// backends disagree about what a texture is.
 #[test]
