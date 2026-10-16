@@ -73,14 +73,19 @@ jobs:
         # probes `alsa` with pkg-config. The runner has the runtime library but
         # not the `-dev` headers, so the probe fails and the build stops.
         #
-        # The editor's window needs libxkbcommon: `gpui_linux` declares
-        # `#[link(name = "xkbcommon")]` and `#[link(name = "xkbcommon-x11")]`,
-        # and the `-dev` packages are what put the `.so` symlinks the linker
-        # looks for on the runner.
+        # The editor's window needs two more, and both are the `-dev` kind the
+        # runner image leaves out. `gpui_linux` declares
+        # `#[link(name = "xkbcommon")]` and `#[link(name = "xkbcommon-x11")]`, so
+        # those `.so` symlinks have to exist at link time; `zed-font-kit` binds
+        # fontconfig through `yeslogic-fontconfig-sys`, whose build script runs
+        # `pkg-config fontconfig` and stops when `fontconfig.pc` is absent.
+        # `libfontconfig1-dev` pulls in freetype as well, which keeps
+        # `freetype-sys` from falling back to compiling its vendored copy.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev \
+            libfontconfig1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev
 
@@ -110,13 +115,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Same ALSA and xkbcommon headers as `logic`: `build_smoke` builds the
-      # whole workspace, editor included.
+      # Same ALSA, fontconfig and xkbcommon headers as `logic`: `build_smoke`
+      # builds the whole workspace, editor included.
       - name: Install system libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev \
+            libfontconfig1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev
 
@@ -163,6 +169,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev \
+            libfontconfig1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev \
             mesa-vulkan-drivers \
