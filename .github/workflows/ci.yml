@@ -68,6 +68,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install system libraries
+        # The `audio` crate binds ALSA through `alsa-sys`, whose build script
+        # probes `alsa` with pkg-config. The runner has the runtime library but
+        # not the `-dev` headers, so the probe fails and the build stops.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+
       - name: Formatting
         run: cargo fmt --all --check
 
@@ -93,6 +101,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      # Same ALSA headers as `logic`: `build_smoke` builds the whole workspace.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
 
       # `adam` is where the build questions live: its `build_smoke` suite runs the
       # workspace with all targets, in release, `--locked`, and the doc tests, and
@@ -136,6 +150,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
             mesa-vulkan-drivers \
             vulkan-tools \
             libvulkan1 \
