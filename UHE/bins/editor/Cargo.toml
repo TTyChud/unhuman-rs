@@ -25,6 +25,15 @@ rev = "28d0a354"
 # AppKit and wasm backends all moved into sibling crates, and `Application` can only
 # be built from one. `gpui_platform::application()` is the constructor every
 # example in the checkout uses, and it is the only way to open a window.
+#
+# The Linux backends are **not** on by default: `gpui_platform`'s default features
+# are `multithreaded` alone, and `gpui_linux` resolves with no features unless one
+# is named here. Without them `application()` still builds, still constructs the
+# platform, and still runs the window closure -- so the editor started, ran its
+# frame loop, and never opened a window: no window, no output, sitting there.
+# Windows and macOS pick their backend from the target, so naming these is inert
+# there.
 [dependencies.gpui_platform]
 git = "https://github.com/zed-industries/zed"
 rev = "28d0a354"
+features = ["wayland", "x11"]

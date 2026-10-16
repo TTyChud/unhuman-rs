@@ -72,9 +72,17 @@ jobs:
         # The `audio` crate binds ALSA through `alsa-sys`, whose build script
         # probes `alsa` with pkg-config. The runner has the runtime library but
         # not the `-dev` headers, so the probe fails and the build stops.
+        #
+        # The editor's window needs libxkbcommon: `gpui_linux` declares
+        # `#[link(name = "xkbcommon")]` and `#[link(name = "xkbcommon-x11")]`,
+        # and the `-dev` packages are what put the `.so` symlinks the linker
+        # looks for on the runner.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev
 
       - name: Formatting
         run: cargo fmt --all --check
@@ -102,11 +110,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Same ALSA headers as `logic`: `build_smoke` builds the whole workspace.
+      # Same ALSA and xkbcommon headers as `logic`: `build_smoke` builds the
+      # whole workspace, editor included.
       - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev
 
       # `adam` is where the build questions live: its `build_smoke` suite runs the
       # workspace with all targets, in release, `--locked`, and the doc tests, and
@@ -151,6 +163,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             mesa-vulkan-drivers \
             vulkan-tools \
             libvulkan1 \
