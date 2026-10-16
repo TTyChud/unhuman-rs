@@ -36,7 +36,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Linux, and only Linux. See the note at the top.
+# One shell for every job, so the Linux and Windows runs of the same command
+# behave the same. The one Windows step that is a PowerShell script asks for
+# `pwsh` itself.
 defaults:
   run:
     shell: bash
@@ -138,21 +140,28 @@ jobs:
             vulkan-tools \
             libvulkan1 \
             spirv-tools
-          # Prove the software driver is actually there. A silent no-op here
+          # Prove the software driver is actually there, and find it rather than
+          # guess its name: Mesa 25.2.8 (noble-updates) ships `lvp_icd.json`,
+          # the older release ships `lvp_icd.x86_64.json`. A silent no-op here
           # produces a job that "passes" having tested nothing, which is the
           # exact failure this project already had once.
-          ls /usr/share/vulkan/icd.d/lvp_icd.*.json
+          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' | head -1)
+          if [ -z "$icd" ]; then
+            echo "::error::No lavapipe ICD under /usr/share/vulkan/icd.d"
+            ls -la /usr/share/vulkan/icd.d
+            exit 1
+          fi
+          echo "lavapipe ICD: $icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
 
       - name: Show the device lavapipe reports
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: vulkaninfo --summary
 
       - name: Full gate
         env:
-          # lavapipe, not whatever the runner happens to have. A GPU on a
-          # shared runner is not reproducible; a software rasterizer is.
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          # `VK_ICD_FILENAMES` comes from the install step: lavapipe, not
+          # whatever the runner happens to have. A GPU on a shared runner is
+          # not reproducible; a software rasterizer is.
           UHE_VALIDATION: "1"
           # Serial. The suites share one device and one scratch directory, and
           # under load in CI they collide.
@@ -161,7 +170,6 @@ jobs:
 
       - name: Validation errors must be zero
         env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           UHE_VALIDATION: "1"
         run: |
           # Printed as an artefact on failure. A validation error names a VUID
@@ -213,6 +221,9 @@ jobs:
       # rather than fail here, which is the honest outcome: this job is about
       # the platform, not the driver.
       - name: Logic tests
+        # `gate.ps1` is PowerShell; the workflow default shell is bash, which
+        # would mangle `.\scripts\gate.ps1` into `.scriptsgate.ps1`.
+        shell: pwsh
         run: .\scripts\gate.ps1 --no-vulkan
 
   shaders:
