@@ -6,18 +6,18 @@
 //! for exactly one reason — `doubleSided` selects the no-cull variant — and this
 //! does the same, for culling and for blending.
 //!
-//! ## Why the transparent draws are not a pass of their own
+//! ## Why the transparent draws are not yet a pass of their own
 //!
 //! They should be: a second pass, after this one, with its own depth-tested
-//! pipeline. `chassis::graph::PassBuilder` has `color_load` and no
-//! `depth_load`, so a second depth-tested pass would declare
-//! `depth(texture, 1.0)` and *clear* the depth buffer the opaque draws just
-//! wrote — the transparent geometry would then be drawn with no occlusion test
-//! at all, which is worse than not splitting. The C++ is in the same shape, and
-//! says so itself (`MaterialExtensions.h:29-36`: "drawn after opaques, blended.
-//! Needs depth sorting to avoid artefacts where surfaces overlap"), so this pass
-//! draws the opaques and then the blended items back to front — which is what
-//! that comment asks for — and the pass boundary arrives when `depth_load` does.
+//! pipeline. Without `PassBuilder::depth_load` that pass would have declared
+//! `depth(texture, 1.0)` and *cleared* the depth buffer the opaque draws just
+//! wrote — the transparent geometry drawn with no occlusion test at all, which
+//! is worse than not splitting. `depth_load` landed, so that is no longer the
+//! reason; what is missing is the split itself, and `PASS_TRANSPARENT` is the
+//! slot it will record into. Until then this pass draws the opaques and then the
+//! blended items back to front, which is what the C++ says it does
+//! (`MaterialExtensions.h:29-36`: "drawn after opaques, blended. Needs depth
+//! sorting to avoid artefacts where surfaces overlap").
 
 use chassis::{BindGroup, CommandList, PassScope, Pipeline};
 

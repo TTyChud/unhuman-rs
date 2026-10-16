@@ -41,6 +41,9 @@ pub use uniforms::{BindSet, DrawArena, DrawUniforms, FrameUniforms, ImageSet, Sh
 /// Pass names, which are also the keys the dispatch is done on.
 pub const PASS_SHADOW: &str = "shadow";
 pub const PASS_OPAQUE: &str = "opaque";
+/// The blended draws, after the opaques, loading the colour and depth they
+/// wrote rather than clearing them.
+pub const PASS_TRANSPARENT: &str = "transparent";
 pub const PASS_SSAO: &str = "ssao";
 /// The grid and the gizmos, in one pass.
 pub const PASS_EDITOR: &str = "editor";
@@ -83,6 +86,7 @@ pub trait OverlayPasses: Send + Sync {
 pub struct FrameRecorder {
     pub shadow: Option<ShadowPass>,
     pub geometry: Option<GeometryPass>,
+    pub transparent: Option<GeometryPass>,
     pub ssao: Option<SsaoPass>,
     pub editor: Option<EditorPass>,
     pub composite: Option<CompositePass>,
@@ -94,6 +98,7 @@ impl FrameRecorder {
         Self {
             shadow: None,
             geometry: None,
+            transparent: None,
             ssao: None,
             editor: None,
             composite: None,
@@ -124,6 +129,10 @@ impl PassRecorder for FrameRecorder {
             PASS_OPAQUE => match &self.geometry {
                 Some(pass) => pass.record(scope, list),
                 None => Err(missing(PASS_OPAQUE)),
+            },
+            PASS_TRANSPARENT => match &self.transparent {
+                Some(pass) => pass.record(scope, list),
+                None => Err(missing(PASS_TRANSPARENT)),
             },
             PASS_SSAO => match &self.ssao {
                 Some(pass) => pass.record(scope, list),

@@ -134,7 +134,6 @@ name = "aimlab"
 version = "0.1.0"
 dependencies = [
  "adam",
- "chassis",
  "glam 0.33.12",
  "log",
  "meats",
@@ -610,7 +609,6 @@ dependencies = [
  "grind",
  "log",
  "meats",
- "pings",
  "serde",
  "serde_json",
  "vault",
@@ -1512,23 +1510,15 @@ name = "editor"
 version = "0.1.0"
 dependencies = [
  "adam",
- "aimlab",
  "bifrost",
  "chassis",
  "engine",
  "env_logger",
- "eyes",
- "glam 0.33.12",
  "gpui",
  "gpui_platform",
- "grind",
  "log",
  "meats",
  "mirror",
- "pollster",
- "stormglass",
- "vault",
- "wgpu 30.0.1",
 ]
 
 [[package]]
@@ -3482,7 +3472,6 @@ dependencies = [
  "glam 0.33.12",
  "log",
  "meats",
- "pings",
  "vault",
 ]
 
@@ -3661,11 +3650,8 @@ dependencies = [
  "aimlab",
  "env_logger",
  "femur",
- "glam 0.33.12",
- "grind",
  "log",
  "meats",
- "vault",
  "wire",
 ]
 
@@ -4562,9 +4548,6 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 [[package]]
 name = "pings"
 version = "0.1.0"
-dependencies = [
- "log",
-]
 
 [[package]]
 name = "piper"
@@ -5344,14 +5327,9 @@ dependencies = [
  "env_logger",
  "eyes",
  "femur",
- "glam 0.33.12",
- "grind",
  "log",
- "meats",
- "pollster",
+ "mirror",
  "stormglass",
- "vault",
- "wgpu 30.0.1",
  "wire",
 ]
 
@@ -6625,7 +6603,6 @@ dependencies = [
  "grind",
  "image",
  "log",
- "serde",
  "serde_json",
 ]
 
@@ -7788,7 +7765,6 @@ dependencies = [
  "glam 0.33.12",
  "log",
  "meats",
- "pings",
  "rodio",
  "vault",
 ]

@@ -218,6 +218,17 @@ impl PassBuilder<'_> {
         self
     }
 
+    /// Declares a depth target whose previous contents must be preserved.
+    pub fn depth_load(mut self, texture: TextureId) -> Self {
+        self.write_texture_with(texture, ImageState::DepthAttachment);
+        self.graph.passes[self.index].depth = Some(DepthAttachment {
+            texture,
+            load: LoadOp::Load,
+            clear_depth: 1.0,
+        });
+        self
+    }
+
     pub fn depth(mut self, texture: TextureId, clear_depth: f32) -> Self {
         self.write_texture_with(texture, ImageState::DepthAttachment);
         self.graph.passes[self.index].depth = Some(DepthAttachment {

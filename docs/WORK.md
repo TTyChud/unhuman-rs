@@ -237,7 +237,7 @@ what a first green build will still not do.
 | `Gpu::graph()` / `RenderGraph::{add_pass, add_dependency}` | refused by name on both backends: a `RenderPassDesc` carries no resource states, and a pass declared from one would be ordered against states the caller never gave | deleting the dead trait surface, or growing `RenderPassDesc` to carry states. `bifrost` declares through `chassis::graph::RenderGraph`, which is the real path |
 | Per-frame uniforms and the per-draw arena | buffers are re-created (with their bind groups) every frame, and Vulkan's `destroy_bind_group` is a no-op, so the groups are not reclaimed (`shortcut:` in `passes/uniforms.rs`). **Under load this is a live bug on Vulkan**: `VulkanDescriptorManager` rebuilds its pool (and resets its set registry) when the pool fills or a new layout appears, so an earlier `BindGroup` goes stale and the next bind panics on a stale handle — a frame with more than ~64 draws reaches that. wgpu is unaffected | a `Resources::upload_buffer` for the update-in-place path, plus `DescriptorPool::reset` once per frame and/or freeing sets in `destroy_bind_group` |
 | Push constants | unusable: `PipelineDesc` has no push-constant range, `VulkanPipelineState` declares `&[]`, and wgpu's `CommandList::set_push_constants` is `unimplemented!()` — a panic, which nothing reaches because the renderer sends uniforms as buffers. The C++'s 192-byte block is a descriptor set here | a range in `PipelineDesc` and one lowering per backend |
-| Two passes the graph cannot express | a `depth_load` on `PassBuilder` is missing, so transparent draws share the opaque pass (sorted back-to-front, per-draw pipeline) and the grid/gizmo pass has no depth attachment. A clear pass can also be culled, because `LoadOp::Load` is not a read | `PassBuilder::depth_load`, and a cull rule for a pass whose only job is a clear or a dependency |
+| Two passes the graph cannot express | the transparent draws share the opaque pass (sorted back-to-front, per-draw pipeline) and the grid/gizmo pass has no depth attachment. A clear pass can also be culled, because `LoadOp::Load` is not a read. `PassBuilder::depth_load` and the `PASS_TRANSPARENT` recorder slot have landed; **nothing declares the pass yet**, so the shares-the-opaque-pass half is still true | the split in `bifrost`'s frame construction, now that the builder can express it, and a cull rule for a pass whose only job is a clear or a dependency |
 | Mip chains, skinning, shadow-map sampling on wgpu | textures upload mip 0 (no GPU generate-mipmaps in either backend); nothing builds a bone palette from a loaded model into the vertex data yet; the depth descriptor kind that makes wgpu accept a depth view is `DescriptorKind::SampledDepth` (added, so both depth reads are describable) | backend mip generation, a `bifrost` skinning path, and nothing further for the depth kind |
 | Demo assets | `assets/models/{Sphere.glb,Box.gltf,Box0.bin}` and `assets/audio/gunshot.wav` ship; the 12 MB animated pistol does not, because no code path names it | port the pistol's animation path, or leave it out |
 
@@ -667,8 +667,11 @@ says it cannot prove the thing yet is worth more than one that pretends.
 
 Landed since: `Resources::upload_texture` on both backends, and the Vulkan half
 is `UploadRing::copy_to_image` -- the image sibling of the `copy_to_buffer` that
-already existed. What remains is the *draw* half: a full-screen quad over a 2x2
-texture, read back, each quadrant compared exactly.
+already existed. The material path follows: `TextureCache::upload` built its
+desc with `TextureDesc::initial_data`, which `stormglass` never reads, so every
+texture it made was empty on the default backend — it now uploads through
+`upload_texture` like the rest. What remains is the *draw* half: a full-screen
+quad over a 2x2 texture, read back, each quadrant compared exactly.
 
 ### Two barriers, and the second one is the point
 

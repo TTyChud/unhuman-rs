@@ -549,6 +549,11 @@ impl TextureCache {
 
     /// Uploads an image. `MeshSample`'s material ids resolve through
     /// [`TextureCache::get`]; this is the call that puts one there.
+    ///
+    /// The bytes go through [`Resources::upload_texture`] rather than
+    /// `TextureDesc::initial_data`, because `stormglass` ignores that field: a
+    /// texture created with it would be empty on the default backend, and every
+    /// material would sample black on the backend that works.
     pub fn upload(
         &mut self,
         resources: &mut dyn Resources,
@@ -564,10 +569,17 @@ impl TextureCache {
             format,
             TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
         )
-        .with_mips(1)
-        .with_initial_data(image.rgba8.clone());
+        .with_mips(1);
 
         let texture = resources.create_texture(desc)?;
+        // `upload_texture`, not `TextureDesc::initial_data`: `stormglass` never
+        // reads that field, so a texture created with it holds nothing on the
+        // default backend. This is the path both backends implement.
+        //
+        // Queued, not finished — the doc on `Resources::upload_texture` is
+        // explicit that destroying the texture before the copy drains is
+        // `VUID-vkDestroyImage-image-01000`, so teardown waits at frame end.
+        resources.upload_texture(&texture, &image.rgba8, image.width, image.height)?;
         let view = resources.create_image_view(&texture)?;
         let sampler = self.sampler(resources)?;
         Ok(CachedTexture {

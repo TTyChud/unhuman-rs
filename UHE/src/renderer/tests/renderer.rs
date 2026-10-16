@@ -11,7 +11,9 @@
 
 use std::sync::Arc;
 
-use bifrost::material::{self, Material, MaterialKey, MaterialTextures, MaterialVariant};
+use bifrost::material::{
+    self, Material, MaterialKey, MaterialTextures, MaterialVariant, TextureCache,
+};
 use bifrost::mesh::{self, MeshCache, MeshKey, VertexLayoutKey};
 use bifrost::passes::pipeline::{self, PipelineCache, PipelineKey, ShaderSet, ShaderVariant};
 use bifrost::{Bifrost, EditorCamera, ViewSource};
@@ -45,6 +47,9 @@ struct FakeResources {
     buffer_creates: usize,
     buffer_destroys: Vec<Buffer>,
     texture_destroys: Vec<Texture>,
+    /// Every `upload_texture` call: the texture, the byte count, and the extent
+    /// it was told to fill.
+    uploads: Vec<(Texture, usize, u32, u32)>,
     pipeline_creates: usize,
     group_destroys: usize,
     sampler_creates: usize,
@@ -130,11 +135,12 @@ impl Resources for FakeResources {
 
     fn upload_texture(
         &mut self,
-        _texture: &Texture,
-        _data: &[u8],
-        _width: u32,
-        _height: u32,
+        texture: &Texture,
+        data: &[u8],
+        width: u32,
+        height: u32,
     ) -> chassis::Result<()> {
+        self.uploads.push((*texture, data.len(), width, height));
         Ok(())
     }
 
@@ -647,6 +653,79 @@ fn destroying_a_texture_drops_every_material_that_bound_it() {
         0,
         "already gone"
     );
+}
+
+// ── textures ────────────────────────────────────────────────────────────────
+
+/// A texture's bytes reach the GPU through `Resources::upload_texture`.
+///
+/// This is the test that would have caught the version that set
+/// `TextureDesc::initial_data` instead: `stormglass` never reads that field, so
+/// the texture would have been created empty and every material would have
+/// sampled black on the default backend, with no error anywhere. Asserting on
+/// the call — its handle, its byte count and its extent — is what makes the
+/// difference observable without a device.
+#[test]
+fn a_texture_upload_goes_through_upload_texture_with_the_image_bytes() {
+    let mut fake = FakeResources::new();
+    let mut cache = TextureCache::new();
+    let image = vault::Image {
+        width: 2,
+        height: 1,
+        rgba8: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        srgb: true,
+    };
+
+    let first = cache
+        .get_or_upload(&mut fake, asset(3), &image)
+        .expect("uploads");
+    assert_eq!(fake.uploads.len(), 1, "one upload, and it is issued");
+    let (handle, bytes, width, height) = fake.uploads[0];
+    assert_eq!(handle, first.texture, "the bytes go into the texture it made");
+    assert_eq!(bytes, image.rgba8.len(), "all of them");
+    assert_eq!((width, height), (image.width, image.height));
+
+    // The second call for one asset is a cache hit, so no bytes move again.
+    let hit = cache
+        .get_or_upload(&mut fake, asset(3), &image)
+        .expect("hit");
+    assert_eq!(hit.texture, first.texture);
+    assert_eq!(fake.uploads.len(), 1, "a hit uploads nothing");
+
+    // And a destroyed texture is uploaded again rather than handed back stale.
+    assert!(cache.destroy(&mut fake, asset(3)).is_some());
+    assert_eq!(fake.texture_destroys.len(), 1);
+    let again = cache
+        .get_or_upload(&mut fake, asset(3), &image)
+        .expect("re-uploads");
+    assert_eq!(fake.uploads.len(), 2);
+    assert_ne!(
+        again.texture, first.texture,
+        "a generation bump, not the old handle"
+    );
+    assert_eq!(again.sampler, first.sampler, "the sampler is shared, not re-made");
+    assert_eq!(fake.sampler_creates, 1);
+}
+
+/// The 1x1 stand-ins a material with no map samples: white for the factors, and
+/// `(0.5, 0.5, 1)` for a normal map, which is not white.
+#[test]
+fn the_neutral_maps_are_one_texel_and_the_normal_is_not_white() {
+    let mut fake = FakeResources::new();
+    let mut cache = TextureCache::new();
+
+    let white = cache.white(&mut fake).expect("white");
+    let neutral = cache.neutral_normal(&mut fake).expect("neutral");
+    assert_eq!(fake.uploads.len(), 2);
+    assert_eq!(fake.uploads[0].1, 4, "one RGBA texel");
+    assert_eq!(fake.uploads[0].2, 1);
+
+    // Same call twice is the same texture, not a second upload.
+    assert_eq!(cache.white(&mut fake).expect("white").texture, white.texture);
+    assert_eq!(fake.uploads.len(), 2);
+
+    assert_ne!(white.texture, neutral.texture);
+    assert_eq!(white.sampler, neutral.sampler);
 }
 
 // ── meshes ──────────────────────────────────────────────────────────────────
