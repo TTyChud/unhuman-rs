@@ -58,7 +58,11 @@ else
   step "validation errors must be zero"
   # Re-run capturing output: a pipeline's exit status does not carry this, and a
   # validation error is printed by the layer rather than returned by cargo.
-  count=$(cargo test --workspace -- "${THREADS[@]}" 2>&1 | grep -c "Validation Error" || true)
+  # Only the Khronos layer's format (`Validation Error: [ VUID-... ]`). wgpu
+  # prints its own "Validation Error" from a deliberately corrupt-shader test,
+  # and that is not a Vulkan validation error.
+  count=$(cargo test --workspace -- "${THREADS[@]}" 2>&1 \
+    | grep -cE 'Validation Error: \[' || true)
   if [[ "$count" != "0" ]]; then
     echo "FAIL: $count validation error(s)." >&2
     echo "These are almost always real. Run locally for the full message:" >&2

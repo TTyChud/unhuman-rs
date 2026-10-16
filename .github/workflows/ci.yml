@@ -206,7 +206,10 @@ jobs:
           # unactionable.
           cargo test --workspace -- --test-threads=1 --nocapture 2>&1 \
             | tee validation.log
-          count=$(grep -c "Validation Error" validation.log || true)
+          # The Khronos layer's format, not any line containing the words. wgpu
+          # prints its own "Validation Error" from a deliberately corrupt-shader
+          # test (`stormglass`), and that is not a Vulkan validation error.
+          count=$(grep -cE 'Validation Error: \[' validation.log || true)
           echo "validation errors: $count"
           if [ "$count" != "0" ]; then
             echo "::error::Validation reported $count error(s). See the log."
