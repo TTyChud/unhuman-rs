@@ -15,12 +15,16 @@ name: CI
 # When Windows gets a real backend test, it needs a driver the runner can see.
 # That is the job to add then, not a row to widen now.
 #
-# Four jobs, and the split is not cosmetic.
+# Six jobs, and the split is not cosmetic.
 #
-# `logic` needs no GPU at all and runs everywhere. `vulkan` runs the backend
-# against Mesa's **lavapipe**, a software Vulkan implementation, with the
-# Khronos validation layer loaded. That is not a mock: it is the same driver
-# interface, the same validation layer and the same validation rules, on a CPU.
+# `logic` needs no GPU at all and runs everywhere, as does `smoke`, which asks
+# the build questions a first `cargo build` would surface. `parity` checks the
+# port's own claim -- every C++ file has a Rust counterpart or a recorded reason
+# it does not -- and is the one job that checks out a second repository. `vulkan`
+# runs the backend against Mesa's **lavapipe**, a software Vulkan implementation,
+# with the Khronos validation layer loaded. That is not a mock: it is the same
+# driver interface, the same validation layer and the same validation rules, on a
+# CPU.
 #
 # Without lavapipe the backend suite would only ever run on someone's machine,
 # which is how nine real bugs survived for the length of this project. A gate that
@@ -69,13 +73,49 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests that need no driver
-        run: cargo test -p grind -p chassis -p adam -p forge
+        run: cargo test -p grind -p chassis -p forge
 
       # Cheap and worth it: the workspace must resolve without cmake, a Vulkan
       # SDK or a driver, which is the property that lets a contributor clone and
       # run the tests on a laptop.
       - name: Workspace builds with no Vulkan SDK
         run: cargo build --workspace --all-targets
+
+  smoke:
+    name: smoke (build shapes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `adam` is where the build questions live: its `build_smoke` suite runs the
+      # workspace with all targets, in release, `--locked`, and the doc tests, and
+      # asserts the member list. A build question asked by a test is still a build
+      # question, and this is the job that asks them. It is separate from `logic`
+      # so a red run names the failure -- a compile shape, not a behaviour.
+      - name: Build questions
+        run: cargo test -p adam
+
+  parity:
+    name: parity (C++ coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repository's claim is that nothing was left behind in the rewrite, and
+      # a claim like that is worth exactly as much as the check behind it -- which
+      # needs the tree it checks against. Cloned as a sibling, the layout
+      # `scripts/parity.sh` defaults to, so the default path itself is exercised.
+      # Shallow: the walk reads the working tree, and no submodule is under it.
+      - name: Check out the C++ tree alongside
+        run: git clone --depth 1 https://github.com/unhuman-engine/UNHUMAN.git ../UNHUMAN
+
+      - name: Every C++ file is ported, or has a recorded reason
+        run: ./scripts/parity.sh
 
   vulkan:
     name: vulkan (lavapipe + validation)
@@ -196,10 +236,11 @@ jobs:
       # this step was written.
       - name: Fail if the checked-in SPIR-V is stale
         run: |
-          SLANGC=$PWD/../unhuman/UHE/vendor/bin/linux/slang/bin/slangc
+          SLANGC=$PWD/../UNHUMAN/UHE/vendor/bin/linux/slang/bin/slangc
           if [ ! -x "$SLANGC" ]; then
-            echo "::notice::The C++ tree is not present, so the vendored Slang"
-            echo "::notice::cannot be run. Skipping the staleness check."
+            echo "::notice::No slangc at $SLANGC: the C++ tree is not checked out"
+            echo "::notice::here and its vendored compiler is not built either."
+            echo "::notice::Skipping the staleness check."
             exit 0
           fi
           assets/shaders/compile.sh

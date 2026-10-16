@@ -1,7 +1,7 @@
 # Transfer: the whole C++ engine
 
 Authoritative work list, derived from actual surveys of
-`../unhuman/UHE/src/` and the `UHE_EDITOR/` tree. **Phase order is in
+`../UNHUMAN/UHE/src/` and the `UHE_EDITOR/` tree. **Phase order is in
 `session.md`. This file is the inventory and the decisions.**
 
 Every finding below came from reading the C++, not from remembering it. Several

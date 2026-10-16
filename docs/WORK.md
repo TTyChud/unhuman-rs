@@ -47,21 +47,32 @@ because bash on a Windows runner is a Git Bash layer with its own path rules and
 gate that behaves differently on the platform it is meant to check is worse than
 no gate.
 
-Five jobs:
+Six jobs:
 
 - **logic** — no GPU needed. fmt, clippy, and the suites that never touch a
-  driver: `grind`, `chassis`, `adam`, `forge`.
-- **smoke** — build questions, not behaviour: workspace with all targets, in
-  release, `--locked`, doc tests, and a check that every C++ class has a Rust
-  counterpart *or a recorded reason it does not*. That last one is why
-  `VulkanRenderPass` is no longer on a "dead code, skip it" list.
+  driver: `grind`, `chassis`, `forge`.
+- **smoke** — build questions, not behaviour: `adam`'s `build_smoke` suite builds
+  the workspace with all targets, in release and `--locked`, runs the doc tests,
+  and checks the member list. A job of its own so a red run names the failure —
+  a compile shape, not a behaviour.
+- **parity** — the check behind this repository's claim that nothing was left
+  behind in the rewrite: `scripts/parity.sh` against a fresh, shallow clone of
+  the C++ tree (`unhuman-engine/UNHUMAN`). Every C++ file must have a Rust
+  counterpart or a recorded reason it does not, so a file that quietly stops
+  being ported fails the build. That is why `VulkanRenderPass` is no longer on a
+  "dead code, skip it" list.
 - **vulkan** — the backend against Mesa's **lavapipe** with the validation layer
   loaded. Same driver interface, same validation rules, on a CPU. Without this
   the backend suite would only ever run on one machine, which is how nine real
   bugs survived here for the length of the project.
 - **shaders** — regenerates the checked-in SPIR-V and fails if it differs from
   the `.slang` source. A shader edit that forgets to regenerate leaves the suite
-  testing the old bytes and still green.
+  testing the old bytes and still green. It needs the C++ tree's vendored
+  `slangc`; where that compiler is not built, the step says so and skips rather
+  than passing silently.
+- **windows** — build, release, clippy, fmt and the driver-free suites, on
+  Windows. It runs what the platform can and says what it cannot: a GitHub
+  Windows runner has no Vulkan driver.
 
 Never push. Commit only; the owner pushes.
 

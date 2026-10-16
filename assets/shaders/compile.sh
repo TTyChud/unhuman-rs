@@ -10,7 +10,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-slangc="${SLANGC:-../unhuman/UHE/vendor/bin/linux/slang/bin/slangc}"
+slangc="${SLANGC:-../UNHUMAN/UHE/vendor/bin/linux/slang/bin/slangc}"
 
 if [[ ! -x "$slangc" ]]; then
   echo "slangc not found at $slangc" >&2

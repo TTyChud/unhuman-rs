@@ -69,8 +69,8 @@ and Tracy/spdlog.
 
 ## Status
 
-The whole C++ tree outside `Platform/Vulkan` has a Rust counterpart. **This tree has not
-been compiled since the port landed**: the environment it was written in had no
-compiler available, so the next step is `cargo build --workspace` and then
-`./scripts/gate.sh`, and anything that fails there is a fix, not a redesign — the seams
-are documented and the tests exist.
+The whole C++ tree outside `Platform/Vulkan` has a Rust counterpart, and the tree
+builds clean: `cargo build --workspace` (and `--all-targets`, `--release`,
+`--locked`), `clippy -D warnings` and `rustfmt --check` all pass, and the
+driver-free suite is green. The backend suite runs in CI against lavapipe. The
+seams are documented and the tests exist; `docs/WORK.md` is the state of the work.

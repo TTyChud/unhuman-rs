@@ -24,9 +24,9 @@ use crate::ForgeError;
 ///
 /// A path relative to the workspace, never to the current directory. `cargo
 /// test` runs each test binary with the *crate* directory as its working
-/// directory, so a `../unhuman/...` relative to the root resolves to nothing and
+/// directory, so a `../UNHUMAN/...` relative to the root resolves to nothing and
 /// every shader test silently skips while reporting success.
-const VENDORED: &str = "unhuman/UHE/vendor/bin/linux/slang/bin/slangc";
+const VENDORED: &str = "UNHUMAN/UHE/vendor/bin/linux/slang/bin/slangc";
 
 /// Find a usable `slangc`.
 ///
