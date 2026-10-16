@@ -71,7 +71,9 @@ pub fn panel(
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .when(entries.is_empty(), |grid| grid.child(dim_label("Empty directory", theme)))
+                .when(entries.is_empty(), |grid| {
+                    grid.child(dim_label("Empty directory", theme))
+                })
                 .children(cells),
         )
 }
@@ -149,7 +151,7 @@ fn cell(
             if is_dir {
                 this.editor.content_browser.navigate(&typed_path);
             } else {
-                this.editor.content_browser.selected = Some(path);
+                this.editor.content_browser.selected = Some(path.clone());
             }
             cx.notify();
         }))

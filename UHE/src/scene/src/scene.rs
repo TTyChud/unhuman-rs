@@ -251,9 +251,13 @@ impl Scene {
         };
         let any: &mut dyn std::any::Any = &mut component;
         if let Some(camera) = any.downcast_mut::<Camera>() {
-            camera
-                .camera
-                .set_viewport_size(self.viewport.0 as f32, self.viewport.1 as f32);
+            // A camera that pins its aspect does not take the viewport's, the
+            // same rule `set_viewport_size` applies on a resize.
+            if !camera.fixed_aspect_ratio {
+                camera
+                    .camera
+                    .set_viewport_size(self.viewport.0 as f32, self.viewport.1 as f32);
+            }
         }
         self.world.insert_one(hecs, component).is_ok()
     }

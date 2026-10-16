@@ -222,7 +222,11 @@ impl EditorCamera {
 
     pub fn mouse_rotate(&mut self, delta: Vec2) {
         // Flipped when the camera is upside down, so a drag does not reverse.
-        let yaw_sign = if self.up_direction().y < 0.0 { -1.0 } else { 1.0 };
+        let yaw_sign = if self.up_direction().y < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
         self.yaw += yaw_sign * delta.x * self.rotation_speed();
         self.pitch += delta.y * self.rotation_speed();
     }
@@ -243,7 +247,7 @@ impl EditorCamera {
         self.aspect_ratio = self.viewport_width / self.viewport_height;
         // `glm::perspective` under `GLM_FORCE_DEPTH_ZERO_TO_ONE`, which
         // `UHE/src/uhepch.h:5` defines: right-handed, depth 0..1.
-        self.projection = Mat4::perspective_rh(
+        self.projection = glam::camera::rh::proj::directx::perspective(
             self.fov.to_radians(),
             self.aspect_ratio,
             self.near_clip,

@@ -66,7 +66,10 @@ mod tests {
 
     #[test]
     fn status_names_the_backend_or_says_there_is_none() {
-        assert_eq!(frame_status(Some("wgpu"), 60.0, 16.61), "wgpu · 60.0 fps · 16.61 ms");
+        assert_eq!(
+            frame_status(Some("wgpu"), 60.0, 16.61),
+            "wgpu · 60.0 fps · 16.61 ms"
+        );
         assert_eq!(backend_label(None), "no backend");
         assert!(frame_status(None, 0.0, 0.0).starts_with("no backend"));
     }

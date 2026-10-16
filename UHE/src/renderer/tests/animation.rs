@@ -10,13 +10,17 @@ use glam::{Quat, Vec3};
 
 fn two_bone_skeleton() -> Skeleton {
     let mut skeleton = Skeleton::new();
-    let mut root = Bone::default();
-    root.id = 0;
-    root.local_transform = glam::Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
-    let mut child = Bone::default();
-    child.id = 1;
-    child.parent_id = 0;
-    child.local_transform = glam::Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
+    let root = Bone {
+        id: 0,
+        local_transform: glam::Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0)),
+        ..Default::default()
+    };
+    let child = Bone {
+        id: 1,
+        parent_id: 0,
+        local_transform: glam::Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0)),
+        ..Default::default()
+    };
     skeleton.bones.push(root);
     skeleton.bones.push(child);
     skeleton.joint_nodes.push(1);
@@ -26,10 +30,8 @@ fn two_bone_skeleton() -> Skeleton {
 
 fn ramp_clip(name: &str, duration: f32) -> Clip {
     let mut clip = Clip::new(name);
-    clip.position_track_mut(0).set_keys(
-        &[0.0, duration],
-        &[Vec3::ZERO, Vec3::new(0.0, 2.0, 0.0)],
-    );
+    clip.position_track_mut(0)
+        .set_keys(&[0.0, duration], &[Vec3::ZERO, Vec3::new(0.0, 2.0, 0.0)]);
     clip.update_duration();
     clip
 }
@@ -45,7 +47,11 @@ fn position_track() -> VectorTrack {
     let mut track = VectorTrack::new(0);
     track.set_keys(
         &[0.0, 1.0, 2.0],
-        &[Vec3::ZERO, Vec3::new(2.0, 4.0, 0.0), Vec3::new(6.0, 0.0, 0.0)],
+        &[
+            Vec3::ZERO,
+            Vec3::new(2.0, 4.0, 0.0),
+            Vec3::new(6.0, 0.0, 0.0),
+        ],
     );
     track
 }
@@ -54,27 +60,15 @@ fn position_track() -> VectorTrack {
 fn sampling_hits_the_exact_keys() {
     let track = position_track();
     assert_eq!(sample_position(0.0, &track), Vec3::ZERO);
-    assert_eq!(
-        sample_position(1.0, &track),
-        Vec3::new(2.0, 4.0, 0.0)
-    );
-    assert_eq!(
-        sample_position(2.0, &track),
-        Vec3::new(6.0, 0.0, 0.0)
-    );
+    assert_eq!(sample_position(1.0, &track), Vec3::new(2.0, 4.0, 0.0));
+    assert_eq!(sample_position(2.0, &track), Vec3::new(6.0, 0.0, 0.0));
 }
 
 #[test]
 fn sampling_interpolates_halfway_between_keys() {
     let track = position_track();
-    assert_eq!(
-        sample_position(0.5, &track),
-        Vec3::new(1.0, 2.0, 0.0)
-    );
-    assert_eq!(
-        sample_position(1.5, &track),
-        Vec3::new(4.0, 2.0, 0.0)
-    );
+    assert_eq!(sample_position(0.5, &track), Vec3::new(1.0, 2.0, 0.0));
+    assert_eq!(sample_position(1.5, &track), Vec3::new(4.0, 2.0, 0.0));
 }
 
 #[test]
@@ -82,10 +76,7 @@ fn a_step_track_holds_the_key_before_the_time() {
     let mut track = position_track();
     track.interpolation = Interpolation::Step;
     assert_eq!(sample_position(1.999, &track), Vec3::new(2.0, 4.0, 0.0));
-    assert_eq!(
-        sample_position(2.0, &track),
-        Vec3::new(6.0, 0.0, 0.0)
-    );
+    assert_eq!(sample_position(2.0, &track), Vec3::new(6.0, 0.0, 0.0));
 }
 
 #[test]
@@ -116,7 +107,10 @@ fn a_non_looping_clip_clamps_at_its_end() {
     // A further step does not move the play head.
     animator.update_animation(1.0);
     assert_eq!(animator.current_time(), 1.0);
-    assert_eq!(animator.blended_pose().bones[0].translation, Vec3::new(0.0, 2.0, 0.0));
+    assert_eq!(
+        animator.blended_pose().bones[0].translation,
+        Vec3::new(0.0, 2.0, 0.0)
+    );
 }
 
 #[test]
@@ -135,13 +129,10 @@ fn blend_weights_zero_half_and_one() {
 
     blend_poses(&from, &to, 0.5, &mut out);
     assert_eq!(out.bones[0].translation, Vec3::new(2.0, 0.0, 0.0));
-    assert!(
-        out.bones[0]
-            .rotation
-            .dot(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2))
-            .abs()
-            > 0.9999
-    );
+    // A 180° turn is its own antipode, so the half-way rotation is a 90° turn
+    // in either direction: only the magnitude is determined, not the sign.
+    let quarter_turn = out.bones[0].rotation.angle_between(Quat::IDENTITY);
+    assert!((quarter_turn - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
 
     blend_poses(&from, &to, 1.0, &mut out);
     assert_eq!(out.bones[0].translation, Vec3::new(4.0, 0.0, 0.0));
@@ -304,7 +295,9 @@ fn compression_keeps_rotations_within_tolerance() {
     let settings = CompressSettings::default();
     let mut clip = Clip::new("spin");
     let times: Vec<f32> = (0..11).map(|i| i as f32).collect();
-    let values: Vec<Quat> = (0..11).map(|i| Quat::from_rotation_z(i as f32 * 0.1)).collect();
+    let values: Vec<Quat> = (0..11)
+        .map(|i| Quat::from_rotation_z(i as f32 * 0.1))
+        .collect();
     clip.rotation_track_mut(0).set_keys(&times, &values);
     clip.update_duration();
 

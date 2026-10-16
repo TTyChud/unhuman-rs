@@ -243,19 +243,21 @@ pub fn generate(ttf: &[u8], options: &GeneratorOptions) -> Result<Atlas, Generat
     ))
 }
 
+/// Atlas width and height, and where each raster landed in it.
+type PackedSheet = (u32, u32, Vec<Option<(u32, u32)>>);
+
 /// Shelf packing: tallest first, left to right, a new row when the current one
 /// is full (`TightAtlasPacker`'s job in the C++, `Font.cpp:151-153`). No
 /// rotation and no repacking — the C++ used a tight packer, and the difference
 /// is atlas area, not correctness.
-fn pack(
-    rasters: &[Raster],
-    options: &GeneratorOptions,
-) -> Result<(u32, u32, Vec<Option<(u32, u32)>>), GenerateError> {
+fn pack(rasters: &[Raster], options: &GeneratorOptions) -> Result<PackedSheet, GenerateError> {
     let width = options.atlas_width.max(1);
     let padding = options.padding;
     let mut placements = vec![None; rasters.len()];
 
-    let mut order: Vec<usize> = (0..rasters.len()).filter(|&i| rasters[i].height > 0).collect();
+    let mut order: Vec<usize> = (0..rasters.len())
+        .filter(|&i| rasters[i].height > 0)
+        .collect();
     order.sort_by(|&a, &b| {
         rasters[b]
             .height

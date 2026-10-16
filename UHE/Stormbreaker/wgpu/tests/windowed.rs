@@ -114,7 +114,10 @@ fn opaque_is_preferred_and_a_contradictory_list_still_answers() {
     assert_eq!(choose_alpha_mode(&both), CompositeAlphaMode::Opaque);
 
     let inherit_only = [CompositeAlphaMode::Inherit];
-    assert_eq!(choose_alpha_mode(&inherit_only), CompositeAlphaMode::Inherit);
+    assert_eq!(
+        choose_alpha_mode(&inherit_only),
+        CompositeAlphaMode::Inherit
+    );
 
     // wgpu documents at least one entry, so this cannot happen -- and it still
     // answers instead of indexing the empty list.
@@ -130,8 +133,20 @@ fn opaque_is_preferred_and_a_contradictory_list_still_answers() {
 /// `Surface::configure`'s panic list, not its error list.
 #[test]
 fn a_zero_extent_is_clamped_rather_than_handed_to_configure() {
-    let clamped = choose_extent(Extent2d { width: 0, height: 0 }, 4096);
-    assert_eq!(clamped, Extent2d { width: 1, height: 1 });
+    let clamped = choose_extent(
+        Extent2d {
+            width: 0,
+            height: 0,
+        },
+        4096,
+    );
+    assert_eq!(
+        clamped,
+        Extent2d {
+            width: 1,
+            height: 1
+        }
+    );
 }
 
 /// A window larger than the device is letterboxed by the C++ and clamped here.
@@ -141,20 +156,38 @@ fn a_zero_extent_is_clamped_rather_than_handed_to_configure() {
 /// answer.
 #[test]
 fn an_oversized_extent_is_clamped_to_the_device() {
-    let big = Extent2d { width: 8000, height: 600 };
+    let big = Extent2d {
+        width: 8000,
+        height: 600,
+    };
     let clamped = choose_extent(big, 4096);
-    assert_eq!(clamped, Extent2d { width: 4096, height: 600 });
+    assert_eq!(
+        clamped,
+        Extent2d {
+            width: 4096,
+            height: 600
+        }
+    );
 }
 
 /// A size that fits is left alone: the clamp is a floor and a ceiling, not a rescale.
 #[test]
 fn an_extent_that_fits_is_unchanged() {
-    let extent = Extent2d { width: 1280, height: 720 };
+    let extent = Extent2d {
+        width: 1280,
+        height: 720,
+    };
     assert_eq!(choose_extent(extent, 4096), extent);
 
     // A device that reports no texture size still gets a usable one rather than a
     // zero, which would clamp everything to nothing.
-    assert_eq!(choose_extent(extent, 0), Extent2d { width: 1, height: 1 });
+    assert_eq!(
+        choose_extent(extent, 0),
+        Extent2d {
+            width: 1,
+            height: 1
+        }
+    );
 }
 
 // ── image count ─────────────────────────────────────────────────────────────
@@ -292,11 +325,10 @@ fn a_refused_frame_does_not_poison_the_next_one() {
     chassis::RenderGraph::reset(&mut adapter);
 
     // The path that does work: the fluent graph, a resource imported by id.
-    let target = adapter.graph().import_texture(
-        "target",
-        ImageState::Undefined,
-        ImageState::Present,
-    );
+    let target =
+        adapter
+            .graph()
+            .import_texture("target", ImageState::Undefined, ImageState::Present);
     let _ = adapter.graph().pass("blit").color(target, [0.0; 4]);
     let ids = chassis::RenderGraph::compile(&mut adapter).expect("a declared pass compiles");
     assert_eq!(ids, vec![0]);
@@ -385,14 +417,20 @@ fn an_acquired_image_binds_the_slot_the_frame_names() {
 #[test]
 #[ignore = "needs an adapter and a display; the surface path needs a window"]
 fn a_gpu_with_no_surface_reports_no_swapchain() {
-    let extent = Extent2d { width: 64, height: 64 };
+    let extent = Extent2d {
+        width: 64,
+        height: 64,
+    };
     let Ok(mut gpu) = WgpuGpu::headless(extent) else {
         eprintln!("skipping: no wgpu adapter");
         return;
     };
 
     assert!(gpu.surface().is_none());
-    assert!(gpu.swapchain().is_none(), "headless is not a lie: the option says so");
+    assert!(
+        gpu.swapchain().is_none(),
+        "headless is not a lie: the option says so"
+    );
     assert_eq!(Swapchain::image_count(&gpu), 0);
     assert!(!Swapchain::is_out_of_date(&gpu));
 
@@ -402,8 +440,12 @@ fn a_gpu_with_no_surface_reports_no_swapchain() {
 
     // Resizing headless has no swapchain to rebuild, so it only records the extent
     // the frame is recorded at.
-    let smaller = Extent2d { width: 128, height: 96 };
-    gpu.resize(smaller).expect("recording an extent cannot fail");
+    let smaller = Extent2d {
+        width: 128,
+        height: 96,
+    };
+    gpu.resize(smaller)
+        .expect("recording an extent cannot fail");
     assert_eq!(Swapchain::extent(&gpu), smaller);
 }
 
@@ -416,7 +458,10 @@ fn a_gpu_with_no_surface_reports_no_swapchain() {
 #[test]
 #[ignore = "needs an adapter and a display; the surface path needs a window"]
 fn record_frame_records_offscreen_and_refuses_a_swapchain_frame_headless() {
-    let extent = Extent2d { width: 64, height: 64 };
+    let extent = Extent2d {
+        width: 64,
+        height: 64,
+    };
     let Ok(mut gpu) = WgpuGpu::headless(extent) else {
         eprintln!("skipping: no wgpu adapter");
         return;
@@ -432,5 +477,8 @@ fn record_frame_records_offscreen_and_refuses_a_swapchain_frame_headless() {
     let error = gpu
         .record_frame(&frame, &SlotTable::default(), Arc::new(NoRecording))
         .expect_err("no surface, so no image to draw the swapchain image into");
-    assert!(error.to_string().contains("no image is acquired"), "got {error}");
+    assert!(
+        error.to_string().contains("no image is acquired"),
+        "got {error}"
+    );
 }

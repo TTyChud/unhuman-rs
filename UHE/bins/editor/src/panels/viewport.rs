@@ -20,12 +20,7 @@ pub fn panel(theme: &EditorTheme) -> impl IntoElement {
         .justify_center()
         .gap_2()
         .bg(theme.bg)
-        .child(
-            div()
-                .text_xs()
-                .text_color(theme.text_dim)
-                .child("VIEWPORT"),
-        )
+        .child(div().text_xs().text_color(theme.text_dim).child("VIEWPORT"))
         .child(
             div()
                 .max_w(px(420.0))

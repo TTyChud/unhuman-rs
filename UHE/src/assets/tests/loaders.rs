@@ -165,7 +165,9 @@ fn a_file_that_is_not_an_image_is_an_error_not_a_silent_binary() {
     scratch.write("broken.png", b"this is not a png");
 
     let mut assets = scratch.assets();
-    let error = assets.load("broken.png").expect_err("a broken png is refused");
+    let error = assets
+        .load("broken.png")
+        .expect_err("a broken png is refused");
     assert!(matches!(error, Error::Decode(_)), "{error}");
     assert!(assets.is_empty());
 }
@@ -284,7 +286,9 @@ fn an_async_load_of_a_good_image_lands_on_poll() {
 
     let jobs = Jobs::new();
     let mut assets = scratch.assets();
-    let id = assets.load_async(&jobs, "texel.png").expect("path resolves");
+    let id = assets
+        .load_async(&jobs, "texel.png")
+        .expect("path resolves");
 
     jobs.wait_for_all();
     let finished = assets.poll();
@@ -305,7 +309,9 @@ fn a_second_async_request_for_a_ready_asset_is_reported_on_poll() {
     let jobs = Jobs::new();
     let mut assets = scratch.assets();
     let first = assets.load("notes.txt").expect("notes.txt loads");
-    let again = assets.load_async(&jobs, "notes.txt").expect("path resolves");
+    let again = assets
+        .load_async(&jobs, "notes.txt")
+        .expect("path resolves");
 
     assert_eq!(first, again);
     let finished = assets.poll();

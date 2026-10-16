@@ -127,7 +127,7 @@ fn holding_the_button_fires_once() {
 
 #[test]
 fn an_expired_target_counts_as_a_miss() {
-    let (mut engine, mut plugin) = run(6 * STEPS_PER_SECOND + STEPS_PER_SECOND / 2);
+    let (engine, plugin) = run(6 * STEPS_PER_SECOND + STEPS_PER_SECOND / 2);
 
     assert_eq!(plugin.score().misses, 1);
     assert_eq!(plugin.score().hits, 0);
@@ -147,7 +147,10 @@ fn the_spawn_cadence_is_deterministic_for_a_fixed_step_count() {
     // One target per second from 6s, replaced one per second from 7s.
     assert_eq!(plugin_a.score().misses, 4);
     assert_eq!(plugin_a.target_count(), TARGET_COUNT - 1);
-    assert_eq!(engine_a.scene.entities().len(), STAGE_ENTITIES + TARGET_COUNT - 1);
+    assert_eq!(
+        engine_a.scene.entities().len(),
+        STAGE_ENTITIES + TARGET_COUNT - 1
+    );
 
     assert_eq!(plugin_a.score(), plugin_b.score());
     let positions_a: Vec<Vec3> = plugin_a
@@ -169,7 +172,9 @@ fn the_camera_carries_the_shot_sound() {
     let (engine, _) = built();
     let camera = engine.scene.primary_camera().expect("primary camera");
     let entry = engine.scene.get(camera).expect("the camera entity");
-    let source = entry.get::<meats::AudioSource>().expect("a sound component");
+    let source = entry
+        .get::<meats::AudioSource>()
+        .expect("a sound component");
 
     assert_eq!(source.clip_path, "assets/audio/gunshot.wav");
     assert!(

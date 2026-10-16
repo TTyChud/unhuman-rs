@@ -27,9 +27,15 @@ pub enum Error {
     Io(std::io::Error),
     /// The bytes are not YAML. `line` is the line libyaml stopped on, when it
     /// knew one.
-    Yaml { line: Option<usize>, message: String },
+    Yaml {
+        line: Option<usize>,
+        message: String,
+    },
     /// The bytes are YAML but not a scene.
-    Format { line: Option<usize>, message: String },
+    Format {
+        line: Option<usize>,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -265,10 +271,7 @@ fn entity_value(scene: &Scene, entity: Entity) -> Value {
         c.insert(key("TilingFactor"), f32_value(sprite.tiling_factor));
         c.insert(key("UseSubTexture"), Value::Bool(sprite.use_sub_texture));
         c.insert(key("SubTextureCoords"), v2(sprite.sub_texture_coords));
-        c.insert(
-            key("SubTextureCellSize"),
-            v2(sprite.sub_texture_cell_size),
-        );
+        c.insert(key("SubTextureCellSize"), v2(sprite.sub_texture_cell_size));
         c.insert(
             key("SubTextureSpriteSize"),
             v2(sprite.sub_texture_sprite_size),
@@ -407,7 +410,13 @@ fn entity_value(scene: &Scene, entity: Entity) -> Value {
     let mut relationship = Mapping::new();
     relationship.insert(
         key("Parent"),
-        Value::Number(scene.parent(entity).and_then(|p| scene.id_of(p)).unwrap_or(0).into()),
+        Value::Number(
+            scene
+                .parent(entity)
+                .and_then(|p| scene.id_of(p))
+                .unwrap_or(0)
+                .into(),
+        ),
     );
     relationship.insert(
         key("Children"),
@@ -427,7 +436,7 @@ fn entity_value(scene: &Scene, entity: Entity) -> Value {
 fn read_components(scene: &mut Scene, entity: Entity, node: &Value) {
     if let Some(node) = node.get("TransformComponent") {
         if let Some(mut view) = scene.get_mut(entity) {
-            if let Some(mut transform) = view.get_mut::<Transform>() {
+            if let Some(transform) = view.get_mut::<Transform>() {
                 if let Some(value) = node.get("Translation").and_then(read_v3) {
                     transform.translation = value;
                 }
@@ -596,7 +605,10 @@ fn read_components(scene: &mut Scene, entity: Entity, node: &Value) {
                     .get("Intensity")
                     .and_then(as_f32)
                     .unwrap_or(default.intensity),
-                radius: node.get("Radius").and_then(as_f32).unwrap_or(default.radius),
+                radius: node
+                    .get("Radius")
+                    .and_then(as_f32)
+                    .unwrap_or(default.radius),
                 inner_cone_angle: node
                     .get("InnerConeAngle")
                     .and_then(as_f32)
@@ -654,7 +666,10 @@ fn read_components(scene: &mut Scene, entity: Entity, node: &Value) {
             entity,
             Collider {
                 shape,
-                offset: node.get("Offset").and_then(read_v3).unwrap_or(default.offset),
+                offset: node
+                    .get("Offset")
+                    .and_then(read_v3)
+                    .unwrap_or(default.offset),
                 friction: node
                     .get("Friction")
                     .and_then(as_f32)
@@ -674,7 +689,10 @@ fn read_components(scene: &mut Scene, entity: Entity, node: &Value) {
                     // The C++ `SphereCollider3DComponent` default radius.
                     radius: node.get("Radius").and_then(as_f32).unwrap_or(0.5),
                 },
-                offset: node.get("Offset").and_then(read_v3).unwrap_or(default.offset),
+                offset: node
+                    .get("Offset")
+                    .and_then(read_v3)
+                    .unwrap_or(default.offset),
                 friction: node
                     .get("Friction")
                     .and_then(as_f32)
@@ -695,7 +713,10 @@ fn read_components(scene: &mut Scene, entity: Entity, node: &Value) {
                     radius: node.get("Radius").and_then(as_f32).unwrap_or(0.5),
                     half_height: node.get("HalfHeight").and_then(as_f32).unwrap_or(1.0),
                 },
-                offset: node.get("Offset").and_then(read_v3).unwrap_or(default.offset),
+                offset: node
+                    .get("Offset")
+                    .and_then(read_v3)
+                    .unwrap_or(default.offset),
                 friction: node
                     .get("Friction")
                     .and_then(as_f32)

@@ -179,6 +179,9 @@ impl SpriteTextOverlay {
     /// caller owns the asset-to-view half, because it owns the asset registry.
     /// `atlas_texture` is the view of the font atlas, and `white` is the view an
     /// untextured quad binds.
+    // The atlas view, the white view, the sampler and the per-batch textures are
+    // all part of one binding set; bundling them would not make the call clearer.
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &self,
         resources: &mut dyn Resources,
@@ -310,8 +313,7 @@ impl OverlayPasses for SpriteTextOverlay {
 
         match pass {
             PASS_2D => {
-                let (Some(vertices), Some(indices)) =
-                    (state.sprite_vertices, state.sprite_indices)
+                let (Some(vertices), Some(indices)) = (state.sprite_vertices, state.sprite_indices)
                 else {
                     return Ok(());
                 };
@@ -320,9 +322,11 @@ impl OverlayPasses for SpriteTextOverlay {
                     .sprite_globals
                     .as_ref()
                     .and_then(Globals::group)
-                    .ok_or_else(|| Error::InvalidDescriptor(
-                        "pass 'bifrost.2d' has no globals: prepare did not run".to_owned(),
-                    ))?;
+                    .ok_or_else(|| {
+                        Error::InvalidDescriptor(
+                            "pass 'bifrost.2d' has no globals: prepare did not run".to_owned(),
+                        )
+                    })?;
                 state.batch.record(
                     list,
                     &self.sprite.pipeline(),
@@ -347,9 +351,11 @@ impl OverlayPasses for SpriteTextOverlay {
                     .text_globals
                     .as_ref()
                     .and_then(Globals::group)
-                    .ok_or_else(|| Error::InvalidDescriptor(
-                        "pass 'bifrost.text' has no globals: prepare did not run".to_owned(),
-                    ))?;
+                    .ok_or_else(|| {
+                        Error::InvalidDescriptor(
+                            "pass 'bifrost.text' has no globals: prepare did not run".to_owned(),
+                        )
+                    })?;
                 state.texts.record(
                     list,
                     &self.text.pipeline(),
@@ -357,9 +363,9 @@ impl OverlayPasses for SpriteTextOverlay {
                     &indices,
                     &globals,
                     |texture| {
-                        *groups.get(&texture).expect(
-                            "an atlas with no group: prepare skipped one, which is a bug",
-                        )
+                        *groups
+                            .get(&texture)
+                            .expect("an atlas with no group: prepare skipped one, which is a bug")
                     },
                 );
                 Ok(())

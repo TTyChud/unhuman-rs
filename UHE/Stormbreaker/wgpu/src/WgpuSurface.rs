@@ -68,7 +68,10 @@ impl WgpuSurface {
         extent: chassis::Extent2d,
     ) -> Result<Self, WgpuError> {
         let (config, format) = plan(&surface, &adapter, &device, extent, None, None)?;
-        let extent = chassis::Extent2d { width: config.width, height: config.height };
+        let extent = chassis::Extent2d {
+            width: config.width,
+            height: config.height,
+        };
         surface.configure(device.inner(), &config);
         Ok(Self {
             surface,
@@ -208,12 +211,20 @@ impl WgpuSurface {
             // The surface no longer offers what it is configured with, which is what
             // a window dragged to another display looks like. Re-choose rather than
             // fail the frame.
-            Err(WgpuError::Unsupported { .. }) => {
-                plan(&self.surface, &self.adapter, &self.device, extent, None, None)?
-            }
+            Err(WgpuError::Unsupported { .. }) => plan(
+                &self.surface,
+                &self.adapter,
+                &self.device,
+                extent,
+                None,
+                None,
+            )?,
             Err(other) => return Err(other),
         };
-        let extent = chassis::Extent2d { width: config.width, height: config.height };
+        let extent = chassis::Extent2d {
+            width: config.width,
+            height: config.height,
+        };
         // The frame goes first: `Surface::configure` panics while a `SurfaceTexture`
         // from the old swapchain is alive. Its handles stay in the registry -- the
         // next acquire or present forgets them, and `texture`/`image_view` report
@@ -238,11 +249,17 @@ impl WgpuSurface {
         let texture = resources.register_texture(
             frame.texture.clone(),
             self.format,
-            chassis::Extent { width: self.extent.width, height: self.extent.height, depth: 1 },
+            chassis::Extent {
+                width: self.extent.width,
+                height: self.extent.height,
+                depth: 1,
+            },
             "swapchain",
         );
         let view = resources.register_image_view(
-            frame.texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
         );
         self.texture = Some(texture);
         self.view = Some(view);

@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use chassis::graph::{CompiledGraph, ImageState, PassRecorder, RenderGraph, SlotTable};
 use chassis::{
-    BindGroup, BufferDesc, BufferUsage, Error, Extent, Extent2d, Gpu, ImageView, Resources, Sampler,
-    SamplerDesc, Texture, TextureDesc, TextureFormat, TextureUsage,
+    BindGroup, BufferDesc, BufferUsage, Error, Extent, Extent2d, Gpu, ImageView, Resources,
+    Sampler, SamplerDesc, Texture, TextureDesc, TextureFormat, TextureUsage,
 };
 use glam::{Mat4, Vec3};
 
@@ -42,8 +42,8 @@ use crate::mesh::{self, GpuMesh, MeshCache, MeshKey, VertexLayoutKey};
 use crate::passes::{
     self, uniforms, CompositePass, DrawArena, EditorPass, FrameRecorder, FrameTargets,
     GeometryPass, GridPass, GridUniforms, ImageSet, LineBatch, LinePass, LineUniforms,
-    MaterialPipelines, OverlayPasses, PipelineCache, PipelineKey, PreparedDraw, ShadowPass,
-    ShaderSet, ShaderVariant, SsaoPass, SsaoUniforms,
+    MaterialPipelines, OverlayPasses, PipelineCache, PipelineKey, PreparedDraw, ShaderSet,
+    ShaderVariant, ShadowPass, SsaoPass, SsaoUniforms,
 };
 
 /// Where the frame's camera comes from.
@@ -212,10 +212,13 @@ impl Bifrost {
     pub fn new(gpu: &mut dyn Gpu, assets: &mut vault::Assets) -> Result<Self, Error> {
         let _ = assets;
 
-        let extent = gpu.swapchain().map(|swapchain| swapchain.extent()).unwrap_or(Extent2d {
-            width: 1280,
-            height: 720,
-        });
+        let extent = gpu
+            .swapchain()
+            .map(|swapchain| swapchain.extent())
+            .unwrap_or(Extent2d {
+                width: 1280,
+                height: 720,
+            });
         let swapchain_format = gpu
             .swapchain()
             .map(|swapchain| swapchain.format())
@@ -343,7 +346,11 @@ impl Bifrost {
         let Some(data) = assets.mesh(id) else {
             return Ok(None);
         };
-        Ok(Some(self.meshes.get_or_upload(gpu.resources(), key, data)?))
+        Ok(Some(self.meshes.get_or_upload(
+            gpu.resources(),
+            key,
+            data,
+        )?))
     }
 
     /// Drops every GPU resource a mesh holds.
@@ -365,7 +372,8 @@ impl Bifrost {
         let Some(image) = assets.image(id).cloned() else {
             return Ok(());
         };
-        self.textures_by_asset.get_or_upload(gpu.resources(), id, &image)?;
+        self.textures_by_asset
+            .get_or_upload(gpu.resources(), id, &image)?;
         Ok(())
     }
 
@@ -526,9 +534,13 @@ impl Bifrost {
         // transition is free.
         let scene_color =
             graph.import_texture("scene.color", ImageState::Undefined, ImageState::ShaderRead);
-        let scene_depth =
-            graph.import_texture("scene.depth", ImageState::Undefined, ImageState::DepthAttachment);
-        let shadow = graph.import_texture("shadow.map", ImageState::Undefined, ImageState::ShaderRead);
+        let scene_depth = graph.import_texture(
+            "scene.depth",
+            ImageState::Undefined,
+            ImageState::DepthAttachment,
+        );
+        let shadow =
+            graph.import_texture("shadow.map", ImageState::Undefined, ImageState::ShaderRead);
         let ssao = graph.import_texture("ssao.ao", ImageState::Undefined, ImageState::ShaderRead);
         let backbuffer =
             graph.import_texture("backbuffer", ImageState::Undefined, ImageState::Present);
@@ -563,6 +575,13 @@ impl Bifrost {
         // The 2D and text slice's passes, which draw into the scene colour
         // after the 3D scene does. Declared here, before the composition, so
         // the composition is still the last writer of the backbuffer.
+        let targets = FrameTargets {
+            scene_color,
+            scene_depth,
+            shadow,
+            ssao,
+            backbuffer,
+        };
         if let Some(overlay) = &self.overlay {
             overlay.declare(graph, &targets);
         }
@@ -575,13 +594,7 @@ impl Bifrost {
             .read_texture(scene_color)
             .read_texture(ssao);
 
-        FrameTargets {
-            scene_color,
-            scene_depth,
-            shadow,
-            ssao,
-            backbuffer,
-        }
+        targets
     }
 
     /// Turns the scene's meshes into draws, and uploads their uniforms.
@@ -618,10 +631,8 @@ impl Bifrost {
                 .and_then(|id| self.material_assets.get(&id))
                 .copied()
                 .unwrap_or_default();
-            let variant = MaterialVariant::of(
-                &material,
-                material.alpha == material::AlphaMode::Blend,
-            );
+            let variant =
+                MaterialVariant::of(&material, material.alpha == material::AlphaMode::Blend);
 
             let material_binding = self.material_binding(resources, &material, variant)?;
 
@@ -681,7 +692,7 @@ impl Bifrost {
         let mut resolved: [CachedTexture; material::SLOT_COUNT] = [white; material::SLOT_COUNT];
         let mut images: Vec<(u32, ImageView)> = Vec::with_capacity(material::SLOT_COUNT);
 
-        for slot in 0..material::SLOT_COUNT {
+        for (slot, cached_slot) in resolved.iter_mut().enumerate() {
             let cached = material
                 .texture(slot)
                 .and_then(|id| self.textures_by_asset.get(id))
@@ -690,7 +701,7 @@ impl Bifrost {
                 } else {
                     white
                 });
-            resolved[slot] = cached;
+            *cached_slot = cached;
             images.push((2 + slot as u32, cached.view));
         }
 
@@ -706,12 +717,7 @@ impl Bifrost {
         let layout = passes::pipeline::material_layout();
         let samplers = [(1u32, self.textures.sampler)];
         Ok(Some(self.materials.get_or_insert(
-            resources,
-            key,
-            material,
-            &images,
-            &samplers,
-            &layout,
+            resources, key, material, &images, &samplers, &layout,
         )?))
     }
 
@@ -871,10 +877,7 @@ impl Bifrost {
             let group = self.image_set.rebuild(
                 resources,
                 &passes::pipeline::composite_layout(),
-                &[
-                    (0, self.textures.color_view),
-                    (1, self.textures.ssao_view),
-                ],
+                &[(0, self.textures.color_view), (1, self.textures.ssao_view)],
                 &[(2, self.textures.sampler)],
             )?;
             recorder.composite = Some(CompositePass::new(pipeline, group));
@@ -968,8 +971,8 @@ fn shadow_view_projection(lights: &[LightData], camera_position: Vec3) -> Mat4 {
     };
 
     let eye = camera_position - direction * SHADOW_EXTENT;
-    let view = Mat4::look_at_rh(eye, camera_position, Vec3::Y);
-    let projection = Mat4::orthographic_rh(
+    let view = glam::camera::rh::view::look_at_mat4(eye, camera_position, Vec3::Y);
+    let projection = glam::camera::rh::proj::directx::orthographic(
         -SHADOW_EXTENT,
         SHADOW_EXTENT,
         -SHADOW_EXTENT,

@@ -165,7 +165,7 @@ fn property_row(
                 cx.notify();
             }))
             .child(value_label(format_value(&value), theme)),
-        PropertyKind::Enum(variants) => match next_variant(*variants, &value) {
+        PropertyKind::Enum(variants) => match next_variant(variants, &value) {
             Some(next) => row
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
@@ -173,14 +173,13 @@ fn property_row(
                     apply(this, component, name, PropertyValue::Int(next));
                     cx.notify();
                 }))
-                .child(value_label(enum_label(*variants, &value), theme)),
+                .child(value_label(enum_label(variants, &value), theme)),
             None => row.child(value_label(format_value(&value), theme)),
         },
         _ => match &value {
-            PropertyValue::Color(channels) => {
-                row.child(value_label(format_value(&value), theme))
-                    .child(swatch(*channels))
-            }
+            PropertyValue::Color(channels) => row
+                .child(value_label(format_value(&value), theme))
+                .child(swatch(*channels)),
             _ => row.child(value_label(format_value(&value), theme)),
         },
     }
@@ -292,7 +291,10 @@ mod tests {
 
     #[test]
     fn vectors_are_comma_separated() {
-        assert_eq!(format_value(&PropertyValue::Vec3([1.0, 2.5, -3.25])), "1.00, 2.50, -3.25");
+        assert_eq!(
+            format_value(&PropertyValue::Vec3([1.0, 2.5, -3.25])),
+            "1.00, 2.50, -3.25"
+        );
         assert_eq!(format_value(&PropertyValue::Vec2([0.0, 0.0])), "0.00, 0.00");
         assert_eq!(
             format_value(&PropertyValue::Color([1.0, 1.0, 1.0, 0.5])),
@@ -302,7 +304,10 @@ mod tests {
 
     #[test]
     fn text_passes_through() {
-        assert_eq!(format_value(&PropertyValue::Text("player".into())), "player");
+        assert_eq!(
+            format_value(&PropertyValue::Text("player".into())),
+            "player"
+        );
     }
 
     #[test]

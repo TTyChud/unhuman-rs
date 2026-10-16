@@ -131,11 +131,13 @@ impl AnimationStateMachine {
     }
 
     pub fn set_bool(&mut self, name: &str, value: bool) {
-        self.parameters.insert(name.to_string(), Parameter::Bool(value));
+        self.parameters
+            .insert(name.to_string(), Parameter::Bool(value));
     }
 
     pub fn set_int(&mut self, name: &str, value: i32) {
-        self.parameters.insert(name.to_string(), Parameter::Int(value));
+        self.parameters
+            .insert(name.to_string(), Parameter::Int(value));
     }
 
     pub fn set_float(&mut self, name: &str, value: f32) {
@@ -216,9 +218,7 @@ impl AnimationStateMachine {
     pub fn update(&mut self, normalized_time: f32) -> Option<StateChange> {
         if self.current_state.is_empty() {
             // No state entered yet: fall into the first registered one.
-            let Some(first) = self.states.first() else {
-                return None;
-            };
+            let first = self.states.first()?;
             let change = StateChange::from_state(first, 0.0);
             self.current_state = first.name.clone();
             return Some(change);
@@ -247,16 +247,11 @@ impl AnimationStateMachine {
             break;
         }
 
-        let Some(transition_index) = chosen else {
-            return None;
-        };
-        let Some(state_index) = self
+        let transition_index = chosen?;
+        let state_index = self
             .states
             .iter()
-            .position(|s| s.name == self.transitions[transition_index].to)
-        else {
-            return None;
-        };
+            .position(|s| s.name == self.transitions[transition_index].to)?;
 
         let blend_duration = self.transitions[transition_index].blend_duration;
         // Consume every trigger this transition relied on, so one `set_trigger`
@@ -356,8 +351,11 @@ mod tests {
         machine.add_state(state("jump", "Jump"));
         let mut t = transition("idle", "jump");
         t.blend_duration = 0.1;
-        t.conditions
-            .push(Condition::new("jump", ConditionOp::Equals, Parameter::Bool(true)));
+        t.conditions.push(Condition::new(
+            "jump",
+            ConditionOp::Equals,
+            Parameter::Bool(true),
+        ));
         machine.add_transition(t);
 
         machine.update(0.0);
@@ -378,8 +376,11 @@ mod tests {
         let mut t = transition("run", "idle");
         t.has_exit_time = true;
         t.exit_time = 0.75;
-        t.conditions
-            .push(Condition::new("stop", ConditionOp::Equals, Parameter::Bool(true)));
+        t.conditions.push(Condition::new(
+            "stop",
+            ConditionOp::Equals,
+            Parameter::Bool(true),
+        ));
         machine.add_transition(t);
 
         machine.update(0.0);

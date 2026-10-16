@@ -118,8 +118,8 @@ impl WgpuGpu {
         surface: wgpu::Surface<'static>,
         extent: chassis::Extent2d,
     ) -> Result<Self, WgpuError> {
-        let adapter = Adapter::request_for_surface(0, instance, &surface)
-            .ok_or(WgpuError::NoAdapter)?;
+        let adapter =
+            Adapter::request_for_surface(0, instance, &surface).ok_or(WgpuError::NoAdapter)?;
         let adapter_index = adapter.index();
         let Some((device, queue)) = adapter.create_device("stormglass") else {
             return Err(WgpuError::NoDevice);
@@ -321,7 +321,11 @@ impl RenderGraphTrait for GraphAdapter {
         // cannot be declared into the shared graph. Recorded rather than returned:
         // this signature returns an id, so an error has nowhere to go, and
         // `compile` is the next point a caller can be told.
-        let name = if desc.label.is_empty() { "unnamed" } else { desc.label.as_str() };
+        let name = if desc.label.is_empty() {
+            "unnamed"
+        } else {
+            desc.label.as_str()
+        };
         self.refusal = Some(format!(
             "no pass '{name}': the graph is declared through \
              `chassis::graph::RenderGraph`, where a pass names its resources by id \

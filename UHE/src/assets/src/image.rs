@@ -86,7 +86,7 @@ pub fn downsample_rgba8(source: &[u8], width: u32, height: u32) -> Option<MipLev
     let mut rgba8 = vec![0u8; rgba8_size(dst_width, dst_height)];
 
     for (y, row) in rgba8.chunks_exact_mut(dst_width as usize * 4).enumerate() {
-        for (x, texel) in row.chunks_exact_mut(4).enumerate() {
+        for (x, texel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let x = x as u32;
             let y = y as u32;
             let x0 = (x * 2).min(width - 1);
@@ -184,10 +184,14 @@ mod tests {
         let half = downsample_rgba8(&source, 4, 4).expect("4x4 downsamples");
         assert_eq!((half.width, half.height), (2, 2));
         // Texel (0, 0) averages source texels (0, 0), (1, 0), (0, 1), (1, 1):
-        // x averages 0 and 1 to 0, y averages 0 and 1 to 0.
-        assert_eq!(&half.rgba8[0..4], &[0, 0, 255, 255]);
-        // Texel (1, 0) averages x in {2, 3} -> 2.
-        assert_eq!(&half.rgba8[offset(1, 0, 2)..offset(1, 0, 2) + 4], &[2, 0, 255, 255]);
+        // each channel sums to 2, which rounds to nearest as (2 + 2) / 4 = 1.
+        assert_eq!(&half.rgba8[0..4], &[1, 1, 255, 255]);
+        // Texel (1, 0) averages x in {2, 3}, summing to 10 -> (10 + 2) / 4 = 3,
+        // and y in {0, 1}, summing to 2 -> 1.
+        assert_eq!(
+            &half.rgba8[offset(1, 0, 2)..offset(1, 0, 2) + 4],
+            &[3, 1, 255, 255]
+        );
     }
 
     #[test]
@@ -198,7 +202,8 @@ mod tests {
         assert_eq!((half.width, half.height), (1, 1));
         // The 2x2 block is source (0,0), (1,0), (0,1), (1,1) - the out-of-range
         // column and row duplicate texel 1 rather than reading past the image.
-        assert_eq!(&half.rgba8[0..4], &[0, 0, 255, 255]);
+        // Each channel sums to 2, which rounds to (2 + 2) / 4 = 1.
+        assert_eq!(&half.rgba8[0..4], &[1, 1, 255, 255]);
     }
 
     #[test]

@@ -227,7 +227,10 @@ mod tests {
         let w = PhysicalKey::Code(WinitKeyCode::KeyW);
 
         assert_eq!(key_code(w), KeyCode::W);
-        assert_eq!(key_code(PhysicalKey::Code(WinitKeyCode::Digit7)), KeyCode::Num7);
+        assert_eq!(
+            key_code(PhysicalKey::Code(WinitKeyCode::Digit7)),
+            KeyCode::Num7
+        );
         assert_eq!(
             key_code(PhysicalKey::Code(WinitKeyCode::ShiftLeft)),
             KeyCode::LeftShift

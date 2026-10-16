@@ -11,7 +11,10 @@ fn drain_hands_the_frames_events_over_in_order() {
     assert!(bus.drain().is_empty());
 
     bus.push(Event::FrameBegin);
-    bus.push(Event::KeyPressed { key: KeyCode::W, repeat: false });
+    bus.push(Event::KeyPressed {
+        key: KeyCode::W,
+        repeat: false,
+    });
     bus.push(Event::MouseMoved { x: 1.5, y: -2.0 });
     bus.push(Event::FrameEnd);
 
@@ -20,7 +23,10 @@ fn drain_hands_the_frames_events_over_in_order() {
         bus.drain(),
         vec![
             Event::FrameBegin,
-            Event::KeyPressed { key: KeyCode::W, repeat: false },
+            Event::KeyPressed {
+                key: KeyCode::W,
+                repeat: false
+            },
             Event::MouseMoved { x: 1.5, y: -2.0 },
             Event::FrameEnd,
         ]
@@ -79,7 +85,9 @@ fn a_dropped_subscription_sees_nothing_more() {
     assert_eq!(seen.load(Ordering::Relaxed), 1);
 
     drop(subscription);
-    bus.push(Event::KeyReleased { key: KeyCode::Escape });
+    bus.push(Event::KeyReleased {
+        key: KeyCode::Escape,
+    });
     assert_eq!(seen.load(Ordering::Relaxed), 2);
 }
 

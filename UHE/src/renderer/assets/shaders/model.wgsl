@@ -216,7 +216,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     var shadow = 1.0;
     if (shadow_uv.x > 0.0 && shadow_uv.x < 1.0 && shadow_uv.y > 0.0 && shadow_uv.y < 1.0) {
-        let stored = textureSampleLevel(shadow_map, shadow_sampler, shadow_uv, 0.0);
+        // A depth texture samples with an integer level, unlike a colour one.
+        let stored = textureSampleLevel(shadow_map, shadow_sampler, shadow_uv, 0);
         let reference = shadow_clip.z / shadow_clip.w - 0.0015;
         shadow = select(1.0, 0.0, stored < reference);
     }

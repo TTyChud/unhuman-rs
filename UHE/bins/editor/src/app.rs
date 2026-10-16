@@ -17,8 +17,8 @@
 use std::ffi::CStr;
 
 use gpui::{
-    canvas, div, prelude::*, px, ClickEvent, Context, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Render, Window,
+    canvas, div, prelude::*, px, Context, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Render, Window,
 };
 use mirror::gizmo::GizmoMode;
 use mirror::play_state::PlayStatus;
@@ -42,8 +42,8 @@ const MIN_CONTENT: f32 = 70.0;
 const MAX_CONTENT: f32 = 460.0;
 
 pub struct EditorApp {
-    engine: adam::App,
-    editor: Editor,
+    pub(crate) engine: adam::App,
+    pub(crate) editor: Editor,
     theme: EditorTheme,
     theme_source: mirror::theme::Theme,
     backend: Option<String>,
@@ -117,7 +117,10 @@ impl EditorApp {
         let delta = self.engine.engine().time.delta().as_secs_f32();
         let scene = &mut self.engine.engine_mut().scene;
         let seconds = self.editor.tick(scene, delta);
-        self.engine.engine_mut().time.set_scale(if seconds > 0.0 { 1.0 } else { 0.0 });
+        self.engine
+            .engine_mut()
+            .time
+            .set_scale(if seconds > 0.0 { 1.0 } else { 0.0 });
 
         if let Err(error) = self.engine.frame() {
             log::error!("engine frame failed: {error}");
@@ -269,7 +272,10 @@ impl EditorApp {
     /// `on_mouse_move` stops firing the moment the pointer leaves the 5px bar.
     fn splitter(&self, splitter: Splitter, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let dragging = self.layout.drag.is_some_and(|drag| drag.splitter == splitter);
+        let dragging = self
+            .layout
+            .drag
+            .is_some_and(|drag| drag.splitter == splitter);
         let entity = cx.entity();
 
         let element = div()
@@ -299,7 +305,8 @@ impl EditorApp {
                                 }
                                 entity.update(cx, |this, cx| {
                                     let resized = this.layout.drag_to(
-                                        event.position.x.as_f32(), event.position.y.as_f32()
+                                        event.position.x.as_f32(),
+                                        event.position.y.as_f32(),
                                     );
                                     if resized {
                                         cx.notify();

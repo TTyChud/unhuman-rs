@@ -13,6 +13,6 @@ mod physics_system3d;
 mod plugin;
 mod shape;
 
-pub use physics_system3d::{BodyHandle, GRAVITY, Physics3D};
+pub use physics_system3d::{BodyHandle, Physics3D, GRAVITY};
 pub use plugin::FemurPlugin;
 pub use shape::ColliderShape;

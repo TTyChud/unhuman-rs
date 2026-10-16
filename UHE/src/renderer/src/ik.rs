@@ -36,7 +36,13 @@ pub struct FabrikResult {
 /// Out-of-reach targets are clamped to the reachable annulus `|l1 - l2| < d < l1 + l2`,
 /// so the hinge never degenerates; a zero-length bone or a target on the root joint
 /// returns `solved: false` and identity rotations.
-pub fn solve_two_bone(root: Vec3, mid: Vec3, end: Vec3, target: Vec3, pole: Vec3) -> TwoBoneIkResult {
+pub fn solve_two_bone(
+    root: Vec3,
+    mid: Vec3,
+    end: Vec3,
+    target: Vec3,
+    pole: Vec3,
+) -> TwoBoneIkResult {
     let mut result = TwoBoneIkResult::default();
 
     let root_to_mid = mid - root;

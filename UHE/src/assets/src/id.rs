@@ -15,7 +15,7 @@ use crate::mesh::{MeshData, ModelData};
 /// by a new UUID with no way to tell. Here the generation is compared on every
 /// dereference, so an id from before a release resolves to nothing instead of
 /// aliasing the asset that took its slot.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId {
     index: u32,
     generation: u32,
@@ -156,6 +156,13 @@ impl<T: ?Sized> Hash for Handle<T> {
 pub trait AssetData: 'static {
     const KIND: AssetKind;
 
+    /// Whether a slot of `kind` resolves through this payload. Every payload
+    /// matches its own [`KIND`](Self::KIND) except the raw bytes, which every
+    /// asset holds and which therefore accept any kind.
+    fn accepts(kind: AssetKind) -> bool {
+        kind == Self::KIND
+    }
+
     fn lookup(assets: &Assets, id: AssetId) -> Option<&Self>;
 }
 
@@ -193,6 +200,10 @@ impl AssetData for str {
 
 impl AssetData for [u8] {
     const KIND: AssetKind = AssetKind::Binary;
+
+    fn accepts(_kind: AssetKind) -> bool {
+        true
+    }
 
     fn lookup(assets: &Assets, id: AssetId) -> Option<&Self> {
         assets.bytes(id)

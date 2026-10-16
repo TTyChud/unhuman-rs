@@ -45,6 +45,8 @@ pub fn shader_stage_flags(stage: SlangStage) -> Option<vk::ShaderStageFlags> {
         | SlangStage::Amplification
         | SlangStage::Raygen
         | SlangStage::Miss
+        | SlangStage::AnyHit
+        | SlangStage::ClosestHit
         | SlangStage::Callable
         | SlangStage::Intersection => return None,
     };

@@ -295,9 +295,9 @@ fn load_materials(
         out.alpha_cutoff = material.alpha_cutoff().unwrap_or(0.5);
         out.double_sided = material.double_sided();
 
-        out.albedo = pbr.base_color_texture().and_then(|info| {
-            load_texture(info.texture(), &mut cache, base, buffers, true)
-        });
+        out.albedo = pbr
+            .base_color_texture()
+            .and_then(|info| load_texture(info.texture(), &mut cache, base, buffers, true));
         out.metallic_roughness = pbr.metallic_roughness_texture().and_then(|info| {
             // Metallic (B) and roughness (G) are scalars, not colour: gamma
             // decoding them shifts both.

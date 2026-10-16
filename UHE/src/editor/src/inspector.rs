@@ -41,12 +41,15 @@ pub enum PropertyKind {
     Enum(&'static [&'static str]),
 }
 
+pub type PropertyGetter = Box<dyn Fn(&Scene, Entity) -> PropertyValue + Send + Sync>;
+pub type PropertySetter = Box<dyn Fn(&mut Scene, Entity, &PropertyValue) + Send + Sync>;
+
 pub struct Property {
     pub name: &'static str,
     pub component: &'static str,
     pub kind: PropertyKind,
-    pub get: Box<dyn Fn(&Scene, Entity) -> PropertyValue + Send + Sync>,
-    pub set: Box<dyn Fn(&mut Scene, Entity, &PropertyValue) + Send + Sync>,
+    pub get: PropertyGetter,
+    pub set: PropertySetter,
 }
 
 impl Property {
@@ -417,12 +420,12 @@ fn camera_properties() -> Vec<Property> {
                 scene
                     .get(entity)
                     .and_then(|entry| {
-                        entry.get::<Camera>().map(|camera| {
-                            match camera.camera.projection_type() {
+                        entry
+                            .get::<Camera>()
+                            .map(|camera| match camera.camera.projection_type() {
                                 ProjectionType::Perspective => 0,
                                 ProjectionType::Orthographic => 1,
-                            }
-                        })
+                            })
                     })
                     .unwrap_or(0)
             },
@@ -580,9 +583,7 @@ fn mesh_renderer_properties() -> Vec<Property> {
                     .unwrap_or_default()
             },
             |scene, entity, value| {
-                edit::<MeshRenderer>(scene, entity, |mesh| {
-                    mesh.mesh_path = value.to_string()
-                })
+                edit::<MeshRenderer>(scene, entity, |mesh| mesh.mesh_path = value.to_string())
             },
         ),
         text(
@@ -599,9 +600,7 @@ fn mesh_renderer_properties() -> Vec<Property> {
                     .unwrap_or_default()
             },
             |scene, entity, value| {
-                edit::<MeshRenderer>(scene, entity, |mesh| {
-                    mesh.material_path = value.to_string()
-                })
+                edit::<MeshRenderer>(scene, entity, |mesh| mesh.material_path = value.to_string())
             },
         ),
         color(
@@ -615,9 +614,7 @@ fn mesh_renderer_properties() -> Vec<Property> {
                     .to_array()
             },
             |scene, entity, value| {
-                edit::<MeshRenderer>(scene, entity, |mesh| {
-                    mesh.tint = Vec4::from_array(value)
-                })
+                edit::<MeshRenderer>(scene, entity, |mesh| mesh.tint = Vec4::from_array(value))
             },
         ),
         boolean(
@@ -637,9 +634,7 @@ fn mesh_renderer_properties() -> Vec<Property> {
             |scene, entity| {
                 scene
                     .get(entity)
-                    .and_then(|entry| {
-                        entry.get::<MeshRenderer>().map(|mesh| mesh.cast_shadows)
-                    })
+                    .and_then(|entry| entry.get::<MeshRenderer>().map(|mesh| mesh.cast_shadows))
                     .unwrap_or(false)
             },
             |scene, entity, value| {
@@ -700,9 +695,7 @@ fn sprite_renderer_properties() -> Vec<Property> {
                     .unwrap_or(1.0)
             },
             |scene, entity, value| {
-                edit::<SpriteRenderer>(scene, entity, |sprite| {
-                    sprite.tiling_factor = value
-                })
+                edit::<SpriteRenderer>(scene, entity, |sprite| sprite.tiling_factor = value)
             },
         ),
         boolean(
@@ -719,9 +712,7 @@ fn sprite_renderer_properties() -> Vec<Property> {
                     .unwrap_or(false)
             },
             |scene, entity, value| {
-                edit::<SpriteRenderer>(scene, entity, |sprite| {
-                    sprite.use_sub_texture = value
-                })
+                edit::<SpriteRenderer>(scene, entity, |sprite| sprite.use_sub_texture = value)
             },
         ),
         vector2(
@@ -906,9 +897,7 @@ fn light_properties() -> Vec<Property> {
                     .to_array()
             },
             |scene, entity, value| {
-                edit::<Light>(scene, entity, |light| {
-                    light.color = Vec3::from_array(value)
-                })
+                edit::<Light>(scene, entity, |light| light.color = Vec3::from_array(value))
             },
         ),
         scalar(
@@ -1109,11 +1098,13 @@ fn collider_properties() -> Vec<Property> {
                 scene
                     .get(entity)
                     .and_then(|entry| {
-                        entry.get::<Collider>().map(|collider| match &collider.shape {
-                            ColliderShape::Box { half_extent } => *half_extent,
-                            ColliderShape::Sphere { .. } => Vec3::splat(0.5),
-                            ColliderShape::Capsule { .. } => Vec3::splat(0.5),
-                        })
+                        entry
+                            .get::<Collider>()
+                            .map(|collider| match &collider.shape {
+                                ColliderShape::Box { half_extent } => *half_extent,
+                                ColliderShape::Sphere { .. } => Vec3::splat(0.5),
+                                ColliderShape::Capsule { .. } => Vec3::splat(0.5),
+                            })
                     })
                     .unwrap_or(Vec3::splat(0.5))
                     .to_array()
@@ -1133,11 +1124,13 @@ fn collider_properties() -> Vec<Property> {
                 scene
                     .get(entity)
                     .and_then(|entry| {
-                        entry.get::<Collider>().map(|collider| match &collider.shape {
-                            ColliderShape::Sphere { radius } => *radius,
-                            ColliderShape::Capsule { radius, .. } => *radius,
-                            ColliderShape::Box { .. } => 0.5,
-                        })
+                        entry
+                            .get::<Collider>()
+                            .map(|collider| match &collider.shape {
+                                ColliderShape::Sphere { radius } => *radius,
+                                ColliderShape::Capsule { radius, .. } => *radius,
+                                ColliderShape::Box { .. } => 0.5,
+                            })
                     })
                     .unwrap_or(0.5)
             },
@@ -1156,10 +1149,12 @@ fn collider_properties() -> Vec<Property> {
                 scene
                     .get(entity)
                     .and_then(|entry| {
-                        entry.get::<Collider>().map(|collider| match &collider.shape {
-                            ColliderShape::Capsule { half_height, .. } => *half_height,
-                            ColliderShape::Box { .. } | ColliderShape::Sphere { .. } => 1.0,
-                        })
+                        entry
+                            .get::<Collider>()
+                            .map(|collider| match &collider.shape {
+                                ColliderShape::Capsule { half_height, .. } => *half_height,
+                                ColliderShape::Box { .. } | ColliderShape::Sphere { .. } => 1.0,
+                            })
                     })
                     .unwrap_or(1.0)
             },
@@ -1189,9 +1184,7 @@ fn collider_properties() -> Vec<Property> {
             |scene, entity| {
                 scene
                     .get(entity)
-                    .and_then(|entry| {
-                        entry.get::<Collider>().map(|collider| collider.restitution)
-                    })
+                    .and_then(|entry| entry.get::<Collider>().map(|collider| collider.restitution))
                     .unwrap_or(0.0)
             },
             |scene, entity, value| {
@@ -1217,9 +1210,7 @@ fn audio_source_properties() -> Vec<Property> {
                     .unwrap_or_default()
             },
             |scene, entity, value| {
-                edit::<AudioSource>(scene, entity, |source| {
-                    source.clip_path = value.to_string()
-                })
+                edit::<AudioSource>(scene, entity, |source| source.clip_path = value.to_string())
             },
         ),
         boolean(

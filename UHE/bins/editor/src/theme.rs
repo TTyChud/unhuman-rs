@@ -92,6 +92,12 @@ mod tests {
         }
     }
 
+    /// The round-trip comparison is `mirror` versus gpui's colour type; both are
+    /// four `f32` channels, so the test compares them directly.
+    fn from_gpui(color: gpui::Rgba) -> Rgba {
+        Rgba::new(color.r, color.g, color.b, color.a)
+    }
+
     #[test]
     fn every_theme_survives_the_round_trip() {
         let mut theme = Theme::new();
@@ -100,9 +106,9 @@ mod tests {
             let palette = theme.palette();
             let mapped = EditorTheme::from(&theme);
 
-            close(palette.accent, mapped.accent.to_rgb());
-            close(palette.text, mapped.text.to_rgb());
-            close(palette.bg, mapped.bg.to_rgb());
+            close(palette.accent, from_gpui(mapped.accent.to_rgb()));
+            close(palette.text, from_gpui(mapped.text.to_rgb()));
+            close(palette.bg, from_gpui(mapped.bg.to_rgb()));
         }
     }
 
@@ -113,7 +119,7 @@ mod tests {
         let palette = theme.palette();
         let mapped = EditorTheme::from(&theme);
 
-        close(palette.accent, mapped.accent.to_rgb());
+        close(palette.accent, from_gpui(mapped.accent.to_rgb()));
         let accent = mapped.accent.to_rgb();
         assert!(accent.r > accent.g && accent.r > accent.b);
     }

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use vault::{
-    compress, AssetKind, Assets, AnimationData, CompressSettings, Interpolation, VectorTrack,
+    compress, AnimationData, AssetKind, Assets, CompressSettings, Interpolation, VectorTrack,
 };
 
 struct Scratch {
@@ -105,7 +105,10 @@ fn a_non_indexed_triangle_decodes_with_synthesised_indices_and_normals() {
     assert_eq!(mesh.bounds_min, [0.0, 0.0, 0.0]);
     assert_eq!(mesh.bounds_max, [1.0, 1.0, 0.0]);
 
-    let material = mesh.material.as_ref().expect("the primitive names material 0");
+    let material = mesh
+        .material
+        .as_ref()
+        .expect("the primitive names material 0");
     assert_eq!(material.name, "Paint");
     assert_eq!(material.base_color, [1.0, 0.5, 0.25, 1.0]);
     assert_eq!(material.metallic, 0.25);
@@ -210,7 +213,10 @@ fn measuring_reports_the_same_reduction_without_applying_it() {
     assert_eq!(measured.keys_before, applied.keys_before);
     assert_eq!(measured.keys_after, applied.keys_after);
     assert_eq!(clip.position_tracks[0].times.len(), 65);
-    assert_eq!(applied_clip.position_tracks[0].times.len(), applied.keys_after);
+    assert_eq!(
+        applied_clip.position_tracks[0].times.len(),
+        applied.keys_after
+    );
 }
 
 #[test]

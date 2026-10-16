@@ -26,7 +26,10 @@ fn a_depth_read_is_its_own_layout() {
     let depth = layout(DescriptorKind::SampledDepth);
 
     assert_ne!(DescriptorKind::SampledImage, DescriptorKind::SampledDepth);
-    assert!(!depth.is_compatible(&image), "an image layout took a depth one");
+    assert!(
+        !depth.is_compatible(&image),
+        "an image layout took a depth one"
+    );
     assert_ne!(
         depth.hash(),
         image.hash(),

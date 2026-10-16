@@ -53,7 +53,10 @@ fn get_mut_writes_components() {
     view.get_mut::<Transform>().unwrap().translation = Vec3::new(3.0, 4.0, 5.0);
 
     let view = scene.get(entity).unwrap();
-    assert_eq!(view.get::<Transform>().unwrap().translation, Vec3::new(3.0, 4.0, 5.0));
+    assert_eq!(
+        view.get::<Transform>().unwrap().translation,
+        Vec3::new(3.0, 4.0, 5.0)
+    );
 }
 
 #[test]
@@ -84,7 +87,12 @@ fn a_child_inherits_its_parents_transform() {
     assert!((world.transform_point3(Vec3::ZERO) - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-6);
     // The local transform is untouched by a plain `set_parent`.
     assert_eq!(
-        scene.get(child).unwrap().get::<Transform>().unwrap().translation,
+        scene
+            .get(child)
+            .unwrap()
+            .get::<Transform>()
+            .unwrap()
+            .translation,
         Vec3::new(0.0, 2.0, 0.0)
     );
 }
@@ -124,7 +132,10 @@ fn world_transform_composes_rotation_and_scale_down_the_chain() {
     // (so +Z to -Y) and scales by 2: (0,2,2) -> (0,-2,2), plus its own
     // translation (0,1,0) = (0,-1,2).
     let world = scene.world_transform(child).transform_point3(Vec3::ZERO);
-    assert!((world - Vec3::new(0.0, -1.0, 2.0)).length() < 1e-5, "{world:?}");
+    assert!(
+        (world - Vec3::new(0.0, -1.0, 2.0)).length() < 1e-5,
+        "{world:?}"
+    );
 }
 
 #[test]
@@ -178,9 +189,17 @@ fn set_parent_preserving_world_keeps_the_entity_where_it_is() {
 
     scene.set_parent_preserving_world(child, Some(parent));
     let world = scene.world_transform(child).transform_point3(Vec3::ZERO);
-    assert!((world - Vec3::new(2.0, 0.0, 0.0)).length() < 1e-5, "{world:?}");
+    assert!(
+        (world - Vec3::new(2.0, 0.0, 0.0)).length() < 1e-5,
+        "{world:?}"
+    );
     assert_eq!(
-        scene.get(child).unwrap().get::<Transform>().unwrap().translation,
+        scene
+            .get(child)
+            .unwrap()
+            .get::<Transform>()
+            .unwrap()
+            .translation,
         Vec3::new(-8.0, 0.0, 0.0)
     );
 }
@@ -240,7 +259,10 @@ fn update_transforms_is_stable_when_called_twice() {
         .iter()
         .map(|entity| scene.world_transform(*entity))
         .collect();
-    assert_eq!(walked, first, "the cache must agree with the walk it replaced");
+    assert_eq!(
+        walked, first,
+        "the cache must agree with the walk it replaced"
+    );
 
     scene.update_transforms();
     let second: Vec<Mat4> = entities
@@ -371,11 +393,16 @@ fn a_clone_carries_the_hierarchy_and_the_components() {
         .unwrap();
     assert_eq!(copy.parent(copy_child), Some(copy_parent));
     assert_eq!(
-        copy.get(copy_child).unwrap().get::<Transform>().unwrap().translation,
+        copy.get(copy_child)
+            .unwrap()
+            .get::<Transform>()
+            .unwrap()
+            .translation,
         Vec3::new(1.0, 1.0, 1.0)
     );
     assert_eq!(
-        copy.world_transform(copy_child).transform_point3(Vec3::ZERO),
+        copy.world_transform(copy_child)
+            .transform_point3(Vec3::ZERO),
         Vec3::new(1.0, 1.0, 1.0)
     );
 }

@@ -127,8 +127,10 @@ pub(crate) fn extract_primitive(
 
     // Out-of-range indices would read past the vertex arrays at draw time; a
     // trailing partial triangle would be read as garbage.
-    mesh.indices.retain(|index| (*index as usize) < vertex_count);
-    mesh.indices.truncate(mesh.indices.len() - mesh.indices.len() % 3);
+    mesh.indices
+        .retain(|index| (*index as usize) < vertex_count);
+    mesh.indices
+        .truncate(mesh.indices.len() - mesh.indices.len() % 3);
 
     if !has_normals {
         synthesize_normals(&mut mesh);
@@ -166,12 +168,14 @@ pub(crate) fn extract_primitive(
 /// triangle on purpose — its length is twice the triangle's area, which is what
 /// makes the sum area-weighted.
 fn synthesize_normals(mesh: &mut MeshData) {
-    for normal in &mut mesh.normals {
-        *normal = [0.0, 0.0, 0.0];
-    }
+    mesh.normals.fill([0.0, 0.0, 0.0]);
 
-    for triangle in mesh.indices.chunks_exact(3) {
-        let (i0, i1, i2) = (triangle[0] as usize, triangle[1] as usize, triangle[2] as usize);
+    for triangle in mesh.indices.as_chunks::<3>().0 {
+        let (i0, i1, i2) = (
+            triangle[0] as usize,
+            triangle[1] as usize,
+            triangle[2] as usize,
+        );
         let (Some(p0), Some(p1), Some(p2)) = (
             mesh.positions.get(i0).copied(),
             mesh.positions.get(i1).copied(),

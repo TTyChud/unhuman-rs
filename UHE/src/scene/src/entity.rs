@@ -48,7 +48,7 @@ impl<'a> EntityRef<'a> {
     pub fn has<T: hecs::Component>(&self) -> bool {
         let scene: &'a Scene = self.scene;
         match scene.hecs_of(self.entity) {
-            Some(hecs) => scene.world.satisfies::<&T>(hecs),
+            Some(hecs) => scene.world().satisfies::<&T>(hecs),
             None => false,
         }
     }
@@ -58,7 +58,7 @@ impl<'a> EntityRef<'a> {
     pub fn get<T: hecs::Component>(&self) -> Option<Ref<'a, T>> {
         let scene: &'a Scene = self.scene;
         let hecs = scene.hecs_of(self.entity)?;
-        scene.world.get::<&T>(hecs).ok()
+        scene.world().get::<&T>(hecs).ok()
     }
 }
 
@@ -88,12 +88,12 @@ impl<'a> EntityRefMut<'a> {
 
     pub fn get<T: hecs::Component>(&self) -> Option<Ref<'_, T>> {
         let hecs = self.scene.hecs_of(self.entity)?;
-        self.scene.world.get::<&T>(hecs).ok()
+        self.scene.world().get::<&T>(hecs).ok()
     }
 
     pub fn get_mut<T: hecs::Component>(&mut self) -> Option<&mut T> {
         let hecs = self.scene.hecs_of(self.entity)?;
-        self.scene.world.query_one_mut::<&mut T>(hecs).ok()
+        self.scene.world_mut().query_one_mut::<&mut T>(hecs).ok()
     }
 
     pub fn insert<T: hecs::Component>(&mut self, component: T) {

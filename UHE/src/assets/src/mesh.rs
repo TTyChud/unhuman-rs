@@ -7,9 +7,10 @@ use crate::image::{Image, MipLevel};
 /// Port of `InterpolationMode` (`Animation.h:14`). `CubicSpline` carries the
 /// Hermite tangents from the glTF output layout
 /// `[inTangent_i, value_i, outTangent_i]`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Interpolation {
     Step,
+    #[default]
     Linear,
     CubicSpline,
 }

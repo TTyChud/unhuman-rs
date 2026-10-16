@@ -7,7 +7,11 @@ use mirror::{Editor, PlayStatus};
 fn translation(scene: &Scene, entity: Entity) -> Vec3 {
     scene
         .get(entity)
-        .and_then(|entry| entry.get::<Transform>().map(|transform| transform.translation))
+        .and_then(|entry| {
+            entry
+                .get::<Transform>()
+                .map(|transform| transform.translation)
+        })
         .unwrap_or(Vec3::ZERO)
 }
 

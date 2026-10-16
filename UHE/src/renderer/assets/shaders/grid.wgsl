@@ -73,7 +73,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 
     let coord = frag_pos.xz;
     let derivative = fwidth(coord);
-    let cell = abs(frac(coord - 0.5) - 0.5) / derivative;
+    let cell = abs(fract(coord - 0.5) - 0.5) / derivative;
     let line = min(cell.x, cell.y);
     let minimum_z = min(derivative.y, 1.0);
     let minimum_x = min(derivative.x, 1.0);

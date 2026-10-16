@@ -184,7 +184,7 @@ pub struct MaterialGpu {
     pub uv_offset: [[f32; 4]; SLOT_COUNT],
 }
 
-const _: () = assert!(std::mem::size_of::<MaterialGpu>() % 16 == 0);
+const _: () = assert!(std::mem::size_of::<MaterialGpu>().is_multiple_of(16));
 
 /// Packs a material into the GPU layout. Port of `FillMaterialGPU`
 /// (`MaterialGPU.cpp:20-99`), for the slots and factors this pass shades.
@@ -414,7 +414,9 @@ impl MaterialCache {
         let doomed: Vec<MaterialKey> = self
             .entries
             .iter()
-            .filter(|(_, entry)| (0..SLOT_COUNT).any(|slot| entry.textures.get(slot) == Some(texture)))
+            .filter(|(_, entry)| {
+                (0..SLOT_COUNT).any(|slot| entry.textures.get(slot) == Some(texture))
+            })
             .map(|(key, _)| *key)
             .collect();
 
@@ -508,7 +510,10 @@ impl TextureCache {
     /// Multiplying by white is the correct neutral for albedo, metallic/
     /// roughness, occlusion and emissive — glTF says an absent map leaves the
     /// factor in force, which is what sampling 1.0 does.
-    pub fn white(&mut self, resources: &mut dyn Resources) -> Result<CachedTexture, chassis::Error> {
+    pub fn white(
+        &mut self,
+        resources: &mut dyn Resources,
+    ) -> Result<CachedTexture, chassis::Error> {
         if let Some(white) = self.white {
             return Ok(white);
         }
@@ -617,7 +622,10 @@ impl TextureCache {
         for (_, cached) in self.entries.drain() {
             resources.destroy_texture(cached.texture);
         }
-        for cached in [self.white.take(), self.neutral.take()].into_iter().flatten() {
+        for cached in [self.white.take(), self.neutral.take()]
+            .into_iter()
+            .flatten()
+        {
             resources.destroy_texture(cached.texture);
         }
         if let Some(sampler) = self.linear.take() {

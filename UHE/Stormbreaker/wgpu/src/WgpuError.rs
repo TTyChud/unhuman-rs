@@ -47,7 +47,10 @@ impl fmt::Display for WgpuError {
                 write!(f, "the surface offers no format for this adapter")
             }
             WgpuError::Unsupported { what, available } => {
-                write!(f, "the surface does not offer {what}; it offers {available}")
+                write!(
+                    f,
+                    "the surface does not offer {what}; it offers {available}"
+                )
             }
             WgpuError::NoSwapchain => write!(f, "no surface is attached to this gpu"),
         }

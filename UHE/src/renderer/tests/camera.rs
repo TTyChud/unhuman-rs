@@ -45,7 +45,10 @@ fn a_fresh_camera_sits_on_plus_z_at_the_default_distance() {
 
     // The view matrix is `inverse(translate(position) * toMat4(orientation))`,
     // so with an identity orientation its translation is `-position`.
-    assert_near(camera.view_matrix().w_axis.truncate(), Vec3::new(0.0, 0.0, -10.0));
+    assert_near(
+        camera.view_matrix().w_axis.truncate(),
+        Vec3::new(0.0, 0.0, -10.0),
+    );
 }
 
 /// The projection is Vulkan's: right-handed, depth 0..1, which is what
@@ -56,8 +59,8 @@ fn the_projection_is_a_vulkan_perspective() {
     let projection = camera.projection();
 
     // 1/tan(45/2) = 2.414213562373095, and f/aspect with aspect 1280/720.
-    assert_close(projection.col(0).x, 1.357995128834866);
-    assert_close(projection.col(1).y, 2.414213562373095);
+    assert_close(projection.col(0).x, 1.357_995_2);
+    assert_close(projection.col(1).y, 2.414_213_7);
 
     // The near plane lands on depth 0 and the far plane on depth 1. This is the
     // property a GL-style projection would fail, and it is what every depth
@@ -70,12 +73,7 @@ fn the_projection_is_a_vulkan_perspective() {
     // The vertical half-angle: a point at `near * tan(fov/2)` is exactly the top
     // edge, and `aspect` times that is exactly the right edge.
     let half = 0.1 * (45.0f32 / 2.0).to_radians().tan();
-    assert_close(
-        projection
-            .project_point3(Vec3::new(0.0, half, -0.1))
-            .y,
-        1.0,
-    );
+    assert_close(projection.project_point3(Vec3::new(0.0, half, -0.1)).y, 1.0);
     assert_close(
         projection
             .project_point3(Vec3::new(half * (1280.0 / 720.0), 0.0, -0.1))
@@ -92,8 +90,8 @@ fn a_square_viewport_gives_a_square_projection() {
     camera.set_viewport_size(1000.0, 1000.0);
 
     assert_close(camera.aspect_ratio(), 1.0);
-    assert_close(camera.projection().col(0).x, 2.414213562373095);
-    assert_close(camera.projection().col(1).y, 2.414213562373095);
+    assert_close(camera.projection().col(0).x, 2.414_213_7);
+    assert_close(camera.projection().col(1).y, 2.414_213_7);
 }
 
 /// Alt + left-drag orbits. `delta = (cursor - initial) * 0.003`, the two speeds
@@ -122,7 +120,7 @@ fn an_alt_left_drag_orbits_around_the_focal_point() {
     // (0.2359932, -0.1197122, -0.9643527) and the camera is 10 units behind it.
     assert_near(
         camera.position(),
-        Vec3::new(-2.3599322, 1.1971221, 9.6435273),
+        Vec3::new(-2.3599322, 1.1971221, 9.643_527),
     );
     assert_near(camera.focal_point(), Vec3::ZERO);
 }
@@ -144,7 +142,7 @@ fn an_alt_middle_drag_pans_the_focal_point() {
     camera.update(&input);
 
     // focal -= right * 0.03 * 0.13448144 * 10; focal += up * -0.06 * 0.19305744 * 10
-    let expected = Vec3::new(-0.040344432, -0.115834464, 0.0);
+    let expected = Vec3::new(-0.040344432, -0.115_834_47, 0.0);
     assert_near(camera.focal_point(), expected);
     // The camera keeps its 10-unit standoff along -Z.
     assert_near(camera.position(), expected + Vec3::new(0.0, 0.0, 10.0));
@@ -179,12 +177,15 @@ fn the_dolly_stops_at_distance_one() {
 /// `BeginScene(camera, transform)` overload turns one into a view-projection.
 #[test]
 fn a_scene_camera_uses_the_inverse_of_its_transform() {
-    let projection = Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0);
+    let projection = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 100.0);
     let camera = Camera::from_projection(projection);
     let transform = Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0));
 
     assert_eq!(camera.projection(), projection);
-    assert_eq!(camera.view_projection(&transform), projection * transform.inverse());
+    assert_eq!(
+        camera.view_projection(&transform),
+        projection * transform.inverse()
+    );
 }
 
 /// An editor camera is a `Camera`: `From<EditorCamera>` is how the frame's

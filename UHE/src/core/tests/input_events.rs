@@ -24,7 +24,9 @@ fn a_pressed_key_is_held_and_a_released_one_is_not() {
     app.frame().unwrap();
     assert!(app.engine().input.is_key_held(KeyCode::W));
 
-    app.engine_mut().events.push(Event::KeyReleased { key: KeyCode::W });
+    app.engine_mut()
+        .events
+        .push(Event::KeyReleased { key: KeyCode::W });
     app.frame().unwrap();
     assert!(!app.engine().input.is_key_held(KeyCode::W));
 }
@@ -55,7 +57,9 @@ fn a_press_is_visible_to_the_frame_it_arrived_in_and_gone_the_next() {
 fn the_cursor_survives_a_frame() {
     let mut app = app();
 
-    app.engine_mut().events.push(Event::MouseMoved { x: 120.0, y: 45.0 });
+    app.engine_mut()
+        .events
+        .push(Event::MouseMoved { x: 120.0, y: 45.0 });
     app.frame().unwrap();
 
     assert_eq!(app.engine().input.cursor(), (120.0, 45.0));

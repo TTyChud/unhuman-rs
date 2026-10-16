@@ -111,10 +111,16 @@ mod tests {
 
     #[test]
     fn relative_path_strips_separators_and_dots() {
-        assert_eq!(relative_path("a/b/c.png"), Ok(PathBuf::from("a/b/c.png")));
-        assert_eq!(relative_path("/a/b.png"), Ok(PathBuf::from("a/b.png")));
-        assert_eq!(relative_path("./a//b.png"), Ok(PathBuf::from("a/b.png")));
-        assert_eq!(relative_path("a\\b.png"), Ok(PathBuf::from("a/b.png")));
+        assert_eq!(
+            relative_path("a/b/c.png").unwrap(),
+            PathBuf::from("a/b/c.png")
+        );
+        assert_eq!(relative_path("/a/b.png").unwrap(), PathBuf::from("a/b.png"));
+        assert_eq!(
+            relative_path("./a//b.png").unwrap(),
+            PathBuf::from("a/b.png")
+        );
+        assert_eq!(relative_path("a\\b.png").unwrap(), PathBuf::from("a/b.png"));
     }
 
     #[test]

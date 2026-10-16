@@ -18,7 +18,10 @@
 //! `the Vulkan backend currently ignores.`
 
 use bytemuck::{Pod, Zeroable};
-use chassis::{BindGroup, Buffer, BufferDesc, BufferUsage, DescriptorSetLayoutDesc, Resources};
+use chassis::{
+    BindGroup, Buffer, BufferDesc, BufferUsage, DescriptorSetLayoutDesc, ImageView, Resources,
+    Sampler,
+};
 
 /// Byte alignment between blocks in one buffer.
 ///
@@ -50,7 +53,12 @@ impl FrameUniforms {
         Self {
             view_projection,
             shadow_view_projection,
-            camera_position: [camera_position[0], camera_position[1], camera_position[2], 1.0],
+            camera_position: [
+                camera_position[0],
+                camera_position[1],
+                camera_position[2],
+                1.0,
+            ],
             params: [
                 light_count as f32,
                 if lighting { 1.0 } else { 0.0 },

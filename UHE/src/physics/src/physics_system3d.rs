@@ -22,9 +22,9 @@ use adam::PhysicsBackend;
 use glam::Vec3;
 use meats::{Collider, Entity, RigidBody, RigidBodyKind, Scene, Transform};
 use rapier3d::prelude::{
-    BroadPhaseBvh, CCDSolver, ColliderBuilder, ColliderSet, ImpulseJointSet,
-    IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, Pose,
-    RigidBodyBuilder, RigidBodyHandle, RigidBodySet, SoftBodySet,
+    BroadPhaseBvh, CCDSolver, ColliderBuilder, ColliderSet, ImpulseJointSet, IntegrationParameters,
+    IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, Pose, RigidBodyBuilder,
+    RigidBodyHandle, RigidBodySet, SoftBodySet,
 };
 
 use crate::shape::{Refusal, ShapeSlot};

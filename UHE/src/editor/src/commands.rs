@@ -80,7 +80,7 @@ impl Command {
                 after,
                 ..
             } => {
-                inspector.set_named(scene, *entity, *component, *property, after);
+                inspector.set_named(scene, *entity, component, property, after);
             }
             Command::Rename { entity, after, .. } => set_tag(scene, *entity, after.as_str()),
             Command::Reparent { entity, after, .. } => scene.set_parent(*entity, *after),
@@ -112,7 +112,7 @@ impl Command {
                 before,
                 ..
             } => {
-                inspector.set_named(scene, *entity, *component, *property, before);
+                inspector.set_named(scene, *entity, component, property, before);
             }
             Command::Rename { entity, before, .. } => set_tag(scene, *entity, before.as_str()),
             Command::Reparent { entity, before, .. } => scene.set_parent(*entity, *before),

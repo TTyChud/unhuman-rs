@@ -181,11 +181,7 @@ impl Default for LightBuffer {
 /// light when nothing was found, so that an unlit scene is lit rather than
 /// black; that is kept, and is why this never returns an empty list.
 pub fn extract(scene: &meats::Scene) -> Vec<LightData> {
-    let mut lights: Vec<LightData> = scene
-        .lights()
-        .iter()
-        .map(LightData::from_sample)
-        .collect();
+    let mut lights: Vec<LightData> = scene.lights().iter().map(LightData::from_sample).collect();
 
     if lights.is_empty() {
         lights.push(LightData {

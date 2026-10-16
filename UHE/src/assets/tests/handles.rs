@@ -60,7 +60,7 @@ fn a_released_slot_is_never_reused_without_bumping_its_generation() {
     // The stale id must not resolve to the asset that took its slot.
     assert!(!assets.contains(first));
     assert_eq!(assets.bytes(first), None);
-    assert_eq!(assets.mesh(first), None);
+    assert!(assets.mesh(first).is_none());
     assert_eq!(assets.text(second), Some("hello"));
     assert_eq!(assets.len(), 1);
 }

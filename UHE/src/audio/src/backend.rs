@@ -12,7 +12,7 @@ use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use adam::VoiceId;
 
 use crate::sound::Sound;
-use crate::spatial::{CHANNELS, Pan, PanHandle};
+use crate::spatial::{Pan, PanHandle, CHANNELS};
 use crate::voice::Voice;
 
 /// An open output device and the voices playing through it.
@@ -117,5 +117,8 @@ where
     S: Source,
 {
     let rate = decoder.sample_rate();
-    Pan::new(UniformSourceIterator::new(decoder, CHANNELS, rate), pan.clone())
+    Pan::new(
+        UniformSourceIterator::new(decoder, CHANNELS, rate),
+        pan.clone(),
+    )
 }

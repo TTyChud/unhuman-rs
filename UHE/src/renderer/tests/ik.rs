@@ -4,7 +4,11 @@ use bifrost::ik::{solve_fabrik, solve_two_bone, DEFAULT_MAX_ITERATIONS, DEFAULT_
 use glam::Vec3;
 
 fn three_joint_chain() -> [Vec3; 3] {
-    [Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.0, 2.0, 0.0)]
+    [
+        Vec3::ZERO,
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+    ]
 }
 
 #[test]
@@ -12,7 +16,13 @@ fn a_reachable_target_is_reached_within_the_iteration_cap() {
     let mut joints = three_joint_chain();
     let target = Vec3::new(1.0, 1.0, 0.0);
 
-    let result = solve_fabrik(&mut joints, target, None, DEFAULT_MAX_ITERATIONS, DEFAULT_TOLERANCE);
+    let result = solve_fabrik(
+        &mut joints,
+        target,
+        None,
+        DEFAULT_MAX_ITERATIONS,
+        DEFAULT_TOLERANCE,
+    );
 
     assert!(result.solved);
     assert!(result.iterations <= DEFAULT_MAX_ITERATIONS);
@@ -28,7 +38,13 @@ fn the_root_stays_put_and_the_bone_lengths_survive() {
     let root = joints[0];
     let target = Vec3::new(1.0, 1.0, 0.0);
 
-    solve_fabrik(&mut joints, target, None, DEFAULT_MAX_ITERATIONS, DEFAULT_TOLERANCE);
+    solve_fabrik(
+        &mut joints,
+        target,
+        None,
+        DEFAULT_MAX_ITERATIONS,
+        DEFAULT_TOLERANCE,
+    );
 
     assert_eq!(joints[0], root);
     assert!(((joints[1] - joints[0]).length() - 1.0).abs() < 1e-3);
@@ -56,10 +72,20 @@ fn a_pole_vector_moves_the_hinge_into_its_plane() {
 
 #[test]
 fn an_unreachable_target_ends_pointing_at_it_without_nan() {
-    let mut joints = [Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)];
+    let mut joints = [
+        Vec3::ZERO,
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(2.0, 0.0, 0.0),
+    ];
     let target = Vec3::new(10.0, 0.0, 0.0);
 
-    let result = solve_fabrik(&mut joints, target, None, DEFAULT_MAX_ITERATIONS, DEFAULT_TOLERANCE);
+    let result = solve_fabrik(
+        &mut joints,
+        target,
+        None,
+        DEFAULT_MAX_ITERATIONS,
+        DEFAULT_TOLERANCE,
+    );
 
     assert!(!result.solved);
     let direction = (joints[2] - joints[0]).normalize();
@@ -163,7 +189,13 @@ fn a_degenerate_two_bone_solve_reports_unsolved_without_nan() {
 #[test]
 fn a_chain_shorter_than_one_bone_is_left_alone() {
     let mut joints = [Vec3::ZERO];
-    let result = solve_fabrik(&mut joints, Vec3::X, None, DEFAULT_MAX_ITERATIONS, DEFAULT_TOLERANCE);
+    let result = solve_fabrik(
+        &mut joints,
+        Vec3::X,
+        None,
+        DEFAULT_MAX_ITERATIONS,
+        DEFAULT_TOLERANCE,
+    );
     assert!(!result.solved);
     assert_eq!(result.iterations, 0);
     assert_eq!(joints[0], Vec3::ZERO);

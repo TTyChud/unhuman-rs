@@ -27,7 +27,7 @@ pub const MIN_CHANNEL_GAIN: f32 = 0.2;
 /// Linear falloff: 1.0 at the listener, 0.0 at `range` and beyond it. A range of
 /// zero or less means no falloff at all.
 pub fn attenuation(distance: f32, range: f32) -> f32 {
-    if !(range > 0.0) {
+    if range.is_nan() || range <= 0.0 {
         return 1.0;
     }
     (1.0 - distance / range).clamp(0.0, 1.0)
@@ -210,10 +210,7 @@ mod tests {
     #[test]
     fn pan_follows_the_handle_while_the_sound_plays() {
         let handle = PanHandle::new(1.0, 1.0);
-        let mut source = Pan::new(
-            stereo(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
-            handle.clone(),
-        );
+        let mut source = Pan::new(stereo(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0]), handle.clone());
         assert_eq!(source.next(), Some(1.0));
         assert_eq!(source.next(), Some(1.0));
         handle.set_gains(0.5, 0.25);

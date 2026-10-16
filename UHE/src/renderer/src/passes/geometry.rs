@@ -92,7 +92,11 @@ impl GeometryPass {
         self.draws.len()
     }
 
-    pub fn record(&self, _scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        _scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         if self.draws.is_empty() {
             return Ok(());
         }

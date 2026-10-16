@@ -1,7 +1,7 @@
 //! Gizmo math against a camera both ends of the workspace can agree on: an
 //! orthographic view of the origin, so every screen position is arithmetic.
 
-use glam::{Mat4, Quat, Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 use mirror::gizmo::{
     snap_angle, snap_scale, snap_translate, Axis, Camera, GizmoMode, GizmoTransform, Snap,
     TransformGizmo,
@@ -9,8 +9,8 @@ use mirror::gizmo::{
 
 fn camera() -> Camera {
     Camera {
-        view: Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y),
-        projection: Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0),
+        view: glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y),
+        projection: glam::camera::rh::proj::directx::orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0),
         viewport_size: Vec2::new(800.0, 600.0),
     }
 }
@@ -79,7 +79,12 @@ fn snapping_rounds_the_drag_to_a_grid() {
         rotate_degrees: 45.0,
         scale: 0.5,
     };
-    assert!(gizmo.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(400.0, 300.0), Axis::Y));
+    assert!(gizmo.begin(
+        &cam,
+        &GizmoTransform::IDENTITY,
+        Vec2::new(400.0, 300.0),
+        Axis::Y
+    ));
     // 80 px up the screen is 0.2 world units, which the grid lifts to 0.5.
     let dragged = gizmo.update(Vec2::new(400.0, 220.0)).unwrap();
     assert!((dragged.translation.y - 0.5).abs() < 1e-4);
@@ -97,7 +102,12 @@ fn scale_and_rotate_drag_along_their_own_axis() {
 
     let mut scaler = TransformGizmo::new();
     scaler.mode = GizmoMode::Scale;
-    assert!(scaler.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(400.0, 300.0), Axis::Y));
+    assert!(scaler.begin(
+        &cam,
+        &GizmoTransform::IDENTITY,
+        Vec2::new(400.0, 300.0),
+        Axis::Y
+    ));
     let scaled = scaler.update(Vec2::new(400.0, 200.0)).unwrap();
     assert!((scaled.scale.y - 2.0).abs() < 1e-4);
     assert!((scaled.scale.x - 1.0).abs() < 1e-6);
@@ -122,7 +132,12 @@ fn scale_and_rotate_drag_along_their_own_axis() {
 fn a_gizmo_whose_axis_faces_the_camera_cannot_be_grabbed() {
     let cam = camera();
     let mut gizmo = TransformGizmo::new();
-    assert!(!gizmo.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(400.0, 300.0), Axis::Z));
+    assert!(!gizmo.begin(
+        &cam,
+        &GizmoTransform::IDENTITY,
+        Vec2::new(400.0, 300.0),
+        Axis::Z
+    ));
     assert!(!gizmo.is_dragging());
     assert!(gizmo.update(Vec2::new(500.0, 300.0)).is_none());
 }

@@ -295,7 +295,9 @@ pub fn to_wgpu_format(format: TextureFormat) -> Option<wgpu::TextureFormat> {
         TextureFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
         TextureFormat::R32Float => wgpu::TextureFormat::R32Float,
         TextureFormat::R32G32Float => wgpu::TextureFormat::Rg32Float,
-        TextureFormat::R32G32B32Float => wgpu::TextureFormat::Rgb32Float,
+        // wgpu has no 3-channel 32-bit float, so a caller asking for one gets
+        // `None` rather than a 4-channel texture it did not ask for.
+        TextureFormat::R32G32B32Float => return None,
         TextureFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
         TextureFormat::R11b11G11B10Float => wgpu::TextureFormat::Rg11b10Ufloat,
         TextureFormat::Depth16 => wgpu::TextureFormat::Depth16Unorm,
@@ -322,7 +324,6 @@ pub fn from_wgpu_format(format: wgpu::TextureFormat) -> Option<TextureFormat> {
         wgpu::TextureFormat::Rgba16Float => TextureFormat::Rgba16Float,
         wgpu::TextureFormat::R32Float => TextureFormat::R32Float,
         wgpu::TextureFormat::Rg32Float => TextureFormat::R32G32Float,
-        wgpu::TextureFormat::Rgb32Float => TextureFormat::R32G32B32Float,
         wgpu::TextureFormat::Rgba32Float => TextureFormat::Rgba32Float,
         wgpu::TextureFormat::Rg11b10Ufloat => TextureFormat::R11b11G11B10Float,
         wgpu::TextureFormat::Depth16Unorm => TextureFormat::Depth16,

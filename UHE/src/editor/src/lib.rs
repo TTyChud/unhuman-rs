@@ -336,8 +336,8 @@ impl Editor {
             target.rotation,
             target.translation,
         );
-        let (scale, rotation, translation) = (scene.world_transform(parent).inverse() * world)
-            .to_scale_rotation_translation();
+        let (scale, rotation, translation) =
+            (scene.world_transform(parent).inverse() * world).to_scale_rotation_translation();
         GizmoTransform {
             translation,
             rotation,

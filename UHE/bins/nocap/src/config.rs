@@ -101,6 +101,9 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+// Used by the binary; the test target includes this file whole and only reaches
+// the parser, so the help text reads as dead there.
+#[allow(dead_code)]
 pub const USAGE: &str = "\
 nocap - headless frame loop, no window and no GPU
 

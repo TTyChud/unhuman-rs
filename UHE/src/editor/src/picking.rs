@@ -146,7 +146,7 @@ pub fn pick(scene: &Scene, assets: &Assets, ray: Ray) -> Option<Entity> {
             let Some(t) = local.hit_bounds(min, max) else {
                 continue;
             };
-            if nearest.map_or(true, |(best, _)| t < best) {
+            if nearest.is_none_or(|(best, _)| t < best) {
                 nearest = Some((t, sample.entity));
             }
         }
@@ -160,12 +160,16 @@ mod tests {
 
     #[test]
     fn a_centre_ray_follows_the_camera_axis() {
-        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
-        let perspective = Mat4::perspective_rh(60f32.to_radians(), 4.0 / 3.0, 0.1, 100.0) * view;
+        let view =
+            glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
+        let perspective =
+            glam::camera::rh::proj::directx::perspective(60f32.to_radians(), 4.0 / 3.0, 0.1, 100.0)
+                * view;
         let ray = Ray::through_cursor((400.0, 300.0), (800, 600), perspective).unwrap();
         assert!((ray.direction.normalize() - Vec3::NEG_Z).length() < 1e-4);
 
-        let ortho = Mat4::orthographic_rh(-2.0, 2.0, -1.5, 1.5, 0.1, 100.0) * view;
+        let ortho =
+            glam::camera::rh::proj::directx::orthographic(-2.0, 2.0, -1.5, 1.5, 0.1, 100.0) * view;
         let ray = Ray::through_cursor((400.0, 300.0), (800, 600), ortho).unwrap();
         assert!((ray.direction.normalize() - Vec3::NEG_Z).length() < 1e-4);
         // Depth 0 is the near plane, a tenth of a unit in front of the eye.
@@ -182,7 +186,8 @@ mod tests {
 
     #[test]
     fn a_cursor_outside_the_viewport_gives_no_ray() {
-        let matrix = Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
+        let matrix =
+            glam::camera::rh::proj::directx::orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
         assert!(Ray::through_cursor((-1.0, 300.0), (800, 600), matrix).is_none());
         assert!(Ray::through_cursor((400.0, 601.0), (800, 600), matrix).is_none());
         assert!(Ray::through_cursor((400.0, 300.0), (0, 600), matrix).is_none());
@@ -212,13 +217,23 @@ mod tests {
             origin: Vec3::ZERO,
             direction: Vec3::NEG_Z,
         };
-        assert_eq!(inside.hit_bounds(Vec3::splat(-1.0), Vec3::splat(1.0)), Some(0.0));
+        assert_eq!(
+            inside.hit_bounds(Vec3::splat(-1.0), Vec3::splat(1.0)),
+            Some(0.0)
+        );
         // The parameter survives unnormalised directions, which is what makes
         // two entities comparable.
         let long = Ray {
             direction: Vec3::NEG_Z * 2.0,
             ..ray
         };
-        assert!((long.hit_bounds(Vec3::splat(-1.0), Vec3::splat(1.0)).unwrap() - 2.0).abs() < 1e-6);
+        assert!(
+            (long
+                .hit_bounds(Vec3::splat(-1.0), Vec3::splat(1.0))
+                .unwrap()
+                - 2.0)
+                .abs()
+                < 1e-6
+        );
     }
 }

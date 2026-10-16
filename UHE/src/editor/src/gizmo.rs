@@ -220,7 +220,7 @@ impl TransformGizmo {
             if distance > PICK_RADIUS {
                 continue;
             }
-            if best.map_or(true, |(best_distance, _)| distance < best_distance) {
+            if best.is_none_or(|(best_distance, _)| distance < best_distance) {
                 best = Some((distance, axis));
             }
         }
@@ -315,8 +315,14 @@ mod tests {
 
     fn flat_camera() -> Camera {
         Camera {
-            view: Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y),
-            projection: Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0),
+            view: glam::camera::rh::view::look_at_mat4(
+                Vec3::new(0.0, 0.0, 5.0),
+                Vec3::ZERO,
+                Vec3::Y,
+            ),
+            projection: glam::camera::rh::proj::directx::orthographic(
+                -1.0, 1.0, -1.0, 1.0, 0.1, 100.0,
+            ),
             viewport_size: Vec2::new(800.0, 600.0),
         }
     }
@@ -397,7 +403,12 @@ mod tests {
     fn dragging_against_the_camera_is_refused() {
         let cam = flat_camera();
         let mut gizmo = TransformGizmo::new();
-        assert!(!gizmo.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(400.0, 300.0), Axis::Z));
+        assert!(!gizmo.begin(
+            &cam,
+            &GizmoTransform::IDENTITY,
+            Vec2::new(400.0, 300.0),
+            Axis::Z
+        ));
         assert!(!gizmo.is_dragging());
     }
 
@@ -423,7 +434,11 @@ mod tests {
     fn snaps_a_right_angle_at_45_degrees() {
         assert!((snap_angle(0.01, 45.0) - 0.0).abs() < 1e-6);
         assert!((snap_angle(FRAC_PI_4 * 0.9, 45.0) - FRAC_PI_4).abs() < 1e-6);
-        assert!((snap_angle(0.9, 45.0) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!(
+            (snap_angle(std::f32::consts::FRAC_PI_2 * 0.9, 45.0) - std::f32::consts::FRAC_PI_2)
+                .abs()
+                < 1e-6
+        );
         assert_eq!(snap_angle(0.9, 0.0), 0.9);
     }
 
@@ -447,10 +462,20 @@ mod tests {
         gizmo.mode = GizmoMode::Rotate;
         gizmo.snap.enabled = true;
         // The Z axis points at the camera, so it cannot be grabbed on screen.
-        assert!(!gizmo.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(400.0, 300.0), Axis::Z));
+        assert!(!gizmo.begin(
+            &cam,
+            &GizmoTransform::IDENTITY,
+            Vec2::new(400.0, 300.0),
+            Axis::Z
+        ));
 
         let axis_dir = GizmoTransform::IDENTITY.axis(Axis::X);
-        assert!(gizmo.begin(&cam, &GizmoTransform::IDENTITY, Vec2::new(500.0, 300.0), Axis::X));
+        assert!(gizmo.begin(
+            &cam,
+            &GizmoTransform::IDENTITY,
+            Vec2::new(500.0, 300.0),
+            Axis::X
+        ));
         let rotated = gizmo.update(Vec2::new(490.0, 400.0)).unwrap();
         let angle = rotated.rotation.angle_between(Quat::IDENTITY);
         assert!((angle - FRAC_PI_4).abs() < 1e-4, "{angle}");

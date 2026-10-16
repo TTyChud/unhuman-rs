@@ -191,8 +191,13 @@ impl Animator {
 
         self.fire_events(index as usize, prev_time, new_time, moved_forward);
         if self.root_motion_enabled {
-            self.root_motion_delta =
-                self.extract_root_motion(index as usize, prev_time, new_time, wrapped, moved_forward);
+            self.root_motion_delta = self.extract_root_motion(
+                index as usize,
+                prev_time,
+                new_time,
+                wrapped,
+                moved_forward,
+            );
         }
 
         let mut current = self.rest_pose.clone();
@@ -619,13 +624,17 @@ mod tests {
 
     fn two_bone_skeleton() -> Skeleton {
         let mut skeleton = Skeleton::new();
-        let mut root = Bone::default();
-        root.id = 0;
-        root.local_transform = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
-        let mut child = Bone::default();
-        child.id = 1;
-        child.parent_id = 0;
-        child.local_transform = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
+        let root = Bone {
+            id: 0,
+            local_transform: Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0)),
+            ..Default::default()
+        };
+        let child = Bone {
+            id: 1,
+            parent_id: 0,
+            local_transform: Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0)),
+            ..Default::default()
+        };
         skeleton.bones.push(root);
         skeleton.bones.push(child);
         skeleton.joint_nodes.push(1);
@@ -635,10 +644,8 @@ mod tests {
 
     fn sliding_clip(name: &str, duration: f32) -> Clip {
         let mut clip = Clip::new(name);
-        clip.position_track_mut(0).set_keys(
-            &[0.0, duration],
-            &[Vec3::ZERO, Vec3::new(0.0, 2.0, 0.0)],
-        );
+        clip.position_track_mut(0)
+            .set_keys(&[0.0, duration], &[Vec3::ZERO, Vec3::new(0.0, 2.0, 0.0)]);
         clip.update_duration();
         clip
     }
@@ -671,7 +678,10 @@ mod tests {
         animator.set_clips(vec![sliding_clip("run", 1.0)]);
         animator.play_animation(0);
         animator.seek(1.0);
-        assert_eq!(animator.blended_pose().bones[0].translation, Vec3::new(0.0, 2.0, 0.0));
+        assert_eq!(
+            animator.blended_pose().bones[0].translation,
+            Vec3::new(0.0, 2.0, 0.0)
+        );
         assert_eq!(
             animator.final_bone_matrices()[0].w_axis.truncate(),
             Vec3::new(0.0, 3.0, 0.0)
@@ -694,8 +704,7 @@ mod tests {
     #[test]
     fn events_crossed_by_the_play_head_are_handed_over() {
         let mut clip = sliding_clip("run", 1.0);
-        clip.events
-            .push(AnimationEvent::new(0.5, "footstep"));
+        clip.events.push(AnimationEvent::new(0.5, "footstep"));
         let mut animator = Animator::new(two_bone_skeleton());
         animator.set_clips(vec![clip]);
         animator.play_animation(0);

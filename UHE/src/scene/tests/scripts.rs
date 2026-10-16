@@ -46,7 +46,10 @@ impl Script for TestScript {
         self.ticks += 1;
         let x = scene
             .get(entity)
-            .and_then(|view| view.get::<Transform>().map(|transform| transform.translation.x))
+            .and_then(|view| {
+                view.get::<Transform>()
+                    .map(|transform| transform.translation.x)
+            })
             .unwrap_or_default();
         self.recorder
             .push(format!("update:{}:{dt}:{x}", self.ticks));
@@ -126,7 +129,9 @@ fn on_destroy_fires_when_the_component_is_removed() {
     assert_eq!(recorder.entries().last().unwrap(), "destroy");
     assert!(scene.contains(entity), "only the component went");
     scene.update_scripts(0.1);
-    assert_eq!(recorder.entries().len(), 2);
+    // create + update from the first call, then destroy: the second call adds
+    // nothing, so the count is unchanged.
+    assert_eq!(recorder.entries().len(), 3);
 }
 
 #[test]

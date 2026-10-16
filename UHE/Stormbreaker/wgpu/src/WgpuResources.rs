@@ -565,7 +565,7 @@ impl chassis::Resources for WgpuResources {
                 | chassis::DescriptorKind::StorageImage => wgpu::BindGroupEntry {
                     binding: *binding,
                     resource: wgpu::BindingResource::TextureView(texture),
-                }
+                },
                 chassis::DescriptorKind::CombinedImageSampler => {
                     // **wgpu has no combined image sampler.**
                     //

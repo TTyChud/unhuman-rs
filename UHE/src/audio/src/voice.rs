@@ -118,7 +118,9 @@ impl VoicePool {
     }
 
     pub fn voice_of(&self, entity: Entity) -> Option<&Voice> {
-        self.voices.iter().find(|voice| voice.entity == Some(entity))
+        self.voices
+            .iter()
+            .find(|voice| voice.entity == Some(entity))
     }
 
     /// Add a voice. `None` when the pool has no room at all: a capacity of zero
@@ -191,7 +193,11 @@ impl VoicePool {
         }
         for (entity, source, position) in sources {
             let spec = VoiceSpec::from_source(source, position);
-            match self.voices.iter().position(|voice| voice.entity == Some(entity)) {
+            match self
+                .voices
+                .iter()
+                .position(|voice| voice.entity == Some(entity))
+            {
                 Some(index) => {
                     if source.playing {
                         self.voices[index].spec = spec;
@@ -211,7 +217,8 @@ impl VoicePool {
         }
         // Voices started directly, with no entity behind them, are not the scene's
         // to sweep.
-        self.voices.retain(|voice| voice.seen || voice.entity.is_none());
+        self.voices
+            .retain(|voice| voice.seen || voice.entity.is_none());
     }
 }
 
@@ -250,13 +257,18 @@ mod tests {
             .expect("room");
         assert_ne!(first, second);
         assert_eq!(pool.len(), 1);
-        assert_eq!(pool.voice_of(entity).expect("one voice").sound, SoundId::new(2));
+        assert_eq!(
+            pool.voice_of(entity).expect("one voice").sound,
+            SoundId::new(2)
+        );
     }
 
     #[test]
     fn a_zero_capacity_pool_refuses_every_voice() {
         let mut pool = VoicePool::new(0);
-        assert!(pool.spawn(None, SoundId::new(1), VoiceSpec::default()).is_none());
+        assert!(pool
+            .spawn(None, SoundId::new(1), VoiceSpec::default())
+            .is_none());
         assert_eq!(pool.len(), 0);
     }
 

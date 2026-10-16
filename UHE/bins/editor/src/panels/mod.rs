@@ -49,7 +49,11 @@ pub fn button(
     let (bg, fg, hover) = if active {
         (theme.accent, theme.accent_foreground, theme.accent_hover)
     } else {
-        (with_alpha(theme.panel, 0.0), theme.text, with_alpha(theme.accent, 0.25))
+        (
+            with_alpha(theme.panel, 0.0),
+            theme.text,
+            with_alpha(theme.accent, 0.25),
+        )
     };
     let label: SharedString = label.into();
 
@@ -70,9 +74,9 @@ pub fn button(
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .child(label)
-        .on_click(cx.listener(move |this, _event: &ClickEvent, window, cx| {
-            on_click(this, window, cx)
-        }))
+        .on_click(
+            cx.listener(move |this, _event: &ClickEvent, window, cx| on_click(this, window, cx)),
+        )
 }
 
 /// A theme color with a different alpha: an unselected row is the panel with no

@@ -191,10 +191,15 @@ impl Assets {
 
         while let Ok(finished) = self.receiver.try_recv() {
             let id = finished.id;
-            let Some(slot) = self.slot(id) else {
-                // Released since the job was submitted.
+            // Looked up without the `Ready` requirement the accessors apply: a
+            // loading slot is exactly what a finished job exists to resolve.
+            let Some(slot) = self.slots.get(id.index() as usize) else {
                 continue;
             };
+            if slot.generation != id.generation() {
+                // Released since the job was submitted.
+                continue;
+            }
             if slot.state != LoadState::Loading {
                 // A synchronous load already resolved this slot; the worker's
                 // answer is stale.
@@ -270,9 +275,9 @@ impl Assets {
 
     /// A typed handle, or `None` when the id names nothing or names a different
     /// payload kind than `T`.
-    pub fn handle<T: AssetData>(&self, id: AssetId) -> Option<Handle<T>> {
+    pub fn handle<T: ?Sized + AssetData>(&self, id: AssetId) -> Option<Handle<T>> {
         let slot = self.slot(id)?;
-        (slot.kind == T::KIND).then(|| Handle::new(id))
+        T::accepts(slot.kind).then(|| Handle::new(id))
     }
 
     /// The live id for a virtual path, which is the registry's `name -> handle`
@@ -291,10 +296,10 @@ impl Assets {
         if id.is_null() {
             return false;
         }
-        let Some(slot) = self.slots.get_mut(id.index as usize) else {
+        let Some(slot) = self.slots.get_mut(id.index() as usize) else {
             return false;
         };
-        if slot.generation != id.generation {
+        if slot.generation != id.generation() {
             return false;
         }
 
@@ -318,7 +323,7 @@ impl Assets {
         slot.meshes.clear();
         slot.model = None;
 
-        self.free.push(id.index);
+        self.free.push(id.index());
         self.live -= 1;
         true
     }
@@ -341,15 +346,15 @@ impl Assets {
         if id.is_null() {
             return None;
         }
-        let slot = self.slots.get(id.index as usize)?;
-        (slot.generation == id.generation && slot.state == LoadState::Ready).then_some(slot)
+        let slot = self.slots.get(id.index() as usize)?;
+        (slot.generation == id.generation() && slot.state == LoadState::Ready).then_some(slot)
     }
 
     fn live_id(&self, path: &str) -> Option<AssetId> {
         let id = self.paths.get(path).copied()?;
         self.slots
-            .get(id.index as usize)
-            .filter(|slot| slot.generation == id.generation)
+            .get(id.index() as usize)
+            .filter(|slot| slot.generation == id.generation())
             .map(|_| id)
     }
 
@@ -390,10 +395,10 @@ impl Assets {
     }
 
     fn store_at(&mut self, id: AssetId, decoded: Decoded) {
-        let Some(slot) = self.slots.get_mut(id.index as usize) else {
+        let Some(slot) = self.slots.get_mut(id.index() as usize) else {
             return;
         };
-        if slot.generation != id.generation {
+        if slot.generation != id.generation() {
             return;
         }
 

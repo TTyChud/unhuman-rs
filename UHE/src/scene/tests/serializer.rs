@@ -4,8 +4,8 @@ use std::path::Path;
 
 use glam::{Vec2, Vec3, Vec4};
 use meats::{
-    from_yaml, load, to_yaml, Animator, AudioSource, Camera, Collider, ColliderShape, Entity, Light,
-    LightKind, MeshRenderer, ProjectionType, RigidBody, RigidBodyKind, Scene, SceneCamera,
+    from_yaml, load, to_yaml, Animator, AudioSource, Camera, Collider, ColliderShape, Entity,
+    Light, LightKind, MeshRenderer, ProjectionType, RigidBody, RigidBodyKind, Scene, SceneCamera,
     SpriteAnimation, SpriteRenderer, Text, Transform,
 };
 
@@ -434,7 +434,7 @@ fn loads_the_shipped_cpp_cube_scene() {
         camera_component.camera.projection_type(),
         ProjectionType::Perspective
     );
-    assert!((camera_component.camera.fov() - 0.7853982).abs() < 1e-6);
+    assert!((camera_component.camera.fov() - std::f32::consts::FRAC_PI_4).abs() < 1e-6);
 
     let bottom = entity_named(&scene, "Bottom");
     let transform: Transform = component(&scene, bottom);
@@ -445,9 +445,16 @@ fn loads_the_shipped_cpp_cube_scene() {
     // `cube.unhuman` repeats id 2323232 on every entity, so the loader keeps it
     // on the first and hands out fresh ones for the rest — the file has to stay
     // loadable, and the entities have to stay distinct.
-    let ids: Vec<u64> = scene.entities().iter().filter_map(|e| scene.id_of(*e)).collect();
+    let ids: Vec<u64> = scene
+        .entities()
+        .iter()
+        .filter_map(|e| scene.id_of(*e))
+        .collect();
     assert_eq!(ids.len(), 7);
     assert_eq!(ids.iter().filter(|id| **id == 2323232).count(), 1);
-    assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 7);
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        7
+    );
     assert_eq!(scene.primary_camera(), Some(camera));
 }

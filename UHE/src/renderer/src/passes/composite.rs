@@ -26,7 +26,11 @@ impl CompositePass {
         Self { pipeline, group }
     }
 
-    pub fn record(&self, _scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        _scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         list.bind_pipeline(&self.pipeline);
         list.bind_group(COMPOSITE_SET, &self.group);
         list.draw(3, 1);

@@ -57,7 +57,10 @@ fn the_first_root_that_holds_the_path_wins() {
     let resolved = vfs
         .resolve("only-second.txt")
         .expect("only-second.txt resolves");
-    assert_eq!(fs::read_to_string(resolved).expect("readable"), "second only");
+    assert_eq!(
+        fs::read_to_string(resolved).expect("readable"),
+        "second only"
+    );
 
     // Mount order is the override order, and `resolve_all` reports both.
     let all = vfs.resolve_all("shared.txt").expect("path is well formed");
@@ -138,5 +141,8 @@ fn a_missing_path_is_an_error_and_not_a_panic() {
 fn an_empty_search_path_resolves_nothing() {
     let vfs = Vfs::new();
     assert!(vfs.is_empty());
-    assert!(matches!(vfs.resolve("anything.txt"), Err(Error::NotFound(_))));
+    assert!(matches!(
+        vfs.resolve("anything.txt"),
+        Err(Error::NotFound(_))
+    ));
 }

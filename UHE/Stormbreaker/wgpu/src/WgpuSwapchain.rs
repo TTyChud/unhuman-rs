@@ -64,7 +64,10 @@ pub fn choose_format(
     if formats.contains(&wgpu::TextureFormat::Bgra8UnormSrgb) {
         return Ok(wgpu::TextureFormat::Bgra8UnormSrgb);
     }
-    formats.first().copied().ok_or(WgpuError::IncompatibleSurface)
+    formats
+        .first()
+        .copied()
+        .ok_or(WgpuError::IncompatibleSurface)
 }
 
 /// The C++ `chooseSwapPresentMode`: mailbox when offered, fifo otherwise.

@@ -184,12 +184,7 @@ fn tint_and_tiling_travel_with_the_vertex() {
 #[test]
 fn a_sub_sprite_carries_its_own_atlas_corners() {
     let (texture, _) = textures();
-    let uv = [
-        [0.25, 0.0],
-        [0.5, 0.0],
-        [0.5, 0.25],
-        [0.25, 0.25],
-    ];
+    let uv = [[0.25, 0.0], [0.5, 0.0], [0.5, 0.25], [0.25, 0.25]];
     let mut batch = Batch2D::new();
     batch.push_sprite_uv(Some(texture), identity(), Vec4::ONE, 1.0, uv);
     batch.flush();

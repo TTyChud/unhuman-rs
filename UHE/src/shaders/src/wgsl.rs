@@ -18,22 +18,10 @@ use crate::Stage;
 /// What can go wrong, with the label of the shader that went wrong.
 #[derive(Debug)]
 pub enum WgslError {
-    Parse {
-        label: String,
-        message: String,
-    },
-    Validate {
-        label: String,
-        message: String,
-    },
-    Backend {
-        label: String,
-        message: String,
-    },
-    UnsupportedStage {
-        label: String,
-        stage: Stage,
-    },
+    Parse { label: String, message: String },
+    Validate { label: String, message: String },
+    Backend { label: String, message: String },
+    UnsupportedStage { label: String, stage: Stage },
 }
 
 impl std::fmt::Display for WgslError {
@@ -166,6 +154,12 @@ pub fn entry_points(source: &str, label: &str) -> Result<Vec<(String, Stage)>, W
                 naga::ShaderStage::Vertex => Stage::Vertex,
                 naga::ShaderStage::Fragment => Stage::Fragment,
                 naga::ShaderStage::Compute => Stage::Compute,
+                naga::ShaderStage::Task => Stage::Task,
+                naga::ShaderStage::Mesh => Stage::Mesh,
+                naga::ShaderStage::RayGeneration => Stage::Raygen,
+                naga::ShaderStage::Miss => Stage::Miss,
+                naga::ShaderStage::AnyHit => Stage::AnyHit,
+                naga::ShaderStage::ClosestHit => Stage::ClosestHit,
             };
             (entry.name.clone(), stage)
         })

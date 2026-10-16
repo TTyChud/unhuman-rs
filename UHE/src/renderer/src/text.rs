@@ -21,7 +21,7 @@ use chassis::{
     TextureFormat, VertexAttribute, VertexLayout,
 };
 
-use crate::batch2d::{GLOBALS_SET, INDEX_SIZE, PipelineError, QuadPipeline, TEXTURE_SET};
+use crate::batch2d::{PipelineError, QuadPipeline, GLOBALS_SET, INDEX_SIZE, TEXTURE_SET};
 use crate::font::layout::{layout, LayoutOptions};
 use crate::font::{Atlas, Layout};
 

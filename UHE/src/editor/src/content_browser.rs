@@ -2,7 +2,7 @@
 //! what a drag out of it carries. The grid, the icons and the drag preview are
 //! the toolkit's; this is the state and the filesystem walk behind them.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Entry {
@@ -179,7 +179,12 @@ impl ContentBrowser {
         };
         relative
             .components()
-            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .map(|part| match part {
+                // The root component *is* the leading separator, so joining it
+                // as text would double the first slash.
+                Component::RootDir => String::new(),
+                other => other.as_os_str().to_string_lossy().into_owned(),
+            })
             .collect::<Vec<_>>()
             .join("/")
     }
@@ -241,7 +246,9 @@ mod tests {
         let mut browser = ContentBrowser::new(base.clone());
         browser.filter = "unhuman".into();
         let names: Vec<String> = browser.entries().into_iter().map(|e| e.name).collect();
-        assert_eq!(names, vec!["scenes", "textures", "level.unhuman".to_string()]);
+        // Directories are kept whatever the filter; `readme.txt` is filtered out,
+        // and the only `.unhuman` file lives under `scenes/`, seen on navigate.
+        assert_eq!(names, vec!["scenes", "textures"]);
 
         browser.navigate(&base.join("scenes"));
         assert_eq!(browser.entries().len(), 1);
@@ -263,7 +270,7 @@ mod tests {
     fn navigate_refuses_anything_outside_a_root() {
         let base = temp_tree("escape");
         let mut browser = ContentBrowser::new(base.clone());
-        assert!(!browser.navigate(&base.parent().unwrap().to_path_buf()));
+        assert!(!browser.navigate(base.parent().unwrap()));
         assert_eq!(browser.current, base);
     }
 
@@ -291,7 +298,10 @@ mod tests {
         assert_eq!(browser.path_string(&entry), "textures/rock.png");
         assert_eq!(browser.payload(&entry).path, "textures/rock.png");
         assert!(entry.is_image());
-        assert_eq!(browser.accept(&browser.payload(&entry)), Some(base.join("textures/rock.png")));
+        assert_eq!(
+            browser.accept(&browser.payload(&entry)),
+            Some(base.join("textures/rock.png"))
+        );
         assert_eq!(browser.selected.as_deref(), Some("textures/rock.png"));
     }
 

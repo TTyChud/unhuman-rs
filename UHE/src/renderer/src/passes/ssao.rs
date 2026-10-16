@@ -41,7 +41,7 @@ pub struct SsaoUniforms {
     pub params: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<SsaoUniforms>() % 16 == 0);
+const _: () = assert!(std::mem::size_of::<SsaoUniforms>().is_multiple_of(16));
 
 /// The C++-scale defaults: a 0.5 m radius, a small depth bias, and a contrast
 /// exponent that turns the raw fraction into something that reads as shading.
@@ -84,8 +84,11 @@ pub fn kernel(size: usize, seed: u64) -> Vec<[f32; 4]> {
 
     (0..size)
         .map(|index| {
-            let mut sample =
-                glam::Vec3::new(random() * 2.0 - 1.0, random() * 2.0 - 1.0, random() * 2.0 - 1.0);
+            let mut sample = glam::Vec3::new(
+                random() * 2.0 - 1.0,
+                random() * 2.0 - 1.0,
+                random() * 2.0 - 1.0,
+            );
             if sample.length_squared() < 1e-6 {
                 sample = glam::Vec3::Z;
             }
@@ -121,7 +124,11 @@ impl SsaoPass {
 
     /// One full-screen triangle: no vertex buffer, the triangle comes from
     /// `@builtin(vertex_index)`.
-    pub fn record(&self, _scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        _scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         list.bind_pipeline(&self.pipeline);
         list.bind_group(SSAO_SET, &self.group);
         list.draw(3, 1);

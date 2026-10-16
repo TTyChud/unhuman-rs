@@ -12,7 +12,7 @@ use gltf::buffer::Data as BufferData;
 use crate::anim::normalize;
 use crate::load_model::{node_transform, view_bytes};
 use crate::mesh::{
-    AnimationData, BoneData, Interpolation, QuaternionTrack, SkinData, SkeletonData, VectorTrack,
+    AnimationData, BoneData, Interpolation, QuaternionTrack, SkeletonData, SkinData, VectorTrack,
 };
 
 /// Every skin in the file, plus the one joint hierarchy that spans all nodes.
@@ -158,7 +158,7 @@ pub(crate) fn parse_animations(
             };
             match channel.target().property() {
                 Property::Translation => {
-                    let Some(ReadOutputs::Translations(values)) = outputs else {
+                    let ReadOutputs::Translations(values) = outputs else {
                         continue;
                     };
                     let track = find_or_add_vector(&mut clip.position_tracks, target);
@@ -166,7 +166,7 @@ pub(crate) fn parse_animations(
                     fill_vector(track, &times, values, interpolation);
                 }
                 Property::Rotation => {
-                    let Some(ReadOutputs::Rotations(values)) = outputs else {
+                    let ReadOutputs::Rotations(values) = outputs else {
                         continue;
                     };
                     let track = find_or_add_quaternion(&mut clip.rotation_tracks, target);
@@ -174,7 +174,7 @@ pub(crate) fn parse_animations(
                     fill_quaternion(track, &times, values, interpolation);
                 }
                 Property::Scale => {
-                    let Some(ReadOutputs::Scales(values)) = outputs else {
+                    let ReadOutputs::Scales(values) = outputs else {
                         continue;
                     };
                     let track = find_or_add_vector(&mut clip.scale_tracks, target);

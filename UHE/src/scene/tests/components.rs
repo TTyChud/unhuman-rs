@@ -206,7 +206,10 @@ fn camera_defaults_match_the_cpp_header() {
     assert!(camera.primary);
     assert!(!camera.fixed_aspect_ratio);
     // `SceneCamera`'s C++ default projection is orthographic.
-    assert_eq!(camera.camera.projection_type(), ProjectionType::Orthographic);
+    assert_eq!(
+        camera.camera.projection_type(),
+        ProjectionType::Orthographic
+    );
     assert_eq!(camera.camera.orthographic_size(), 10.0);
     assert!((camera.camera.fov() - 45.0f32.to_radians()).abs() < 1e-6);
 }

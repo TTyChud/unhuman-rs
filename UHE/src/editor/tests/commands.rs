@@ -105,7 +105,11 @@ fn a_property_edit_is_undone_and_redone() {
     editor.select(Some(entity));
 
     let translation = translation_property(&editor, &scene);
-    editor.set_property(&mut scene, &translation, PropertyValue::Vec3([1.0, 2.0, 3.0]));
+    editor.set_property(
+        &mut scene,
+        &translation,
+        PropertyValue::Vec3([1.0, 2.0, 3.0]),
+    );
     assert_eq!(
         translation.value(&scene, entity),
         PropertyValue::Vec3([1.0, 2.0, 3.0])
@@ -125,7 +129,11 @@ fn a_property_edit_is_undone_and_redone() {
 
     // Setting the value it already has is not an edit.
     let length = editor.history.len();
-    editor.set_property(&mut scene, &translation, PropertyValue::Vec3([1.0, 2.0, 3.0]));
+    editor.set_property(
+        &mut scene,
+        &translation,
+        PropertyValue::Vec3([1.0, 2.0, 3.0]),
+    );
     assert_eq!(editor.history.len(), length);
 }
 
@@ -242,8 +250,14 @@ fn commands_name_themselves_for_a_menu() {
 
     let mut editor = Editor::new();
     editor.create_entity(&mut scene, None);
-    assert_eq!(editor.history.undo_label().as_deref(), Some("Create Empty Entity"));
+    assert_eq!(
+        editor.history.undo_label().as_deref(),
+        Some("Create Empty Entity")
+    );
     assert_eq!(editor.history.redo_label(), None);
     assert!(editor.undo(&mut scene));
-    assert_eq!(editor.history.redo_label().as_deref(), Some("Create Empty Entity"));
+    assert_eq!(
+        editor.history.redo_label().as_deref(),
+        Some("Create Empty Entity")
+    );
 }

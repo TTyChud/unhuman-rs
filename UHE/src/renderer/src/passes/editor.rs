@@ -28,7 +28,11 @@ impl EditorPass {
         self.grid.is_none() && self.lines.is_none()
     }
 
-    pub fn record(&self, scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         if let Some(grid) = &self.grid {
             grid.record(scope, list)?;
         }

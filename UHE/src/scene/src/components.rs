@@ -244,10 +244,17 @@ impl Default for RigidBody {
 /// `CapsuleCollider3DComponent` as one component.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ColliderShape {
-    Box { half_extent: Vec3 },
-    Sphere { radius: f32 },
+    Box {
+        half_extent: Vec3,
+    },
+    Sphere {
+        radius: f32,
+    },
     /// Total height is `2 * (radius + half_height)`.
-    Capsule { radius: f32, half_height: f32 },
+    Capsule {
+        radius: f32,
+        half_height: f32,
+    },
 }
 
 impl Default for ColliderShape {

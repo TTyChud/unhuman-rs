@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use bifrost::material::{
-    self, Material, MaterialKey, MaterialTextures, MaterialVariant, TextureCache,
+    self, Material, MaterialCache, MaterialKey, MaterialTextures, MaterialVariant, TextureCache,
 };
 use bifrost::mesh::{self, MeshCache, MeshKey, VertexLayoutKey};
 use bifrost::passes::pipeline::{self, PipelineCache, PipelineKey, ShaderSet, ShaderVariant};
@@ -21,8 +21,8 @@ use chassis::graph::types::{ErrorKind, PassDesc, Queue};
 use chassis::graph::{self, ImageState, RenderGraph};
 use chassis::{
     BindGroup, BindGroupTag, Buffer, BufferDesc, BufferTag, DescriptorKind,
-    DescriptorSetLayoutDesc, ImageView, ImageViewTag, Pipeline, PipelineDesc, PipelineTag, Registry,
-    Resources, Sampler, SamplerDesc, SamplerTag, Shader, ShaderTag, Texture, TextureDesc,
+    DescriptorSetLayoutDesc, ImageView, ImageViewTag, Pipeline, PipelineDesc, PipelineTag,
+    Registry, Resources, Sampler, SamplerDesc, SamplerTag, Shader, ShaderTag, Texture, TextureDesc,
     TextureTag,
 };
 use vault::AssetId;
@@ -62,10 +62,6 @@ impl FakeResources {
 
     fn shader(&mut self) -> Shader {
         self.shaders.create(())
-    }
-
-    fn buffer(&mut self) -> Buffer {
-        self.buffers.create(())
     }
 
     fn view(&mut self) -> ImageView {
@@ -202,8 +198,7 @@ fn triangle() -> vault::MeshData {
 fn a_three_pass_frame_compiles_in_declaration_order() {
     let mut graph = RenderGraph::new();
 
-    let backbuffer =
-        graph.import_texture("backbuffer", ImageState::Undefined, ImageState::Present);
+    let backbuffer = graph.import_texture("backbuffer", ImageState::Undefined, ImageState::Present);
     let color = graph.import_texture("color", ImageState::Undefined, ImageState::ShaderRead);
     let depth = graph.import_texture("depth", ImageState::Undefined, ImageState::DepthAttachment);
     let shadow = graph.import_texture("shadow", ImageState::Undefined, ImageState::ShaderRead);
@@ -226,7 +221,11 @@ fn a_three_pass_frame_compiles_in_declaration_order() {
     );
 
     let compiled = graph.compile().expect("compiles");
-    let order: Vec<&str> = compiled.passes.iter().map(|pass| pass.name.as_str()).collect();
+    let order: Vec<&str> = compiled
+        .passes
+        .iter()
+        .map(|pass| pass.name.as_str())
+        .collect();
     assert_eq!(order, ["shadow", "opaque", "composite"]);
 
     // Declaration order is already topological: a write binds the version it
@@ -296,10 +295,7 @@ fn a_cycle_is_refused_rather_than_ordered() {
 fn a_pass_that_reads_what_it_writes_is_refused() {
     let mut graph = RenderGraph::new();
     let color = graph.import_texture("color", ImageState::Undefined, ImageState::ShaderRead);
-    graph
-        .pass("grid")
-        .color_load(color)
-        .read_texture(color);
+    graph.pass("grid").color_load(color).read_texture(color);
 
     let errors = graph.validate();
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -346,7 +342,11 @@ fn a_pipeline_key_covers_the_state_a_pipeline_is_built_from() {
     // passes, and differs in everything else.
     assert_ne!(
         model,
-        PipelineKey::shadow(TextureFormat::Depth32Float, SampleCount::X1, &mesh::vertex_layout())
+        PipelineKey::shadow(
+            TextureFormat::Depth32Float,
+            SampleCount::X1,
+            &mesh::vertex_layout()
+        )
     );
 }
 
@@ -418,11 +418,7 @@ fn a_pipeline_description_matches_its_key() {
 
     // A full-screen pass has no vertex buffer at all.
     let ssao = pipeline::pipeline_desc(
-        &PipelineKey::fullscreen(
-            ShaderVariant::Ssao,
-            TextureFormat::R8Unorm,
-            SampleCount::X1,
-        ),
+        &PipelineKey::fullscreen(ShaderVariant::Ssao, TextureFormat::R8Unorm, SampleCount::X1),
         &shaders,
     );
     assert_eq!(ssao.vertex.stride, 0);
@@ -457,13 +453,18 @@ fn the_pipeline_cache_creates_one_pipeline_per_key() {
 
     let other = PipelineKey::grid(TextureFormat::Rgba8Srgb, SampleCount::X1);
     assert_ne!(
-        cache.get_or_create(&mut fake, other, &shaders).expect("creates"),
+        cache
+            .get_or_create(&mut fake, other, &shaders)
+            .expect("creates"),
         first
     );
     assert_eq!(fake.pipeline_creates, 2);
 
     assert!(cache.destroy(&mut fake, &key));
-    assert!(!cache.destroy(&mut fake, &key), "destroying twice is not a destroy");
+    assert!(
+        !cache.destroy(&mut fake, &key),
+        "destroying twice is not a destroy"
+    );
     assert_eq!(cache.len(), 1);
 }
 
@@ -596,11 +597,17 @@ fn a_material_packs_into_the_shader_layout() {
     assert_eq!(gpu.emissive_factor_strength, [1.0, 0.0, 0.0, 3.0]);
     assert_eq!(gpu.factors, [0.9, 0.1, 2.0, 0.5]);
     assert_eq!(gpu.params, [0.25, 1.0, 1.0, 0.0]);
-    assert_eq!(gpu.uv_transform[material::SLOT_ALBEDO], [0.0, 1.0, 2.0, 3.0]);
+    assert_eq!(
+        gpu.uv_transform[material::SLOT_ALBEDO],
+        [0.0, 1.0, 2.0, 3.0]
+    );
     assert_eq!(gpu.uv_offset[material::SLOT_ALBEDO], [0.5, 0.25, 0.0, 0.0]);
     // A slot with no transform is the identity, so an absent
     // KHR_texture_transform is not a zero scale.
-    assert_eq!(gpu.uv_transform[material::SLOT_EMISSIVE], [1.0, 0.0, 1.0, 1.0]);
+    assert_eq!(
+        gpu.uv_transform[material::SLOT_EMISSIVE],
+        [1.0, 0.0, 1.0, 1.0]
+    );
 }
 
 /// A material is created once per key and is destroyed with its texture: a bind
@@ -646,7 +653,11 @@ fn destroying_a_texture_drops_every_material_that_bound_it() {
     assert_eq!(cache.invalidate_texture(&mut fake, texture), 1);
     assert!(cache.is_empty());
     assert_eq!(fake.group_destroys, 1);
-    assert_eq!(fake.buffer_destroys.len(), 1, "the parameter buffer went too");
+    assert_eq!(
+        fake.buffer_destroys.len(),
+        1,
+        "the parameter buffer went too"
+    );
 
     assert_eq!(
         cache.invalidate_texture(&mut fake, texture),
@@ -681,7 +692,10 @@ fn a_texture_upload_goes_through_upload_texture_with_the_image_bytes() {
         .expect("uploads");
     assert_eq!(fake.uploads.len(), 1, "one upload, and it is issued");
     let (handle, bytes, width, height) = fake.uploads[0];
-    assert_eq!(handle, first.texture, "the bytes go into the texture it made");
+    assert_eq!(
+        handle, first.texture,
+        "the bytes go into the texture it made"
+    );
     assert_eq!(bytes, image.rgba8.len(), "all of them");
     assert_eq!((width, height), (image.width, image.height));
 
@@ -703,7 +717,10 @@ fn a_texture_upload_goes_through_upload_texture_with_the_image_bytes() {
         again.texture, first.texture,
         "a generation bump, not the old handle"
     );
-    assert_eq!(again.sampler, first.sampler, "the sampler is shared, not re-made");
+    assert_eq!(
+        again.sampler, first.sampler,
+        "the sampler is shared, not re-made"
+    );
     assert_eq!(fake.sampler_creates, 1);
 }
 
@@ -721,7 +738,10 @@ fn the_neutral_maps_are_one_texel_and_the_normal_is_not_white() {
     assert_eq!(fake.uploads[0].2, 1);
 
     // Same call twice is the same texture, not a second upload.
-    assert_eq!(cache.white(&mut fake).expect("white").texture, white.texture);
+    assert_eq!(
+        cache.white(&mut fake).expect("white").texture,
+        white.texture
+    );
     assert_eq!(fake.uploads.len(), 2);
 
     assert_ne!(white.texture, neutral.texture);
@@ -739,9 +759,7 @@ fn a_mesh_cache_returns_one_handle_and_reuploads_after_a_destroy() {
     let key = MeshKey::new(asset(7), VertexLayoutKey::of(&mesh::vertex_layout()));
     let data = triangle();
 
-    let first = cache
-        .get_or_upload(&mut fake, key, &data)
-        .expect("uploads");
+    let first = cache.get_or_upload(&mut fake, key, &data).expect("uploads");
     assert_eq!(first.index_count, 3);
     assert_eq!(first.vertex_count, 3);
     assert_eq!(fake.buffer_creates, 2, "one vertex buffer and one index");
@@ -801,7 +819,10 @@ fn interleaving_uses_the_defaults_for_absent_attributes() {
     assert_eq!(vertices[1].normal, [0.0, 0.0, 1.0], "the C++ default");
     assert_eq!(vertices[1].uv, [0.0, 0.0]);
     assert_eq!(vertices[1].tangent, [1.0, 0.0, 0.0, 1.0]);
-    assert_eq!(vertices[1].color, [1.0; 4], "white, so the multiply is neutral");
+    assert_eq!(
+        vertices[1].color, [1.0; 4],
+        "white, so the multiply is neutral"
+    );
 
     // The layout's offsets are the struct's, computed rather than written down.
     let layout = mesh::vertex_layout();

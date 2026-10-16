@@ -62,7 +62,9 @@ fn run(arguments: &[String]) -> Result<(), String> {
     let selection = BackendSelection::resolve(
         arguments,
         environment.as_deref(),
-        settings.as_ref().and_then(chassis::settings::Settings::backend),
+        settings
+            .as_ref()
+            .and_then(chassis::settings::Settings::backend),
     )
     .map_err(|error| error.to_string())?;
 
@@ -121,7 +123,7 @@ fn run(arguments: &[String]) -> Result<(), String> {
                 Err(error) => return fail(format!("no wgpu surface: {error}")),
             };
             match stormglass::WgpuGpu::with_surface(&instance, surface, extent) {
-                Ok(gpu) => *app.engine_mut().gpu = Some(Box::new(gpu)),
+                Ok(gpu) => app.engine_mut().gpu = Some(Box::new(gpu)),
                 Err(error) => return fail(format!("wgpu: {error}")),
             }
             if let Err(error) = app.start() {

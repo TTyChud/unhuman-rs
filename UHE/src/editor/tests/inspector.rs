@@ -230,8 +230,14 @@ fn a_bare_entity_still_has_its_tag_and_transform() {
     let mut scene = Scene::new();
     let lonely = scene.spawn("Lonely");
     let properties = Inspector::new().properties(&scene, lonely);
-    let components: Vec<&str> = properties.iter().map(|property| property.component).collect();
-    assert_eq!(components, vec!["Tag", "Transform", "Transform", "Transform"]);
+    let components: Vec<&str> = properties
+        .iter()
+        .map(|property| property.component)
+        .collect();
+    assert_eq!(
+        components,
+        vec!["Tag", "Transform", "Transform", "Transform"]
+    );
 }
 
 #[test]
@@ -293,7 +299,7 @@ fn an_edit_named_by_component_and_field_is_what_undo_replays() {
 
     let tag = find(&inspector, &scene, entity, "Tag", "Tag");
     inspector.set(&mut scene, entity, &tag, PropertyValue::Text("Hero".into()));
-    assert_eq!(scene.get(entity).unwrap().tag(), Some("Hero"));
+    assert_eq!(scene.get(entity).unwrap().tag().as_deref(), Some("Hero"));
 
     assert!(inspector.set_named(
         &mut scene,
@@ -302,7 +308,7 @@ fn an_edit_named_by_component_and_field_is_what_undo_replays() {
         "Tag",
         &PropertyValue::Text("Villain".into())
     ));
-    assert_eq!(scene.get(entity).unwrap().tag(), Some("Villain"));
+    assert_eq!(scene.get(entity).unwrap().tag().as_deref(), Some("Villain"));
 
     // A name no component has is refused rather than silently swallowed.
     assert!(!inspector.set_named(
@@ -330,9 +336,17 @@ fn a_handle_the_scene_does_not_know_is_a_no_op() {
     let ghost = scene.spawn("Gone");
     scene.destroy(ghost);
 
-    inspector.set(&mut scene, ghost, &tag, PropertyValue::Text("Nobody".into()));
+    inspector.set(
+        &mut scene,
+        ghost,
+        &tag,
+        PropertyValue::Text("Nobody".into()),
+    );
     assert!(inspector.properties(&scene, ghost).is_empty());
-    assert_eq!(scene.get(entity).unwrap().tag(), Some("Everything"));
+    assert_eq!(
+        scene.get(entity).unwrap().tag().as_deref(),
+        Some("Everything")
+    );
 }
 
 #[test]
@@ -341,7 +355,12 @@ fn component_values_survive_the_round_trip() {
     let mut inspector = Inspector::new();
 
     let scale = find(&inspector, &scene, entity, "Transform", "Scale");
-    inspector.set(&mut scene, entity, &scale, PropertyValue::Vec3([2.0, 2.0, 2.0]));
+    inspector.set(
+        &mut scene,
+        entity,
+        &scale,
+        PropertyValue::Vec3([2.0, 2.0, 2.0]),
+    );
     assert_eq!(
         scale.value(&scene, entity),
         PropertyValue::Vec3([2.0, 2.0, 2.0])
@@ -386,7 +405,10 @@ fn component_values_survive_the_round_trip() {
         "SubTexture Coords",
     );
     inspector.set(&mut scene, entity, &coords, PropertyValue::Vec2([1.0, 2.0]));
-    assert_eq!(coords.value(&scene, entity), PropertyValue::Vec2([1.0, 2.0]));
+    assert_eq!(
+        coords.value(&scene, entity),
+        PropertyValue::Vec2([1.0, 2.0])
+    );
 
     // Values the panel never wrote stay where the component's default put them.
     let colour = find(&inspector, &scene, entity, "Text", "Color");
@@ -410,5 +432,8 @@ fn component_values_survive_the_round_trip() {
         PropertyValue::Text(String::new())
     );
     let gain = find(&inspector, &scene, entity, "AudioSource", "Gain");
-    assert!(matches!(gain.value(&scene, entity), PropertyValue::Float(_)));
+    assert!(matches!(
+        gain.value(&scene, entity),
+        PropertyValue::Float(_)
+    ));
 }

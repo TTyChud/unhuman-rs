@@ -83,7 +83,11 @@ pub fn material_layout() -> DescriptorSetLayoutDesc {
         .with(binding(0, DescriptorKind::UniformBuffer, fragment))
         .with(binding(1, DescriptorKind::Sampler, fragment));
     for slot in 0..crate::material::SLOT_COUNT {
-        layout = layout.with(binding(2 + slot as u32, DescriptorKind::SampledImage, fragment));
+        layout = layout.with(binding(
+            2 + slot as u32,
+            DescriptorKind::SampledImage,
+            fragment,
+        ));
     }
     layout
 }
@@ -109,12 +113,20 @@ pub fn shadow_layout() -> DescriptorSetLayoutDesc {
 
 /// The line pass's set: the camera's matrix and the batch's own.
 pub fn line_layout() -> DescriptorSetLayoutDesc {
-    DescriptorSetLayoutDesc::new("line").with(binding(0, DescriptorKind::UniformBuffer, graphics_stages()))
+    DescriptorSetLayoutDesc::new("line").with(binding(
+        0,
+        DescriptorKind::UniformBuffer,
+        graphics_stages(),
+    ))
 }
 
 /// The grid pass's set: the two matrices `Grid.slang`'s push constants held.
 pub fn grid_layout() -> DescriptorSetLayoutDesc {
-    DescriptorSetLayoutDesc::new("grid").with(binding(0, DescriptorKind::UniformBuffer, graphics_stages()))
+    DescriptorSetLayoutDesc::new("grid").with(binding(
+        0,
+        DescriptorKind::UniformBuffer,
+        graphics_stages(),
+    ))
 }
 
 /// The SSAO pass's set: the kernel, and the depth buffer it reads.
@@ -136,11 +148,7 @@ pub fn composite_layout() -> DescriptorSetLayoutDesc {
         .with(binding(2, DescriptorKind::Sampler, fragment))
 }
 
-fn binding(
-    binding: u32,
-    kind: DescriptorKind,
-    stages: StageMask,
-) -> chassis::BindingDesc {
+fn binding(binding: u32, kind: DescriptorKind, stages: StageMask) -> chassis::BindingDesc {
     chassis::BindingDesc::new(binding, kind, stages)
 }
 
@@ -166,7 +174,13 @@ pub struct ShaderSet {
 impl ShaderSet {
     pub fn load(resources: &mut dyn Resources) -> Result<Self, chassis::Error> {
         Ok(Self {
-            model_vertex: module(resources, "model.vs", MODEL_WGSL, VS_MAIN, ShaderStage::Vertex)?,
+            model_vertex: module(
+                resources,
+                "model.vs",
+                MODEL_WGSL,
+                VS_MAIN,
+                ShaderStage::Vertex,
+            )?,
             model_fragment: module(
                 resources,
                 "model.fs",
@@ -174,8 +188,20 @@ impl ShaderSet {
                 FS_MAIN,
                 ShaderStage::Fragment,
             )?,
-            depth_vertex: module(resources, "depth.vs", DEPTH_WGSL, VS_MAIN, ShaderStage::Vertex)?,
-            ssao_vertex: module(resources, "ssao.vs", SSAO_WGSL, VS_MAIN, ShaderStage::Vertex)?,
+            depth_vertex: module(
+                resources,
+                "depth.vs",
+                DEPTH_WGSL,
+                VS_MAIN,
+                ShaderStage::Vertex,
+            )?,
+            ssao_vertex: module(
+                resources,
+                "ssao.vs",
+                SSAO_WGSL,
+                VS_MAIN,
+                ShaderStage::Vertex,
+            )?,
             ssao_fragment: module(
                 resources,
                 "ssao.fs",
@@ -183,7 +209,13 @@ impl ShaderSet {
                 FS_MAIN,
                 ShaderStage::Fragment,
             )?,
-            grid_vertex: module(resources, "grid.vs", GRID_WGSL, VS_MAIN, ShaderStage::Vertex)?,
+            grid_vertex: module(
+                resources,
+                "grid.vs",
+                GRID_WGSL,
+                VS_MAIN,
+                ShaderStage::Vertex,
+            )?,
             grid_fragment: module(
                 resources,
                 "grid.fs",
@@ -191,7 +223,13 @@ impl ShaderSet {
                 FS_MAIN,
                 ShaderStage::Fragment,
             )?,
-            line_vertex: module(resources, "line.vs", LINE_WGSL, VS_MAIN, ShaderStage::Vertex)?,
+            line_vertex: module(
+                resources,
+                "line.vs",
+                LINE_WGSL,
+                VS_MAIN,
+                ShaderStage::Vertex,
+            )?,
             line_fragment: module(
                 resources,
                 "line.fs",
@@ -386,11 +424,7 @@ impl PipelineKey {
     /// `@builtin(vertex_index)`. No depth attachment: a pass cannot load the
     /// depth a previous pass wrote (see this module and `GeometryPass`), so a
     /// full-screen pass either declares its own cleared depth or none at all.
-    pub fn fullscreen(
-        variant: ShaderVariant,
-        color: TextureFormat,
-        samples: SampleCount,
-    ) -> Self {
+    pub fn fullscreen(variant: ShaderVariant, color: TextureFormat, samples: SampleCount) -> Self {
         Self {
             variant,
             vertex: VertexLayoutKey::of(&VertexLayout::default()),
@@ -484,7 +518,9 @@ pub fn pipeline_desc(key: &PipelineKey, shaders: &ShaderSet) -> PipelineDesc {
         | ShaderVariant::ModelTransparentDoubleSided
         | ShaderVariant::Shadow => mesh::vertex_layout(),
         ShaderVariant::Line => line_vertex_layout(),
-        ShaderVariant::Ssao | ShaderVariant::Grid | ShaderVariant::Composite => VertexLayout::default(),
+        ShaderVariant::Ssao | ShaderVariant::Grid | ShaderVariant::Composite => {
+            VertexLayout::default()
+        }
     };
 
     PipelineDesc {

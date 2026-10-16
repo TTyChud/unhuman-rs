@@ -62,7 +62,10 @@ fn the_filter_narrows_the_list_to_matches_and_their_ancestors() {
     hierarchy.filter = "grand".into();
     let rows = hierarchy.rows(&scene);
     assert_eq!(names(&rows), vec!["Root", "Child", "Grandchild"]);
-    assert!(rows.iter().all(|row| row.expanded), "matches force their path open");
+    assert!(
+        rows.iter().all(|row| row.expanded),
+        "matches force their path open"
+    );
 
     hierarchy.filter = "root".into();
     assert_eq!(names(&hierarchy.rows(&scene)), vec!["Root"]);
@@ -110,12 +113,12 @@ fn a_rename_reaches_the_tag_and_the_row() {
     editor.set_expanded(root, true);
 
     editor.rename(&mut scene, child, "Player".into());
-    assert_eq!(scene.get(child).unwrap().tag(), Some("Player"));
+    assert_eq!(scene.get(child).unwrap().tag().as_deref(), Some("Player"));
     let rows = editor.rows(&scene);
     assert!(rows.iter().any(|row| row.name == "Player"));
 
     assert!(editor.undo(&mut scene));
-    assert_eq!(scene.get(child).unwrap().tag(), Some("Child"));
+    assert_eq!(scene.get(child).unwrap().tag().as_deref(), Some("Child"));
 }
 
 #[test]
@@ -129,7 +132,7 @@ fn the_inline_rename_editor_commits_through_the_history() {
 
     editor.hierarchy.rename_buffer = "Hero".into();
     assert!(editor.commit_rename(&mut scene));
-    assert_eq!(scene.get(child).unwrap().tag(), Some("Hero"));
+    assert_eq!(scene.get(child).unwrap().tag().as_deref(), Some("Hero"));
     assert!(editor.hierarchy.renaming.is_none());
 
     // An unchanged name is not an edit.

@@ -290,7 +290,7 @@ mod tests {
         let attrs = attributes(&desc);
 
         assert_eq!(attrs.title, "aimlab");
-        assert_eq!(attrs.inner_size, Size::Physical(expected));
+        assert_eq!(attrs.inner_size, Some(Size::Physical(expected)));
     }
 
     #[test]
@@ -300,6 +300,6 @@ mod tests {
         let attrs = attributes(&WindowDesc::default());
 
         assert_eq!(attrs.title, "UHE ENGINE");
-        assert_eq!(attrs.inner_size, Size::Physical(expected));
+        assert_eq!(attrs.inner_size, Some(Size::Physical(expected)));
     }
 }

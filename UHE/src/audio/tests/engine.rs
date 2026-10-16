@@ -61,7 +61,10 @@ fn panning_is_hard_left_hard_right_and_centred_in_front() {
     assert_eq!(pan(&listener, Vec3::new(3.0, 0.0, 0.0)), 1.0);
     assert_eq!(pan(&listener, Vec3::new(0.0, 0.0, -3.0)), 0.0);
     // A listener with no forward vector has no left or right to place a source on.
-    assert_eq!(pan(&Listener::new(Vec3::ZERO, Vec3::ZERO, Vec3::Y), Vec3::X), 0.0);
+    assert_eq!(
+        pan(&Listener::new(Vec3::ZERO, Vec3::ZERO, Vec3::Y), Vec3::X),
+        0.0
+    );
 
     // Hard left still reaches the right speaker: miniaudio's floor, because panning
     // that silenced a speaker outright "doesn't even remotely represent the real world".
@@ -73,8 +76,12 @@ fn panning_is_hard_left_hard_right_and_centred_in_front() {
 fn a_voice_pool_refuses_more_than_its_capacity_and_frees_the_oldest() {
     let mut pool = VoicePool::new(2);
     let spec = VoiceSpec::default();
-    let first = pool.spawn(None, SoundId::new(1), spec).expect("room for one");
-    let second = pool.spawn(None, SoundId::new(2), spec).expect("room for two");
+    let first = pool
+        .spawn(None, SoundId::new(1), spec)
+        .expect("room for one");
+    let second = pool
+        .spawn(None, SoundId::new(2), spec)
+        .expect("room for two");
     assert_eq!(pool.len(), 2);
     assert_eq!(pool.capacity(), 2);
 
@@ -162,7 +169,7 @@ fn the_default_device_opens_and_the_engine_reports_it() {
 #[test]
 #[ignore = "needs an audio output device"]
 fn the_plugin_installs_the_audio_backend() {
-    use adam::{AudioBackend, Engine, Plugin};
+    use adam::{Engine, Plugin};
 
     let mut eng = Engine::new();
     let mut plugin = wire::WirePlugin::new();

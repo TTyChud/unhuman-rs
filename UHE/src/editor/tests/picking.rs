@@ -47,15 +47,17 @@ fn triangle_assets(name: &str) -> (Assets, PathBuf) {
 /// A second copy on disk, so it gets its own registry slot.
 fn second_mesh(assets: &mut Assets, root: &Path) -> AssetId {
     std::fs::write(root.join("other.gltf"), TRIANGLE_GLTF).expect("gltf");
-    assets.load("other.gltf").expect("the second triangle loads")
+    assets
+        .load("other.gltf")
+        .expect("the second triangle loads")
 }
 
 fn view() -> Mat4 {
-    Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y)
+    glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y)
 }
 
 fn projection() -> Mat4 {
-    Mat4::perspective_rh(60f32.to_radians(), 800.0 / 600.0, 0.1, 100.0)
+    glam::camera::rh::proj::directx::perspective(60f32.to_radians(), 800.0 / 600.0, 0.1, 100.0)
 }
 
 fn view_projection() -> Mat4 {
@@ -123,7 +125,9 @@ fn a_ray_at_a_known_entity_hits_it() {
     let (mut assets, _) = triangle_assets("hit");
     let mesh = assets.load("tri.gltf").expect("the triangle loads");
     assert!(
-        assets.mesh(mesh).is_some_and(|data| !data.positions.is_empty()),
+        assets
+            .mesh(mesh)
+            .is_some_and(|data| !data.positions.is_empty()),
         "the loader produced no geometry"
     );
 

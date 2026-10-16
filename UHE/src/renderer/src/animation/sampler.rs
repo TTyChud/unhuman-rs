@@ -22,7 +22,11 @@ pub fn hermite_vec3(
     time: f32,
 ) -> Vec3 {
     let span = b.time - a.time;
-    let t = if span > 0.0 { (time - a.time) / span } else { 0.0 };
+    let t = if span > 0.0 {
+        (time - a.time) / span
+    } else {
+        0.0
+    };
     let t2 = t * t;
     let t3 = t2 * t;
     let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
@@ -41,14 +45,19 @@ pub fn hermite_quat(
     time: f32,
 ) -> Quat {
     let span = b.time - a.time;
-    let t = if span > 0.0 { (time - a.time) / span } else { 0.0 };
+    let t = if span > 0.0 {
+        (time - a.time) / span
+    } else {
+        0.0
+    };
     let t2 = t * t;
     let t3 = t2 * t;
     let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
     let h10 = t3 - 2.0 * t2 + t;
     let h01 = -2.0 * t3 + 3.0 * t2;
     let h11 = t3 - t2;
-    (a.value * h00 + out_tangent * (h10 * span) + b.value * h01 + in_tangent * (h11 * span)).normalize()
+    (a.value * h00 + out_tangent * (h10 * span) + b.value * h01 + in_tangent * (h11 * span))
+        .normalize()
 }
 
 pub fn sample_position(time: f32, track: &VectorTrack) -> Vec3 {
@@ -315,7 +324,15 @@ pub(crate) fn calculate_bone_transform(
 
     if let Some(kids) = children.get(bone_id_usize) {
         for &child in kids {
-            calculate_bone_transform(skeleton, children, pose, root_motion, child, global, globals);
+            calculate_bone_transform(
+                skeleton,
+                children,
+                pose,
+                root_motion,
+                child,
+                global,
+                globals,
+            );
         }
     }
 }
@@ -401,10 +418,7 @@ mod tests {
     fn linear_keys_hit_exactly_at_the_key_and_halve_between() {
         let track = vector_track(Interpolation::Linear);
         assert_eq!(sample_position(0.0, &track), Vec3::ZERO);
-        assert_eq!(
-            sample_position(1.0, &track),
-            Vec3::new(2.0, 0.0, 0.0)
-        );
+        assert_eq!(sample_position(1.0, &track), Vec3::new(2.0, 0.0, 0.0));
         assert_eq!(sample_position(0.5, &track), Vec3::new(1.0, 0.0, 0.0));
     }
 
@@ -412,20 +426,14 @@ mod tests {
     fn sampling_clamps_outside_the_key_range() {
         let track = vector_track(Interpolation::Linear);
         assert_eq!(sample_position(-5.0, &track), Vec3::ZERO);
-        assert_eq!(
-            sample_position(9.0, &track),
-            Vec3::new(2.0, 0.0, 0.0)
-        );
+        assert_eq!(sample_position(9.0, &track), Vec3::new(2.0, 0.0, 0.0));
     }
 
     #[test]
     fn step_tracks_hold_the_previous_key() {
         let track = vector_track(Interpolation::Step);
         assert_eq!(sample_position(0.99, &track), Vec3::ZERO);
-        assert_eq!(
-            sample_position(1.0, &track),
-            Vec3::new(2.0, 0.0, 0.0)
-        );
+        assert_eq!(sample_position(1.0, &track), Vec3::new(2.0, 0.0, 0.0));
     }
 
     #[test]
@@ -453,13 +461,17 @@ mod tests {
     #[test]
     fn parented_bones_accumulate_the_parent_transform() {
         let mut skeleton = Skeleton::new();
-        let mut root = Bone::default();
-        root.id = 0;
-        root.local_transform = Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
-        let mut child = Bone::default();
-        child.id = 1;
-        child.parent_id = 0;
-        child.local_transform = Mat4::from_translation(Vec3::new(0.0, 2.0, 0.0));
+        let root = Bone {
+            id: 0,
+            local_transform: Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+            ..Default::default()
+        };
+        let child = Bone {
+            id: 1,
+            parent_id: 0,
+            local_transform: Mat4::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+            ..Default::default()
+        };
         skeleton.bones.push(root);
         skeleton.bones.push(child);
 

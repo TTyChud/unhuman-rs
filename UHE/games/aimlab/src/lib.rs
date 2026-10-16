@@ -19,7 +19,7 @@
 mod rules;
 mod scene;
 
-use adam::{AudioBackend, Engine, FrameCtx, Plugin, Result};
+use adam::{Engine, FrameCtx, Plugin, Result};
 use glam::Vec3;
 use meats::{Entity, Scene};
 use pings::MouseButton;
@@ -113,7 +113,7 @@ impl AimLabPlugin {
         for target in &self.targets {
             let center = scene::translation(scene, target.entity);
             if let Some(distance) = ray_sphere(origin, direction, center, TARGET_RADIUS) {
-                if nearest.map_or(true, |(best, _)| distance < best) {
+                if nearest.is_none_or(|(best, _)| distance < best) {
                     nearest = Some((distance, target.entity));
                 }
             }
@@ -147,7 +147,11 @@ impl AimLabPlugin {
         }
         self.yaw -= dx * MOUSE_SENSITIVITY;
         self.pitch = (self.pitch + dy * MOUSE_SENSITIVITY).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-        scene::aim(&mut eng.scene, self.yaw.to_degrees(), self.pitch.to_degrees());
+        scene::aim(
+            &mut eng.scene,
+            self.yaw.to_degrees(),
+            self.pitch.to_degrees(),
+        );
     }
 
     /// One shot per press, the C++ layer's `mouseDown && !m_MouseWasPressed`.
@@ -222,7 +226,11 @@ impl Plugin for AimLabPlugin {
         for index in 0..TARGET_COUNT {
             self.spawn_target(eng, TARGET_LIFETIME + index as f32 * SPAWN_INTERVAL);
         }
-        self.spawn_timer = SPAWN_INTERVAL;
+        // The first slot frees when target 0 expires, so the first spawn attempt
+        // belongs on that same tick. Counting from `TARGET_LIFETIME` rather than
+        // `SPAWN_INTERVAL` keeps the two countdowns on one `dt` sequence instead
+        // of two that drift apart, which is what made the cadence non-deterministic.
+        self.spawn_timer = TARGET_LIFETIME;
         self.built = true;
 
         // A `MeshRenderer` with a path and no handle is invisible to

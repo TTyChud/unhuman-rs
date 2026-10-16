@@ -183,12 +183,7 @@ fn measure_track<T: TrackValue>(
 }
 
 fn bytes_of<T>(keys: usize, spline: bool) -> usize {
-    keys * (size_of::<f32>() + size_of::<T>())
-        + if spline {
-            2 * keys * size_of::<T>()
-        } else {
-            0
-        }
+    keys * (size_of::<f32>() + size_of::<T>()) + if spline { 2 * keys * size_of::<T>() } else { 0 }
 }
 
 fn process_track<T: TrackValue>(
@@ -260,12 +255,8 @@ fn keep_mask<T: TrackValue>(
         return (0..times.len()).collect();
     }
 
-    let tangent_in = |index: usize| -> T {
-        in_tangents.get(index).copied().unwrap_or(T::ZERO)
-    };
-    let tangent_out = |index: usize| -> T {
-        out_tangents.get(index).copied().unwrap_or(T::ZERO)
-    };
+    let tangent_in = |index: usize| -> T { in_tangents.get(index).copied().unwrap_or(T::ZERO) };
+    let tangent_out = |index: usize| -> T { out_tangents.get(index).copied().unwrap_or(T::ZERO) };
 
     keep.push(0);
     let mut last_kept = 0usize;

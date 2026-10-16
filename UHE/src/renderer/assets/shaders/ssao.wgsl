@@ -46,7 +46,8 @@ fn reconstruct(uv: vec2<f32>, depth: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let depth = textureSampleLevel(depth_texture, depth_sampler, in.uv, 0.0);
+    // A depth texture samples with an integer level, unlike a colour one.
+    let depth = textureSampleLevel(depth_texture, depth_sampler, in.uv, 0);
     let origin = reconstruct(in.uv, depth);
 
     // The occlusion fraction: how many samples land behind what the depth buffer
@@ -63,7 +64,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Outside the viewport there is no depth to compare against, so the
         // sample counts as unoccluded rather than as fully occluded.
         if (sample_uv.x > 0.0 && sample_uv.x < 1.0 && sample_uv.y > 0.0 && sample_uv.y < 1.0) {
-            let stored = textureSampleLevel(depth_texture, depth_sampler, sample_uv, 0.0);
+            let stored = textureSampleLevel(depth_texture, depth_sampler, sample_uv, 0);
             let reference = projected.z / projected.w - ssao.params.y;
             if (stored < reference) {
                 occluded = occluded + 1.0;

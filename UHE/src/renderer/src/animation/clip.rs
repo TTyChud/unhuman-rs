@@ -398,7 +398,8 @@ mod tests {
     #[test]
     fn track_lookup_reuses_the_existing_track() {
         let mut clip = Clip::new("walk");
-        clip.position_track_mut(3).set_keys(&[0.0, 1.0], &[Vec3::ZERO, Vec3::X]);
+        clip.position_track_mut(3)
+            .set_keys(&[0.0, 1.0], &[Vec3::ZERO, Vec3::X]);
         clip.position_track_mut(3)
             .set_spline_keys(&[0.0, 1.0], &[Vec3::ZERO; 6]);
         assert_eq!(clip.position_tracks.len(), 1);
@@ -408,8 +409,10 @@ mod tests {
     #[test]
     fn duration_is_the_last_key_across_tracks() {
         let mut clip = Clip::new("run");
-        clip.position_track_mut(0).set_keys(&[0.0, 2.0], &[Vec3::ZERO; 2]);
-        clip.rotation_track_mut(0).set_keys(&[0.0, 5.0], &[Quat::IDENTITY; 2]);
+        clip.position_track_mut(0)
+            .set_keys(&[0.0, 2.0], &[Vec3::ZERO; 2]);
+        clip.rotation_track_mut(0)
+            .set_keys(&[0.0, 5.0], &[Quat::IDENTITY; 2]);
         assert_eq!(clip.update_duration(), 5.0);
         assert_eq!(clip.duration, 5.0);
     }
@@ -418,8 +421,12 @@ mod tests {
     fn spline_keys_land_in_value_and_tangent_slots() {
         let mut track = VectorTrack::new(0);
         let values = [
-            Vec3::X, Vec3::Y, Vec3::Z, // key 0: in, value, out
-            Vec3::ZERO, Vec3::ONE, Vec3::ZERO,
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z, // key 0: in, value, out
+            Vec3::ZERO,
+            Vec3::ONE,
+            Vec3::ZERO,
         ];
         track.set_spline_keys(&[0.0, 1.0], &values);
         assert_eq!(track.in_tangents[0], Vec3::X);
@@ -431,7 +438,7 @@ mod tests {
 
     #[test]
     fn a_pose_resize_resets_to_identity() {
-        let mut pose = Pose::new(2);
+        let pose = Pose::new(2);
         assert_eq!(pose.bones.len(), 2);
         assert_eq!(pose.bones[0].scale, Vec3::ONE);
         assert_eq!(pose.bones[0].rotation, Quat::IDENTITY);

@@ -75,7 +75,11 @@ impl GridPass {
         Self { pipeline, group }
     }
 
-    pub fn record(&self, _scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        _scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         list.bind_pipeline(&self.pipeline);
         list.bind_group(GRID_SET, &self.group);
         list.draw(6, 1);
@@ -114,7 +118,11 @@ impl LinePass {
         }
     }
 
-    pub fn record(&self, _scope: &PassScope<'_>, list: &mut dyn CommandList) -> Result<(), chassis::Error> {
+    pub fn record(
+        &self,
+        _scope: &PassScope<'_>,
+        list: &mut dyn CommandList,
+    ) -> Result<(), chassis::Error> {
         if self.batch.is_empty() {
             return Ok(());
         }

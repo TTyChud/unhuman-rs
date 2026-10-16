@@ -1,16 +1,16 @@
+//! The substitutable backends the engine owns as trait objects.
+//!
+//! The traits live here, in `adam`, and not in `femur` or `wire`, for the same
+//! reason `chassis::Gpu` lives in the RHI: the engine names an interface and a
+//! plugin supplies one implementation, so `adam` has no dependency on rapier or
+//! rodio and a build with no physics still compiles.
+//!
+//! `Send` because a backend is owned by a plugin, and plugins are `Send` — the
+//! engine may be moved between threads, and a backend that quietly cannot be is
+//! a crash waiting for the first person who does it.
+
 use glam::Vec3;
 use meats::Scene;
-
-/// The substitutable backends the engine owns as trait objects.
-///
-/// The traits live here, in `adam`, and not in `femur` or `wire`, for the same
-/// reason `chassis::Gpu` lives in the RHI: the engine names an interface and a
-/// plugin supplies one implementation, so `adam` has no dependency on rapier or
-/// rodio and a build with no physics still compiles.
-///
-/// `Send` because a backend is owned by a plugin, and plugins are `Send` — the
-/// engine may be moved between threads, and a backend that quietly cannot be is
-/// a crash waiting for the first person who does it.
 
 /// A handle to a playing sound.
 pub type VoiceId = u64;
@@ -74,12 +74,7 @@ pub trait AudioBackend: Send {
     /// reads — is the second-owner pattern the spine exists to remove.
     fn update(&mut self, scene: &Scene, assets: &vault::Assets, dt: f32);
 
-    fn play(
-        &mut self,
-        assets: &vault::Assets,
-        clip: vault::AssetId,
-        gain: f32,
-    ) -> Option<VoiceId>;
+    fn play(&mut self, assets: &vault::Assets, clip: vault::AssetId, gain: f32) -> Option<VoiceId>;
     fn stop(&mut self, voice: VoiceId);
 
     fn active_voices(&self) -> usize;

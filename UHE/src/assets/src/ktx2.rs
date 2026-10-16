@@ -79,8 +79,7 @@ pub fn load_ktx2(data: &[u8]) -> Result<Ktx2Image> {
     }
 
     let header = |offset: usize| {
-        le_u32(data, offset)
-            .ok_or_else(|| Error::Decode("KTX2 header is truncated".to_owned()))
+        le_u32(data, offset).ok_or_else(|| Error::Decode("KTX2 header is truncated".to_owned()))
     };
 
     let vk_format = header(12)?;
@@ -102,13 +101,11 @@ pub fn load_ktx2(data: &[u8]) -> Result<Ktx2Image> {
                     .to_owned(),
             ))
         }
-        SS_ZSTANDARD => {
-            return Err(Error::Unsupported(
-                "KTX2 supercompression Zstandard: UASTC/Basis levels ship this way, and this crate \
+        SS_ZSTANDARD => return Err(Error::Unsupported(
+            "KTX2 supercompression Zstandard: UASTC/Basis levels ship this way, and this crate \
                  has no zstd inflater"
-                    .to_owned(),
-            ))
-        }
+                .to_owned(),
+        )),
         SS_ZLIB => {
             return Err(Error::Unsupported(
                 "KTX2 supercompression ZLIB: this crate has no inflater".to_owned(),
@@ -144,7 +141,9 @@ pub fn load_ktx2(data: &[u8]) -> Result<Ktx2Image> {
         )));
     }
     if width == 0 || height == 0 {
-        return Err(Error::Decode(format!("KTX2 with zero extent ({width}x{height})")));
+        return Err(Error::Decode(format!(
+            "KTX2 with zero extent ({width}x{height})"
+        )));
     }
     if level_count > MAX_LEVELS {
         return Err(Error::Decode(format!(
@@ -275,12 +274,12 @@ impl Format {
         match self {
             Format::Rgba8 { .. } => out.extend_from_slice(&bytes[..texels * 4]),
             Format::Bgra8 { .. } => {
-                for texel in bytes[..texels * 4].chunks_exact(4) {
+                for texel in bytes[..texels * 4].as_chunks::<4>().0 {
                     out.extend_from_slice(&[texel[2], texel[1], texel[0], texel[3]]);
                 }
             }
             Format::Rgb8 { .. } => {
-                for texel in bytes[..texels * 3].chunks_exact(3) {
+                for texel in bytes[..texels * 3].as_chunks::<3>().0 {
                     out.extend_from_slice(&[texel[0], texel[1], texel[2], 255]);
                 }
             }
@@ -315,17 +314,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&IDENTIFIER);
-        for value in [
-            vk_format,
-            1,
-            width,
-            height,
-            0,
-            0,
-            1,
-            1,
-            supercompression,
-        ] {
+        for value in [vk_format, 1, width, height, 0, 0, 1, 1, supercompression] {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
         // dfd/kvd/sgd offsets and lengths, all empty.
@@ -353,10 +342,16 @@ mod tests {
     #[test]
     fn bgra_is_swizzled_and_rgb_expands() {
         let bgra = container(VK_FORMAT_B8G8R8A8_UNORM, SS_NONE, 1, 1, &[1, 2, 3, 4]);
-        assert_eq!(load_ktx2(&bgra).expect("bgra decodes").rgba8, vec![3, 2, 1, 4]);
+        assert_eq!(
+            load_ktx2(&bgra).expect("bgra decodes").rgba8,
+            vec![3, 2, 1, 4]
+        );
 
         let rgb = container(VK_FORMAT_R8G8B8_UNORM, SS_NONE, 1, 1, &[9, 8, 7]);
-        assert_eq!(load_ktx2(&rgb).expect("rgb decodes").rgba8, vec![9, 8, 7, 255]);
+        assert_eq!(
+            load_ktx2(&rgb).expect("rgb decodes").rgba8,
+            vec![9, 8, 7, 255]
+        );
     }
 
     #[test]
@@ -371,7 +366,10 @@ mod tests {
         let message = load_ktx2(&uastc)
             .expect_err("UASTC over zstd is refused")
             .to_string();
-        assert!(message.contains("Zstandard") && message.contains("UASTC"), "{message}");
+        assert!(
+            message.contains("Zstandard") && message.contains("UASTC"),
+            "{message}"
+        );
 
         let undefined = container(VK_FORMAT_UNDEFINED, SS_NONE, 4, 4, &[0, 0, 0, 0]);
         let message = load_ktx2(&undefined)
@@ -388,7 +386,10 @@ mod tests {
 
         let mut layers = container(VK_FORMAT_R8G8B8A8_UNORM, SS_NONE, 1, 1, &[0, 0, 0, 0]);
         layers[32..36].copy_from_slice(&4u32.to_le_bytes());
-        assert!(load_ktx2(&layers).unwrap_err().to_string().contains("layers"));
+        assert!(load_ktx2(&layers)
+            .unwrap_err()
+            .to_string()
+            .contains("layers"));
 
         let mut depth = container(VK_FORMAT_R8G8B8A8_UNORM, SS_NONE, 1, 1, &[0, 0, 0, 0]);
         depth[28..32].copy_from_slice(&8u32.to_le_bytes());

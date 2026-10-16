@@ -134,9 +134,7 @@ impl AudioEngine {
     /// Start an already-registered clip. `None` when the device refused it or the
     /// pool had no room.
     pub fn play_sound(&mut self, sound: SoundId, spec: VoiceSpec) -> Option<VoiceId> {
-        if self.device.is_none() {
-            return None;
-        }
+        self.device.as_ref()?;
         let id = self.pool.spawn(None, sound, spec)?;
         if self.start_player(id) {
             Some(id)

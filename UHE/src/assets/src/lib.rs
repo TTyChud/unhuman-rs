@@ -38,6 +38,7 @@ pub use image::{
 pub use ktx2::{is_ktx2, load_ktx2, Ktx2Image};
 pub use mesh::{
     AlphaMode, AnimationData, BoneData, Filter, Interpolation, MaterialData, MeshData, ModelData,
-    ModelNode, QuaternionTrack, SamplerData, SkinData, SkeletonData, TextureData, VectorTrack, Wrap,
+    ModelNode, QuaternionTrack, SamplerData, SkeletonData, SkinData, TextureData, VectorTrack,
+    Wrap,
 };
 pub use vfs::Vfs;
