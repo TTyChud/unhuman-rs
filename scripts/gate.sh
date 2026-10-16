@@ -48,17 +48,17 @@ if [[ "$no_vulkan" == 1 ]]; then
   step "tests (no Vulkan: pure logic only)"
   # Still runs the suites that do not need a device: the job system, handles,
   # the render graph, the shader cache. Those are most of the workspace.
-  cargo test -p grind -p chassis -p adam -p forge "${THREADS[@]}"
+  cargo test -p grind -p chassis -p adam -p forge -- "${THREADS[@]}"
   step "skipped: stormbreaker (needs a Vulkan driver)"
 else
   step "tests with validation"
   export UHE_VALIDATION=1
-  cargo test --workspace "${THREADS[@]}"
+  cargo test --workspace -- "${THREADS[@]}"
 
   step "validation errors must be zero"
   # Re-run capturing output: a pipeline's exit status does not carry this, and a
   # validation error is printed by the layer rather than returned by cargo.
-  count=$(cargo test --workspace "${THREADS[@]}" 2>&1 | grep -c "Validation Error" || true)
+  count=$(cargo test --workspace -- "${THREADS[@]}" 2>&1 | grep -c "Validation Error" || true)
   if [[ "$count" != "0" ]]; then
     echo "FAIL: $count validation error(s)." >&2
     echo "These are almost always real. Run locally for the full message:" >&2
