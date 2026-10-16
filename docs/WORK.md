@@ -67,12 +67,16 @@ Six jobs:
   bugs survived here for the length of the project.
 - **shaders** — regenerates the checked-in SPIR-V and fails if it differs from
   the `.slang` source. A shader edit that forgets to regenerate leaves the suite
-  testing the old bytes and still green. It needs the C++ tree's vendored
-  `slangc`; where that compiler is not built, the step says so and skips rather
-  than passing silently.
+  testing the old bytes and still green.
 - **windows** — build, release, clippy, fmt and the driver-free suites, on
   Windows. It runs what the platform can and says what it cannot: a GitHub
   Windows runner has no Vulkan driver.
+
+`vulkan` and `shaders` download a pinned Slang (2026.11, the version the C++
+tree vendored) and point `SLANGC` at it. The shader-dependent backend tests
+compile `.slang` at run time and panic rather than skip when there is no
+compiler, so a job that cannot find one fails loudly instead of going green
+having tested nothing.
 
 Never push. Commit only; the owner pushes.
 

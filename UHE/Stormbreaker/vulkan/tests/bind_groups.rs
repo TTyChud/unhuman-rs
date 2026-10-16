@@ -200,10 +200,15 @@ fn an_offset_at_or_past_the_end_is_refused() {
     );
 
     // Aligned, inside the buffer, and leaving a range that is itself a multiple
-    // of the alignment: 252 + 4 == 256.
+    // of the alignment. The offset comes from the device rather than a literal:
+    // `minUniformBufferOffsetAlignment` is 4 on some drivers and 64 on others,
+    // and 252 is a multiple of only the first, so a hard-coded offset is a test
+    // that passes or fails by machine.
+    let alignment = context.capabilities.min_uniform_buffer_offset_alignment;
+    let offset = 256 - alignment.min(256);
     assert!(
         resources
-            .create_bind_group(&uniform_layout(0), &[(0, buffer, 252)], &[], &[])
+            .create_bind_group(&uniform_layout(0), &[(0, buffer, offset)], &[], &[])
             .is_ok(),
         "an aligned offset with an aligned range is the ordinary case",
     );

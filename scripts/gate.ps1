@@ -14,7 +14,7 @@
     job is what covers the backend.
 
 .EXAMPLE
-    .\scripts\gate.ps1 --no-vulkan
+    .\scripts\gate.ps1 -NoVulkan
 #>
 [CmdletBinding()]
 param(

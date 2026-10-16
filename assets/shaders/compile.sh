@@ -5,8 +5,10 @@
 # needed to run the suite, and a shader compiler bug cannot turn into a backend
 # bug. This script is how they are rebuilt.
 #
-# slangc is the one already built and vendored in the C++ tree, so there is no
-# second compiler in the project and nothing new to keep patched.
+# Use the same Slang the C++ tree vendored (2026.11). CI downloads that release
+# and points `SLANGC` at it; a local C++ checkout has it at
+# `UHE/vendor/bin/linux/slang/bin/slangc`. One version, so there is no second
+# compiler in the project to keep patched.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
